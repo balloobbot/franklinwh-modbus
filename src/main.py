@@ -118,8 +118,8 @@ class FranklinWHApplication:
                 timeout=config.modbus.timeout,
             )
 
-        # Add primary device to Connection Manager
-        # We construct a temporary config for it to ensure it's registered
+        # Add primary device to Connection Manager and Config
+        # This ensures the device persists and is recognized by the topology
         primary_device_config = DeviceConfig(
             id="default",
             name="Primary aGate",
@@ -130,14 +130,12 @@ class FranklinWHApplication:
             timeout=config.modbus.timeout,
             enabled=True
         )
-        # Manually inject the client we just created (especially important for Mock)
-        # Actually ConnectionManager creates clients from config usually.
-        # But we want to inject OUR client instance if it's Mock.
         
-        # For now, let's just use connection_manager to manage it.
-        # But for Mock mode, connection_manager creates normal clients unless we modify it.
-        # FIX: Just use the connection manager to hold this client.
+        # Add to config so it's persisted and visible in topology
+        config_manager.add_device(primary_device_config)
+        await config_manager.save()
         
+        # Add to connection manager
         self.connection_manager._clients["default"] = primary_client
         
         # Try to connect (primary)
