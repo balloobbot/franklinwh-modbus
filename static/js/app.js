@@ -15,6 +15,7 @@ function franklinWHApp() {
         readingRaw: false,
         lastUpdate: null,
         nextRefresh: 0,
+        backendConnected: null,  // null = unknown, true = connected, false = disconnected
 
         // Data
         data: {
@@ -229,6 +230,7 @@ function franklinWHApp() {
             this.applyTheme();
             this.checkMode();  // Check if running in mock or live mode
             this.startAutoRefresh();
+            this.startBackendConnectionCheck();  // Monitor backend connection
             this.addLog('Application initialized', 'info');
 
             // Check system preference for dark mode
@@ -244,6 +246,41 @@ function franklinWHApp() {
             });
         },
 
+        // Backend connection monitoring
+        startBackendConnectionCheck() {
+            // Check immediately
+            this.checkBackendConnection();
+            // Then check every 5 seconds
+            setInterval(() => this.checkBackendConnection(), 5000);
+        },
+
+        async checkBackendConnection() {
+            try {
+                const response = await fetch('/api/health', { 
+                    method: 'GET',
+                    // Short timeout to quickly detect disconnections
+                    signal: AbortSignal.timeout(3000)
+                });
+                if (response.ok) {
+                    const wasDisconnected = this.backendConnected === false;
+                    this.backendConnected = true;
+                    // Log reconnection
+                    if (wasDisconnected) {
+                        this.addLog('Reconnected to backend server', 'success');
+                    }
+                } else {
+                    this.backendConnected = false;
+                }
+            } catch (error) {
+                const wasConnected = this.backendConnected === true;
+                this.backendConnected = false;
+                // Log disconnection once
+                if (wasConnected) {
+                    this.addLog('Lost connection to backend server', 'error');
+                }
+            }
+        },
+
         async checkMode() {
             try {
                 const response = await fetch('/api/health');
@@ -251,6 +288,7 @@ function franklinWHApp() {
                     const data = await response.json();
                     this.mockMode = data.mock_mode === true;
                     this.connected = data.modbus_connected === true;
+                    this.backendConnected = true;  // Mark backend as connected
                     if (this.mockMode) {
                         this.addLog('Running in MOCK MODE', 'warning');
                     } else {
