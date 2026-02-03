@@ -17,6 +17,17 @@ function franklinWHApp() {
         nextRefresh: 0,
         backendConnected: null,  // null = unknown, true = connected, false = disconnected
 
+        // Control Modal State
+        controlModal: {
+            show: false,
+            title: '',
+            currentValue: '',
+            newValue: '',
+            action: null,  // Function to execute
+            status: 'idle',  // idle, writing, verifying, success, error
+            errorMsg: ''
+        },
+
         // Data
         data: {
             battery: {
@@ -602,44 +613,106 @@ function franklinWHApp() {
         },
 
         // Control actions
-        async setOperatingMode(mode) {
-            this.settingMode = true;
-            try {
-                // await fetch('/api/mode', { method: 'POST', body: JSON.stringify({ mode }) });
-                await new Promise(r => setTimeout(r, 500)); // Simulate
-
-                const modeNames = ['Standby', 'Normal', 'Backup Reserve', 'Self-Consumption', 'Time-of-Use'];
-                this.data.extensions.operatingMode = mode;
-                this.data.extensions.modeText = modeNames[mode];
-                this.addToast(`Mode changed to ${modeNames[mode]}`, 'success');
-            } catch (e) {
-                this.addToast('Failed to change mode', 'error');
-            }
-            this.settingMode = false;
+        // Control functions with confirmation modal
+        setOperatingMode(mode) {
+            const modeNames = ['Standby', 'Normal', 'Backup Reserve', 'Self-Consumption', 'Time-of-Use'];
+            const currentMode = this.data.extensions?.operatingMode || 0;
+            
+            this.controlModal = {
+                show: true,
+                title: 'Change Operating Mode',
+                currentValue: modeNames[currentMode] || 'Unknown',
+                newValue: modeNames[mode],
+                status: 'idle',
+                errorMsg: '',
+                action: async () => {
+                    // Actually execute the mode change
+                    const response = await fetch('/api/mode', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode }) 
+                    });
+                    if (!response.ok) throw new Error('Failed to write mode');
+                    
+                    // Wait 2 seconds then verify
+                    await new Promise(r => setTimeout(r, 2000));
+                    await this.refreshData();
+                    
+                    // Verify the change took effect
+                    if (this.data.extensions?.operatingMode !== mode) {
+                        throw new Error('Mode change not verified - aGate may be in LOCAL mode');
+                    }
+                }
+            };
         },
 
-        async setReserveSoc(value) {
-            this.settingReserve = true;
-            try {
-                await new Promise(r => setTimeout(r, 500));
-                this.data.extensions.reserveSoc = value;
-                this.addToast(`Reserve SOC set to ${value}%`, 'success');
-            } catch (e) {
-                this.addToast('Failed to set reserve', 'error');
-            }
-            this.settingReserve = false;
+        setReserveSoc(value) {
+            const currentValue = this.data.extensions?.reserveSocSelfConsumption || 0;
+            
+            this.controlModal = {
+                show: true,
+                title: 'Set Reserve SOC',
+                currentValue: `${currentValue}%`,
+                newValue: `${value}%`,
+                status: 'idle',
+                errorMsg: '',
+                action: async () => {
+                    const response = await fetch('/api/reserve', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ value, type: 'self_consumption' }) 
+                    });
+                    if (!response.ok) throw new Error('Failed to write reserve SOC');
+                    
+                    await new Promise(r => setTimeout(r, 2000));
+                    await this.refreshData();
+                    
+                    if (this.data.extensions?.reserveSocSelfConsumption !== value) {
+                        throw new Error('Reserve SOC change not verified');
+                    }
+                }
+            };
         },
 
-        async setReserveSoc2(value) {
-            this.settingReserve2 = true;
+        setReserveSoc2(value) {
+            const currentValue = this.data.extensions?.reserveSocTou || 0;
+            
+            this.controlModal = {
+                show: true,
+                title: 'Set Reserve SOC 2',
+                currentValue: `${currentValue}%`,
+                newValue: `${value}%`,
+                status: 'idle',
+                errorMsg: '',
+                action: async () => {
+                    const response = await fetch('/api/reserve', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ value, type: 'tou' }) 
+                    });
+                    if (!response.ok) throw new Error('Failed to write reserve SOC 2');
+                    
+                    await new Promise(r => setTimeout(r, 2000));
+                    await this.refreshData();
+                    
+                    if (this.data.extensions?.reserveSocTou !== value) {
+                        throw new Error('Reserve SOC 2 change not verified');
+                    }
+                }
+            };
+        },
+
+        async executeControlAction() {
+            this.controlModal.status = 'writing';
             try {
-                await new Promise(r => setTimeout(r, 500));
-                this.data.extensions.reserveSoc2 = value;
-                this.addToast(`Reserve SOC 2 set to ${value}%`, 'success');
+                await this.controlModal.action();
+                this.controlModal.status = 'success';
+                this.addLog(this.controlModal.title + ' completed', 'success');
             } catch (e) {
-                this.addToast('Failed to set reserve 2', 'error');
+                this.controlModal.status = 'error';
+                this.controlModal.errorMsg = e.message || 'Unknown error';
+                this.addLog(this.controlModal.title + ' failed: ' + e.message, 'error');
             }
-            this.settingReserve2 = false;
         },
 
         async setPowerLimits() {
