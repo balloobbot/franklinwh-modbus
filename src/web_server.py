@@ -59,10 +59,14 @@ class MQTTConfigRequest(BaseModel):
     client_id: Optional[str] = "franklinwh_bridge"
     enabled: Optional[bool] = False
     
+    # Site configuration
+    site_name: Optional[str] = "Home"
+    site_id: Optional[str] = "default"
+    
     # HA Discovery settings
     discovery_prefix: Optional[str] = "homeassistant"
     state_prefix: Optional[str] = "franklinwh"
-    ha_device_name: Optional[str] = "FranklinWH Battery"
+    ha_device_name: Optional[str] = ""  # Empty = use SunSpec Model
     unique_id_prefix: Optional[str] = "franklinwh"
     
     # Entity selection
@@ -570,6 +574,9 @@ def create_app(
                 "has_password": bool(config.mqtt.password),
                 "client_id": config.mqtt.client_id,
                 "enabled": config.mqtt.enabled,
+                # Site configuration
+                "site_name": config.mqtt.site_name,
+                "site_id": config.mqtt.site_id,
                 # HA Discovery settings
                 "discovery_prefix": config.mqtt.discovery_prefix,
                 "state_prefix": config.mqtt.state_prefix,
@@ -613,6 +620,7 @@ def create_app(
             if request.mqtt:
                 mqtt_fields = [
                     'host', 'port', 'username', 'password', 'client_id',
+                    'site_name', 'site_id',
                     'discovery_prefix', 'state_prefix', 'ha_device_name', 'unique_id_prefix',
                     'publish_battery', 'publish_inverter', 'publish_solar', 
                     'publish_home_loads', 'publish_capacity', 'publish_controls',

@@ -90,12 +90,16 @@ class MQTTConfig:
     client_id: str = "franklinwh_bridge"
     enabled: bool = False
     
+    # Site Configuration (for multi-aGate installations)
+    site_name: str = "Home"  # Site name for grouping devices
+    site_id: str = "default"  # Unique site identifier
+    
     # Home Assistant Discovery settings
     discovery_prefix: str = "homeassistant"  # HA discovery topic prefix
     state_prefix: str = "franklinwh"  # State topic prefix
     
     # Device naming in HA
-    ha_device_name: str = "FranklinWH Battery"  # Display name in HA
+    ha_device_name: str = ""  # Override display name (empty = use Model)
     unique_id_prefix: str = "franklinwh"  # Prefix for unique_ids
     
     # Entity selection - which entities to publish
