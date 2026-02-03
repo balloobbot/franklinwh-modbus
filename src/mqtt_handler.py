@@ -413,13 +413,14 @@ class HomeAssistantMQTTBridge:
             serial = self._device_info.serial_number if self._device_info.serial_number else "unknown"
             version = self._device_info.version if self._device_info.version else ""
             
-            # Build display name: custom name or "{Model} {SerialShort}"
+            # Build display name: custom name or "FranklinWH {Model} {SerialShort}"
+            # Prefix with FranklinWH for better grouping in HA device list
             if ha_device_name:
                 display_name = ha_device_name
             else:
                 # Use last 4 chars of serial for display
                 short_serial = serial[-4:] if len(serial) >= 4 else serial
-                display_name = f"{model} {short_serial}"
+                display_name = f"FranklinWH {model} {short_serial}"
             
             # Device identifier includes serial for true uniqueness
             return {
@@ -429,6 +430,7 @@ class HomeAssistantMQTTBridge:
                 "model": model,
                 "sw_version": version,
                 "hw_version": "",  # Not available from SunSpec Model 1
+                "serial_number": serial,  # HA will show this in Device Info
             }
         
         # Fallback when no device info available
