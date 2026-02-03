@@ -130,10 +130,86 @@
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-1">Device Name Override</label>
-                        <input type="text" x-model="config.ha_device_name" placeholder="Leave empty to use Model from aGate"
+                        <label class="block text-sm font-medium mb-1">Site Description</label>
+                        <input type="text" x-model="config.site_description" placeholder="e.g., Main residence backup system"
                             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        <p class="text-xs text-gray-500 mt-1">Override display name (empty = use SunSpec Model)</p>
+                        <p class="text-xs text-gray-500 mt-1">Optional description shown in device info</p>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2">
+                        <div>
+                            <label class="text-sm font-medium">Remote Site</label>
+                            <p class="text-xs text-gray-500">Check if this is a remote/off-site installation</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" x-model="config.is_remote_site" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- aGate Device Selection -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i class="fas fa-server text-primary"></i>
+                    aGate Devices
+                </h2>
+                <p class="text-sm text-gray-500 mb-4">Select which aGates to publish to Home Assistant</p>
+                
+                <div class="space-y-3">
+                    <template x-for="device in devices" :key="device.id">
+                        <div class="p-3 rounded-lg border" :class="getDeviceStatusClass(device)">
+                            <div class="flex items-start gap-3">
+                                <div class="flex-shrink-0 mt-1">
+                                    <i class="fas fa-server" :class="device.connected ? 'text-emerald-500' : 'text-gray-400'"></i>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <span class="font-medium truncate" x-text="device.name || device.id"></span>
+                                        <span class="text-xs px-2 py-1 rounded-full font-medium"
+                                            :class="getPublishStatusClass(device.publish_status)">
+                                            <span x-text="getPublishStatusText(device.publish_status)"></span>
+                                        </span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 space-y-1">
+                                        <div x-show="device.model">
+                                            <span class="font-medium">Model:</span>
+                                            <span x-text="device.model"></span>
+                                        </div>
+                                        <div x-show="device.serial_number">
+                                            <span class="font-medium">Serial:</span>
+                                            <span x-text="device.serial_number"></span>
+                                        </div>
+                                        <div x-show="device.site_id">
+                                            <span class="font-medium">Site:</span>
+                                            <span x-text="device.site_name || device.site_id"></span>
+                                        </div>
+                                        <div class="flex items-center gap-2 pt-1">
+                                            <span class="w-2 h-2 rounded-full" :class="device.connected ? 'bg-emerald-500' : 'bg-gray-400'"></span>
+                                            <span x-text="device.connected ? 'Connected' : 'Offline'"></span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Publish Toggle -->
+                                    <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                        <label class="text-xs font-medium">Publish to Home Assistant</label>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" 
+                                                x-model="config.publish_devices[device.id]"
+                                                @change="onPublishToggle(device.id, $event.target.checked)"
+                                                class="sr-only peer">
+                                            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="devices.length === 0" class="text-center text-gray-500 py-6">
+                        <i class="fas fa-plug text-2xl mb-2"></i>
+                        <p>No aGate devices configured</p>
+                        <p class="text-xs mt-1">Add devices in Topology to enable publishing</p>
                     </div>
                 </div>
             </div>
@@ -335,6 +411,8 @@
                 client_id: 'franklinwh_bridge',
                 site_name: 'Home',
                 site_id: 'default',
+                site_description: '',
+                is_remote_site: false,
                 discovery_prefix: 'homeassistant',
                 state_prefix: 'franklinwh',
                 ha_device_name: '',
@@ -346,8 +424,11 @@
                 publish_capacity: true,
                 publish_controls: true,
                 retain_discovery: true,
-                qos: 0
+                qos: 0,
+                publish_devices: {}
             },
+            devices: [],
+            sites: [],
             originalConfig: null,
             hasChanges: false,
             saving: false,
@@ -359,9 +440,12 @@
 
             init() {
                 this.loadConfig();
+                this.loadDevices();
                 this.checkStatus();
                 // Auto-refresh status every 5s
                 setInterval(() => this.checkStatus(), 5000);
+                // Auto-refresh devices every 10s
+                setInterval(() => this.loadDevices(), 10000);
                 
                 // Watch for changes
                 this.$watch('config', () => {
@@ -375,13 +459,88 @@
                     if (response.ok) {
                         const data = await response.json();
                         if (data.mqtt) {
+                            // Ensure publish_devices exists
+                            if (!data.mqtt.publish_devices) {
+                                data.mqtt.publish_devices = {};
+                            }
                             this.config = { ...this.config, ...data.mqtt };
                             this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                        }
+                        // Load sites for device site name display
+                        if (data.sites) {
+                            this.sites = data.sites;
                         }
                     }
                 } catch (e) {
                     console.error('Failed to load config:', e);
                 }
+            },
+
+            async loadDevices() {
+                try {
+                    const response = await fetch('/api/topology');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.devices) {
+                            // Map devices to add site info and publish status
+                            this.devices = data.devices.map(device => {
+                                const site = this.sites.find(s => s.id === device.site_id);
+                                const publishStatus = this.getPublishStatus(device.id, device.connected);
+                                return {
+                                    ...device,
+                                    site_name: site?.name || null,
+                                    publish_status: publishStatus
+                                };
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load devices:', e);
+                }
+            },
+
+            getPublishStatus(deviceId, connected) {
+                // Check if device is configured to publish
+                const isEnabled = this.config.publish_devices[deviceId] !== false;
+                if (!connected) return 'offline';
+                if (isEnabled && connected) return 'publishing';
+                if (isEnabled && !connected) return 'setup';
+                return 'disabled';
+            },
+
+            getPublishStatusText(status) {
+                const texts = {
+                    publishing: 'Publishing',
+                    setup: 'Setup',
+                    disabled: 'Not Publishing',
+                    offline: 'Offline'
+                };
+                return texts[status] || status;
+            },
+
+            getPublishStatusClass(status) {
+                const classes = {
+                    publishing: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                    setup: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                    disabled: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                    offline: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                };
+                return classes[status] || classes.disabled;
+            },
+
+            getDeviceStatusClass(device) {
+                if (!device.connected) return 'bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800';
+                if (device.publish_status === 'disabled') return 'bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700';
+                return 'bg-surface border-gray-100 dark:border-gray-800';
+            },
+
+            onPublishToggle(deviceId, enabled) {
+                if (!this.config.publish_devices) {
+                    this.config.publish_devices = {};
+                }
+                this.config.publish_devices[deviceId] = enabled;
+                // Force hasChanges to true
+                this.hasChanges = true;
             },
 
             async checkStatus() {

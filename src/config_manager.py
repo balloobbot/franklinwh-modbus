@@ -60,6 +60,21 @@ class ModbusConfig:
     timeout: int = 3
 
 @dataclass
+class SiteConfig:
+    """Configuration for a site (location) with one or more aGates."""
+    id: str  # Unique site identifier
+    name: str  # Display name
+    description: str = ""  # Optional description
+    is_local: bool = True  # True = local network, False = remote/cloud
+    # Connection settings for remote sites
+    remote_host: str = ""  # For remote sites
+    remote_port: int = 502
+    # Metadata
+    created_at: str = ""  # ISO timestamp
+    updated_at: str = ""  # ISO timestamp
+
+
+@dataclass
 class DeviceConfig:
     """Configuration for a single FranklinWH aGate device."""
     id: str
@@ -70,12 +85,39 @@ class DeviceConfig:
     base_address: int = 40001
     timeout: int = 3
     enabled: bool = True
-    # Discovered device info (populated after first connection)
-    serial_number: str = ""
-    model: str = ""
-    manufacturer: str = ""
-    firmware_version: str = ""
+    site_id: str = "default"  # Link to SiteConfig
+    
+    # SunSpec Model 1 - Device Information (persisted after discovery)
+    # These are read once and stored to avoid repeated Modbus reads
+    manufacturer: str = ""  # Mn - Manufacturer
+    model: str = ""  # Md - Model
+    serial_number: str = ""  # SN - Serial Number
+    firmware_version: str = ""  # Vr - Version
+    device_address: int = 0  # DA - Device Address (unit ID confirmed)
+    
+    # Discovery metadata
     last_connected: str = ""  # ISO timestamp
+    first_discovered: str = ""  # ISO timestamp
+    
+    # MQTT Publishing state
+    mqtt_publish_enabled: bool = True  # Whether to publish this device to MQTT
+    mqtt_publish_state: str = "setup"  # setup, publishing, not_publishing, error
+    
+    @property
+    def display_name(self) -> str:
+        """Generate display name from Model 1 info."""
+        if self.model and self.serial_number:
+            short_serial = self.serial_number[-4:] if len(self.serial_number) >= 4 else self.serial_number
+            return f"{self.model} {short_serial}"
+        return self.name
+    
+    @property
+    def unique_id_base(self) -> str:
+        """Generate unique ID base for this device."""
+        if self.serial_number and self.serial_number != "Unknown":
+            serial_short = self.serial_number[-8:] if len(self.serial_number) >= 8 else self.serial_number
+            return f"franklinwh_{serial_short}"
+        return f"franklinwh_{self.id}"
 
 @dataclass
 class MQTTConfig:
@@ -89,38 +131,54 @@ class MQTTConfig:
     # Client settings
     client_id: str = "franklinwh_bridge"
     enabled: bool = False
+    qos: int = 0  # MQTT QoS level (0, 1, or 2)
     
-    # Site Configuration (for multi-aGate installations)
-    site_name: str = "Home"  # Site name for grouping devices
-    site_id: str = "default"  # Unique site identifier
+    # Site Configuration - which site this MQTT instance publishes
+    site_name: str = "Home"  # Display name for the site
+    site_id: str = "default"  # Publish devices from this site
+    site_description: str = ""  # Optional site description
+    is_remote_site: bool = False  # Whether this is a remote site
     
     # Home Assistant Discovery settings
     discovery_prefix: str = "homeassistant"  # HA discovery topic prefix
     state_prefix: str = "franklinwh"  # State topic prefix
+    ha_device_name: str = ""  # Override device name in HA
+    unique_id_prefix: str = "franklinwh"  # Prefix for unique IDs
+    retain_discovery: bool = True  # Retain discovery messages
     
-    # Device naming in HA
-    ha_device_name: str = ""  # Override display name (empty = use Model)
-    unique_id_prefix: str = "franklinwh"  # Prefix for unique_ids
+    # Device selection - which devices to publish (empty = all enabled)
+    # Format: ["device_id_1", "device_id_2"] 
+    publish_device_ids: List[str] = field(default_factory=list)
+    # Per-device publish flags (device_id -> bool)
+    publish_devices: Dict[str, bool] = field(default_factory=dict)
     
-    # Entity selection - which entities to publish
+    # Entity selection - which entity types to publish
     publish_battery: bool = True
     publish_inverter: bool = True
     publish_solar: bool = True
     publish_home_loads: bool = True
     publish_capacity: bool = True
     publish_controls: bool = True  # Mode, reserve SOC controls
-    
-    # Advanced options
-    retain_discovery: bool = True  # Retain discovery messages
-    qos: int = 0  # MQTT QoS level (0, 1, or 2)
 
 
 @dataclass
 class AppConfig:
     """Application configuration."""
-    modbus: ModbusConfig = field(default_factory=ModbusConfig)
+    # Sites (locations) with one or more aGates
+    sites: Dict[str, SiteConfig] = field(default_factory=lambda: {
+        "default": SiteConfig(id="default", name="Home", description="Default local site", is_local=True)
+    })
+    
+    # aGate devices (linked to sites)
     devices: Dict[str, DeviceConfig] = field(default_factory=dict)
+    
+    # Legacy single-device config (for migration)
+    modbus: ModbusConfig = field(default_factory=ModbusConfig)
+    
+    # MQTT configuration
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
+    
+    # UI configuration
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     refresh_interval: int = 5
     auto_refresh: bool = True
@@ -245,6 +303,25 @@ class ConfigManager:
         """Get current configuration."""
         return self._config
 
+    def add_site(self, site: SiteConfig) -> None:
+        """Add or update a site in the configuration."""
+        self._config.sites[site.id] = site
+
+    def remove_site(self, site_id: str) -> bool:
+        """Remove a site if no devices are linked to it."""
+        if site_id == "default":
+            return False  # Cannot remove default site
+        
+        # Check if any devices are linked to this site
+        for device in self._config.devices.values():
+            if device.site_id == site_id:
+                return False  # Cannot remove site with linked devices
+        
+        if site_id in self._config.sites:
+            del self._config.sites[site_id]
+            return True
+        return False
+
     def add_device(self, device: DeviceConfig) -> None:
         """Add or update a device in the configuration."""
         self._config.devices[device.id] = device
@@ -253,12 +330,34 @@ class ConfigManager:
         """Remove a device from the configuration."""
         if device_id in self._config.devices:
             del self._config.devices[device_id]
+    
+    def get_devices_by_site(self, site_id: str) -> Dict[str, DeviceConfig]:
+        """Get all devices linked to a specific site."""
+        return {k: v for k, v in self._config.devices.items() if v.site_id == site_id}
+    
+    def update_device_model1_info(self, device_id: str, manufacturer: str, model: str, 
+                                   serial_number: str, firmware_version: str) -> bool:
+        """Update device Model 1 info after discovery."""
+        if device_id not in self._config.devices:
+            return False
+        
+        device = self._config.devices[device_id]
+        device.manufacturer = manufacturer
+        device.model = model
+        device.serial_number = serial_number
+        device.firmware_version = firmware_version
+        from datetime import datetime
+        device.last_connected = datetime.now().isoformat()
+        if not device.first_discovered:
+            device.first_discovered = device.last_connected
+        return True
 
     def _serialize(self, config: AppConfig) -> Dict[str, Any]:
         """Convert config to dictionary."""
         return {
-            "modbus": asdict(config.modbus),
+            "sites": {k: asdict(v) for k, v in config.sites.items()},
             "devices": [asdict(d) for d in config.devices.values()],
+            "modbus": asdict(config.modbus),
             "mqtt": asdict(config.mqtt),
             "theme": asdict(config.theme),
             "auto_refresh": config.auto_refresh,
@@ -272,6 +371,19 @@ class ConfigManager:
     def _deserialize(self, data: Dict[str, Any]) -> AppConfig:
         """Deserialize config from dict."""
         config = AppConfig()
+        
+        # Load Sites
+        if "sites" in data:
+            for site_id, site_data in data["sites"].items():
+                try:
+                    site = SiteConfig(**site_data)
+                    config.sites[site_id] = site
+                except Exception as e:
+                    print(f"Error loading site config: {e}")
+        
+        # Ensure default site exists
+        if "default" not in config.sites:
+            config.sites["default"] = SiteConfig(id="default", name="Home", is_local=True)
         
         # Load Modbus (Legacy)
         if "modbus" in data:
@@ -296,13 +408,21 @@ class ConfigManager:
                 port=config.modbus.port,
                 unit_id=config.modbus.unit_id,
                 base_address=config.modbus.base_address,
-                timeout=config.modbus.timeout
+                timeout=config.modbus.timeout,
+                site_id="default"  # Link to default site
             )
             config.devices["default"] = default_dev
             
         # Load MQTT
         if "mqtt" in data:
-            config.mqtt = MQTTConfig(**data["mqtt"])
+            # Handle migration from old format
+            mqtt_data = data["mqtt"]
+            # Remove old fields that no longer exist
+            mqtt_data.pop("site_name", None)  # Replaced by site_id reference
+            try:
+                config.mqtt = MQTTConfig(**mqtt_data)
+            except Exception as e:
+                print(f"Error loading MQTT config: {e}")
             
         # Load Theme
         if "theme" in data:

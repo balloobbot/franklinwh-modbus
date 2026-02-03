@@ -8,7 +8,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
@@ -58,16 +58,24 @@ class MQTTConfigRequest(BaseModel):
     password: Optional[str] = ""
     client_id: Optional[str] = "franklinwh_bridge"
     enabled: Optional[bool] = False
+    qos: Optional[int] = 0
     
     # Site configuration
     site_name: Optional[str] = "Home"
     site_id: Optional[str] = "default"
+    site_description: Optional[str] = ""
+    is_remote_site: Optional[bool] = False
     
     # HA Discovery settings
     discovery_prefix: Optional[str] = "homeassistant"
     state_prefix: Optional[str] = "franklinwh"
     ha_device_name: Optional[str] = ""  # Empty = use SunSpec Model
     unique_id_prefix: Optional[str] = "franklinwh"
+    retain_discovery: Optional[bool] = True
+    
+    # Device selection
+    publish_device_ids: Optional[List[str]] = None
+    publish_devices: Optional[Dict[str, bool]] = None
     
     # Entity selection
     publish_battery: Optional[bool] = True
@@ -76,10 +84,6 @@ class MQTTConfigRequest(BaseModel):
     publish_home_loads: Optional[bool] = True
     publish_capacity: Optional[bool] = True
     publish_controls: Optional[bool] = True
-    
-    # Advanced
-    retain_discovery: Optional[bool] = True
-    qos: Optional[int] = 0
 
 
 class ThemeConfigRequest(BaseModel):
@@ -577,6 +581,10 @@ def create_app(
                 # Site configuration
                 "site_name": config.mqtt.site_name,
                 "site_id": config.mqtt.site_id,
+                "site_description": config.mqtt.site_description,
+                "is_remote_site": config.mqtt.is_remote_site,
+                # Device publishing settings
+                "publish_devices": config.mqtt.publish_devices,
                 # HA Discovery settings
                 "discovery_prefix": config.mqtt.discovery_prefix,
                 "state_prefix": config.mqtt.state_prefix,
@@ -602,6 +610,7 @@ def create_app(
             "auto_refresh": config.auto_refresh,
             "refresh_interval": config.refresh_interval,
             "widgets": {k: asdict(v) for k, v in config.widgets.items()},
+            "sites": [asdict(s) for s in config.sites.values()],
         }
 
     @app.post("/api/settings")
@@ -620,8 +629,9 @@ def create_app(
             if request.mqtt:
                 mqtt_fields = [
                     'host', 'port', 'username', 'password', 'client_id',
-                    'site_name', 'site_id',
+                    'site_name', 'site_id', 'site_description', 'is_remote_site',
                     'discovery_prefix', 'state_prefix', 'ha_device_name', 'unique_id_prefix',
+                    'publish_devices',
                     'publish_battery', 'publish_inverter', 'publish_solar', 
                     'publish_home_loads', 'publish_capacity', 'publish_controls',
                     'retain_discovery', 'qos', 'enabled'

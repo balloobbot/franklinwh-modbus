@@ -162,6 +162,11 @@ class MockFranklinWHModbusClient:
             
             logger.info("[MOCK] Disconnected from simulated device")
     
+    def close(self) -> None:
+        """Close the mock client."""
+        self._connected = False
+        self._running = False
+    
     async def _simulation_loop(self) -> None:
         """
         Background loop to simulate realistic battery behavior.
