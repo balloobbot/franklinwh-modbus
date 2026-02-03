@@ -700,7 +700,9 @@ def create_app(
             raise HTTPException(status_code=503, detail="MQTT bridge not available")
         
         try:
-            await mqtt.setup_entities()
+            # Pass mqtt config to use entity selection settings
+            config = app.state.config.get()
+            await mqtt.setup_entities(mqtt_config=config.mqtt)
             return {"success": True, "message": "Discovery messages republished"}
         except Exception as e:
             logger.error(f"Error republishing discovery: {e}")

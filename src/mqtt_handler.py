@@ -309,25 +309,37 @@ class HomeAssistantMQTTBridge:
             self._logger.error(f"MQTT message loop error: {e}")
             await self._set_status(MQTTStatus.OFFLINE)
     
-    def _get_device_payload(self) -> Dict[str, Any]:
+    def _get_device_payload(self, ha_device_name: Optional[str] = None) -> Dict[str, Any]:
         """Get device payload for HA discovery."""
+        # Use provided name or default
+        display_name = ha_device_name or "FranklinWH Battery"
+        
         if self._device_info:
+            # If using default name, append last 4 of serial for uniqueness
+            if ha_device_name is None and self._device_info.serial_number:
+                short_serial = self._device_info.serial_number[-4:]
+                display_name = f"FranklinWH {self._device_info.model} {short_serial}"
             return {
                 "identifiers": [f"franklinwh_{self._device_info.serial_number}"],
-                "name": f"FranklinWH {self._device_info.model}",
+                "name": display_name,
                 "manufacturer": self._device_info.manufacturer,
                 "model": self._device_info.model,
                 "sw_version": self._device_info.version,
             }
         return {
             "identifiers": ["franklinwh_battery"],
-            "name": "FranklinWH Battery",
+            "name": display_name,
             "manufacturer": "FranklinWH",
             "model": "aPower",
         }
     
-    async def setup_entities(self, device_info: Optional[DeviceInfo] = None) -> None:
-        """Setup Home Assistant discovery entities."""
+    async def setup_entities(self, device_info: Optional[DeviceInfo] = None, mqtt_config: Optional[Any] = None) -> None:
+        """Setup Home Assistant discovery entities with configurable options.
+        
+        Args:
+            device_info: Device information for HA device registry
+            mqtt_config: MQTTConfig with entity selection options (optional)
+        """
         if not self._client or self._status != MQTTStatus.ONLINE:
             self._logger.debug("Cannot setup entities: not connected")
             return
@@ -335,15 +347,36 @@ class HomeAssistantMQTTBridge:
         if device_info:
             self._device_info = device_info
         
-        device = self._get_device_payload()
+        # Extract config options with defaults
+        if mqtt_config:
+            unique_prefix = getattr(mqtt_config, 'unique_id_prefix', 'franklinwh')
+            ha_device_name = getattr(mqtt_config, 'ha_device_name', None)
+            retain = getattr(mqtt_config, 'retain_discovery', True)
+            publish_battery = getattr(mqtt_config, 'publish_battery', True)
+            publish_inverter = getattr(mqtt_config, 'publish_inverter', True)
+            publish_solar = getattr(mqtt_config, 'publish_solar', True)
+            publish_home_loads = getattr(mqtt_config, 'publish_home_loads', True)
+            publish_capacity = getattr(mqtt_config, 'publish_capacity', True)
+            publish_controls = getattr(mqtt_config, 'publish_controls', True)
+        else:
+            unique_prefix = 'franklinwh'
+            ha_device_name = None
+            retain = True
+            publish_battery = True
+            publish_inverter = True
+            publish_solar = True
+            publish_home_loads = True
+            publish_capacity = True
+            publish_controls = True
         
-        # Define all entities
-        entities = [
-            # Battery sensors
-            {
-                "type": "sensor",
-                "name": "franklinwh_soc",
-                "config": {
+        device = self._get_device_payload(ha_device_name)
+        
+        # Build entity list based on config
+        entities = []
+        
+        if publish_battery:
+            entities.extend([
+                {"type": "sensor", "name": f"{unique_prefix}_soc", "config": {
                     "name": "State of Charge",
                     "state_topic": f"{self.state_prefix}/battery/soc",
                     "unit_of_measurement": "%",
@@ -351,148 +384,148 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "value_template": "{{ value | float | round(1) }}",
                     "icon": "mdi:battery",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_soh",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_soh", "config": {
                     "name": "State of Health",
                     "state_topic": f"{self.state_prefix}/battery/soh",
                     "unit_of_measurement": "%",
                     "state_class": "measurement",
                     "value_template": "{{ value | float | round(1) }}",
                     "icon": "mdi:heart-pulse",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_temperature",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_temperature", "config": {
                     "name": "Battery Temperature",
                     "state_topic": f"{self.state_prefix}/battery/temperature",
                     "unit_of_measurement": "°C",
                     "device_class": "temperature",
                     "state_class": "measurement",
                     "icon": "mdi:thermometer",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_cycles",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_cycles", "config": {
                     "name": "Cycle Count",
                     "state_topic": f"{self.state_prefix}/battery/cycles",
                     "state_class": "total_increasing",
                     "icon": "mdi:counter",
-                }
-            },
-            
-            # Inverter sensors
-            {
-                "type": "sensor",
-                "name": "franklinwh_power",
-                "config": {
+                }},
+            ])
+        
+        if publish_inverter:
+            entities.extend([
+                {"type": "sensor", "name": f"{unique_prefix}_power", "config": {
                     "name": "Power",
                     "state_topic": f"{self.state_prefix}/inverter/power",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "state_class": "measurement",
                     "icon": "mdi:flash",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_voltage",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_voltage", "config": {
                     "name": "Voltage",
                     "state_topic": f"{self.state_prefix}/inverter/voltage",
                     "unit_of_measurement": "V",
                     "device_class": "voltage",
                     "state_class": "measurement",
                     "icon": "mdi:lightning-bolt",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_current",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_current", "config": {
                     "name": "Current",
                     "state_topic": f"{self.state_prefix}/inverter/current",
                     "unit_of_measurement": "A",
                     "device_class": "current",
                     "state_class": "measurement",
                     "icon": "mdi:current-ac",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_frequency",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_frequency", "config": {
                     "name": "Frequency",
                     "state_topic": f"{self.state_prefix}/inverter/frequency",
                     "unit_of_measurement": "Hz",
                     "device_class": "frequency",
                     "state_class": "measurement",
                     "icon": "mdi:sine-wave",
-                }
-            },
-            
-            # Capacity sensors
-            {
-                "type": "sensor",
-                "name": "franklinwh_max_charge",
-                "config": {
+                }},
+            ])
+        
+        if publish_solar:
+            entities.extend([
+                {"type": "sensor", "name": f"{unique_prefix}_solar_power", "config": {
+                    "name": "Solar Power",
+                    "state_topic": f"{self.state_prefix}/solar/output_power",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                    "icon": "mdi:solar-power",
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_solar_energy", "config": {
+                    "name": "Solar Energy",
+                    "state_topic": f"{self.state_prefix}/solar/output_energy",
+                    "unit_of_measurement": "Wh",
+                    "device_class": "energy",
+                    "state_class": "total_increasing",
+                    "icon": "mdi:solar-panel",
+                }},
+            ])
+        
+        if publish_home_loads:
+            entities.extend([
+                {"type": "sensor", "name": f"{unique_prefix}_home_loads", "config": {
+                    "name": "Home Loads",
+                    "state_topic": f"{self.state_prefix}/home_loads/home_loads_w",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                    "icon": "mdi:home-lightning-bolt",
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_pv_output", "config": {
+                    "name": "PV Output",
+                    "state_topic": f"{self.state_prefix}/home_loads/pv_output_w",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                    "icon": "mdi:solar-panel-large",
+                }},
+            ])
+        
+        if publish_capacity:
+            entities.extend([
+                {"type": "sensor", "name": f"{unique_prefix}_max_charge", "config": {
                     "name": "Max Charge Power",
-                    "state_topic": f"{self.state_prefix}/capacity/max_charge",
+                    "state_topic": f"{self.state_prefix}/capacity/max_charge_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "icon": "mdi:arrow-down-bold",
-                }
-            },
-            {
-                "type": "sensor",
-                "name": "franklinwh_max_discharge",
-                "config": {
+                }},
+                {"type": "sensor", "name": f"{unique_prefix}_max_discharge", "config": {
                     "name": "Max Discharge Power",
-                    "state_topic": f"{self.state_prefix}/capacity/max_discharge",
+                    "state_topic": f"{self.state_prefix}/capacity/max_discharge_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "icon": "mdi:arrow-up-bold",
-                }
-            },
-            
-            # Binary sensors
-            {
-                "type": "binary_sensor",
-                "name": "franklinwh_connected",
-                "config": {
-                    "name": "Connected",
-                    "state_topic": f"{self.state_prefix}/status/connected",
-                    "payload_on": "true",
-                    "payload_off": "false",
-                    "device_class": "connectivity",
-                }
-            },
-            
-            # MQTT Status sensor
-            {
-                "type": "sensor",
-                "name": "franklinwh_mqtt_status",
-                "config": {
-                    "name": "MQTT Status",
-                    "state_topic": f"{self.state_prefix}/status/mqtt",
-                    "icon": "mdi:network-outline",
-                }
-            },
-        ]
+                }},
+            ])
         
+        # Always add status sensors
+        entities.extend([
+            {"type": "binary_sensor", "name": f"{unique_prefix}_connected", "config": {
+                "name": "Connected",
+                "state_topic": f"{self.state_prefix}/status/connected",
+                "payload_on": "true",
+                "payload_off": "false",
+                "device_class": "connectivity",
+            }},
+            {"type": "sensor", "name": f"{unique_prefix}_mqtt_status", "config": {
+                "name": "MQTT Status",
+                "state_topic": f"{self.state_prefix}/status/mqtt",
+                "icon": "mdi:network-outline",
+            }},
+        ])
+        
+        # Publish discovery messages
         for entity in entities:
-            await self._publish_discovery(entity["type"], entity["name"], entity["config"], device)
+            await self._publish_discovery(entity["type"], entity["name"], entity["config"], device, retain)
         
         self._logger.info(f"Published {len(entities)} discovery entities")
     
-    async def _publish_discovery(self, entity_type: str, name: str, config: Dict, device: Dict) -> None:
+    async def _publish_discovery(self, entity_type: str, name: str, config: Dict, device: Dict, retain: bool = True) -> None:
         """Publish a discovery message for an entity."""
         topic = f"{self.discovery_prefix}/{entity_type}/{name}/config"
         
@@ -507,7 +540,7 @@ class HomeAssistantMQTTBridge:
             payload["payload_available"] = "true"
             payload["payload_not_available"] = "false"
         
-        await self._publish(topic, json.dumps(payload), retain=True)
+        await self._publish(topic, json.dumps(payload), retain=retain)
         self._entities[name] = topic
     
     async def _subscribe_commands(self) -> None:
