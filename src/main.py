@@ -173,6 +173,15 @@ class FranklinWHApplication:
             enabled=config.mqtt.enabled,
         )
         
+        # Get device info and set it on MQTT handler for discovery
+        try:
+            device_info = await primary_client.get_device_info()
+            if device_info:
+                self.mqtt.set_device_info(device_info)
+                logger.info(f"Set device info for MQTT discovery: {device_info.manufacturer} {device_info.model} (FW: {device_info.version})")
+        except Exception as e:
+            logger.warning(f"Could not get device info for MQTT: {e}")
+        
         # Start MQTT bridge
         await self.mqtt.start()
         logger.info(f"MQTT bridge started (status: {self.mqtt.status.value})")

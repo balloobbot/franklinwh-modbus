@@ -207,6 +207,11 @@ class HomeAssistantMQTTBridge:
         if callback in self._status_callbacks:
             self._status_callbacks.remove(callback)
     
+    def set_device_info(self, device_info: DeviceInfo) -> None:
+        """Set device info for HA discovery (from SunSpec Model 1)."""
+        self._device_info = device_info
+        self._logger.debug(f"Device info set: {device_info.manufacturer} {device_info.model}")
+    
     async def _set_status(self, status: MQTTStatus) -> None:
         """Set status and notify callbacks."""
         if self._status != status:
@@ -423,7 +428,7 @@ class HomeAssistantMQTTBridge:
                 "manufacturer": manufacturer,
                 "model": model,
                 "sw_version": version,
-                "serial_number": serial,  # HA may use this
+                "hw_version": "",  # Not available from SunSpec Model 1
             }
         
         # Fallback when no device info available
