@@ -96,11 +96,11 @@ class MockFranklinWHModbusClient:
         self._pv_output_w = 3200    # PV output
         self._pv_proximal_w = 3000  # Proximal PV
         
-        # Device info
+        # Device info - matching real aGate SunSpec Model 1
         self._device_info = DeviceInfo(
-            manufacturer="FranklinWH",
-            model="aPower",
-            version="2.1.4",
+            manufacturer="FranklinWH Technologies Co., Ltd",
+            model="aGate X",
+            version="V10R01B04D00",
             serial_number="FWH123456789",
             device_address=unit_id,
         )
