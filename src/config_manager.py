@@ -9,7 +9,7 @@ import os
 import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, replace
 from datetime import datetime
 
 
@@ -34,10 +34,12 @@ class WidgetConfig:
     refresh_interval: int = 30  # seconds
     color: str = "#3b82f6"  # default blue
     expanded: bool = True
+    title: str = "Widget"
+    icon: str = "fa-cube"
 
 
 @dataclass
-class UITheme:
+class ThemeConfig:
     """UI theme configuration."""
     mode: str = "auto"  # light, dark, auto
     primary_color: str = "#3b82f6"
@@ -46,56 +48,61 @@ class UITheme:
     background_color: str = "#ffffff"
     surface_color: str = "#f3f4f6"
     text_color: str = "#111827"
-    border_radius: int = 12
-    shadow_intensity: str = "medium"  # none, low, medium, high
 
 
 @dataclass
 class ModbusConfig:
-    """Modbus connection configuration."""
+    """Modbus configuration (Legacy/Single Device)."""
     host: str = "192.168.0.110"
     port: int = 502
-    unit_id: int = 2
-    base_address: int = 40000
-    timeout: float = 5.0
-    retry_attempts: int = 3
-    retry_delay: float = 1.0
+    unit_id: int = 1
+    base_address: int = 40001
+    timeout: int = 3
 
+@dataclass
+class DeviceConfig:
+    """Configuration for a single FranklinWH aGate device."""
+    id: str
+    name: str
+    host: str
+    port: int = 502
+    unit_id: int = 1
+    base_address: int = 40001
+    timeout: int = 3
+    enabled: bool = True
 
 @dataclass
 class MQTTConfig:
-    """MQTT broker configuration."""
-    host: str = "192.168.0.109"
+    """MQTT configuration."""
+    host: str = "localhost"
     port: int = 1883
     username: str = ""
     password: str = ""
+    topic_prefix: str = "franklinwh"
     client_id: str = "franklinwh_bridge"
     discovery_prefix: str = "homeassistant"
     state_prefix: str = "franklinwh"
+    enabled: bool = False
 
 
 @dataclass
 class AppConfig:
-    """Main application configuration."""
+    """Application configuration."""
     modbus: ModbusConfig = field(default_factory=ModbusConfig)
+    devices: Dict[str, DeviceConfig] = field(default_factory=dict)
     mqtt: MQTTConfig = field(default_factory=MQTTConfig)
-    theme: UITheme = field(default_factory=UITheme)
+    theme: ThemeConfig = field(default_factory=ThemeConfig)
+    refresh_interval: int = 5
     auto_refresh: bool = True
-    refresh_interval: int = 30
     log_level: str = "INFO"
     log_retention_days: int = 7
-    mock_mode: bool = False  # Enable mock device simulation
-    
-    # Widget configurations
+    mock_mode: bool = False
     widgets: Dict[str, WidgetConfig] = field(default_factory=lambda: {
-        "battery_metrics": WidgetConfig(enabled=True, position=0, color="#10b981"),
-        "inverter_status": WidgetConfig(enabled=True, position=1, color="#3b82f6"),
-        "power_flow": WidgetConfig(enabled=True, position=2, color="#f59e0b"),
-        "energy_stats": WidgetConfig(enabled=True, position=3, color="#8b5cf6"),
-        "system_health": WidgetConfig(enabled=True, position=4, color="#ef4444"),
-        "control_panel": WidgetConfig(enabled=True, position=5, color="#06b6d4"),
+        "soc": WidgetConfig(title="State of Charge", icon="fa-battery-full", color="#3b82f6", position=0),
+        "power": WidgetConfig(title="Power", icon="fa-bolt", color="#f59e0b", position=1),
+        "health": WidgetConfig(title="System Health", icon="fa-heartbeat", color="#10b981", position=2),
+        "mode": WidgetConfig(title="Operating Mode", icon="fa-sliders-h", color="#8b5cf6", position=3),
     })
-    
     # Enabled SunSpec models
     enabled_models: List[int] = field(default_factory=lambda: [
         1,    # Common
@@ -129,6 +136,7 @@ class ConfigManager:
         "MQTT_PASSWORD": ("mqtt", "password"),
         "MQTT_CLIENT_ID": ("mqtt", "client_id"),
         "MQTT_DISCOVERY_PREFIX": ("mqtt", "discovery_prefix"),
+        "MQTT_ENABLED": ("mqtt", "enabled"),
         # App settings
         "LOG_LEVEL": ("log_level", None),
         "MOCK_MODE": ("mock_mode", None),
@@ -195,15 +203,32 @@ class ConfigManager:
     async def save(self) -> None:
         """Save configuration to file."""
         async with self._lock:
-            data = self._serialize(self._config)
-            with open(self.config_path, 'w') as f:
-                json.dump(data, f, indent=2, default=str)
+            try:
+                data = self._serialize(self._config)
+                with open(self.config_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                print(f"Failed to save config: {e}")
             await self._notify_listeners()
     
+    def get(self) -> AppConfig:
+        """Get current configuration."""
+        return self._config
+
+    def add_device(self, device: DeviceConfig) -> None:
+        """Add or update a device in the configuration."""
+        self._config.devices[device.id] = device
+
+    def remove_device(self, device_id: str) -> None:
+        """Remove a device from the configuration."""
+        if device_id in self._config.devices:
+            del self._config.devices[device_id]
+
     def _serialize(self, config: AppConfig) -> Dict[str, Any]:
-        """Convert dataclass to dict."""
+        """Convert config to dictionary."""
         return {
             "modbus": asdict(config.modbus),
+            "devices": [asdict(d) for d in config.devices.values()],
             "mqtt": asdict(config.mqtt),
             "theme": asdict(config.theme),
             "auto_refresh": config.auto_refresh,
@@ -212,34 +237,62 @@ class ConfigManager:
             "log_retention_days": config.log_retention_days,
             "mock_mode": config.mock_mode,
             "widgets": {k: asdict(v) for k, v in config.widgets.items()},
-            "enabled_models": config.enabled_models,
-            "last_updated": datetime.now().isoformat(),
         }
     
     def _deserialize(self, data: Dict[str, Any]) -> AppConfig:
-        """Convert dict to dataclass."""
+        """Deserialize config from dict."""
         config = AppConfig()
         
+        # Load Modbus (Legacy)
         if "modbus" in data:
             config.modbus = ModbusConfig(**data["modbus"])
+        
+        # Load Devices
+        if "devices" in data:
+            for d in data["devices"]:
+                try:
+                    dev = DeviceConfig(**d)
+                    config.devices[dev.id] = dev
+                except Exception as e:
+                    print(f"Error loading device config: {e}")
+        
+        # If no devices but legacy modbus exists, migrate it
+        if not config.devices and config.modbus:
+            # Create a default device from legacy config
+            default_dev = DeviceConfig(
+                id="default",
+                name="Primary aGate",
+                host=config.modbus.host,
+                port=config.modbus.port,
+                unit_id=config.modbus.unit_id,
+                base_address=config.modbus.base_address,
+                timeout=config.modbus.timeout
+            )
+            config.devices["default"] = default_dev
+            
+        # Load MQTT
         if "mqtt" in data:
             config.mqtt = MQTTConfig(**data["mqtt"])
+            
+        # Load Theme
         if "theme" in data:
             config.theme = UITheme(**data["theme"])
-        
+            
+        # Load General Settings
+        config.refresh_interval = data.get("refresh_interval", 5)
         config.auto_refresh = data.get("auto_refresh", True)
-        config.refresh_interval = data.get("refresh_interval", 30)
-        config.log_level = data.get("log_level", "INFO")
-        config.log_retention_days = data.get("log_retention_days", 7)
-        config.mock_mode = data.get("mock_mode", False)
-        
+
+        # Load Widgets
         if "widgets" in data:
-            config.widgets = {
-                k: WidgetConfig(**v) for k, v in data["widgets"].items()
-            }
-        
-        config.enabled_models = data.get("enabled_models", config.enabled_models)
-        
+            for k, v in data["widgets"].items():
+                if k in config.widgets:
+                    try:
+                        # Only update existing keys to preserve defaults/structure
+                        w_data = {key: val for key, val in v.items() if key in config.widgets[k].__dict__}
+                        config.widgets[k] = replace(config.widgets[k], **w_data)
+                    except Exception as e:
+                        print(f"Error loading widget {k}: {e}")
+            
         return config
     
     def get(self) -> AppConfig:

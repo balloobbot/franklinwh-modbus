@@ -238,6 +238,15 @@
                         MQTT Broker
                     </h3>
                     <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <label class="font-medium text-sm">Enable MQTT Bridge</label>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" x-model="config.mqtt.enabled" class="sr-only peer">
+                                <div
+                                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary">
+                                </div>
+                            </label>
+                        </div>
                         <div>
                             <label class="block text-sm font-medium mb-1">Host</label>
                             <input type="text" x-model="config.mqtt.host"
@@ -547,12 +556,12 @@
                                             <div class="flex items-center justify-between">
                                                 <span class="text-gray-500">Rated Energy</span>
                                                 <span class="font-medium"
-                                                    x-text="`${((data.battery?.rated_energy_wh || 0) / 1000).toFixed(1)} kWh`"></span>
+                                                    x-text="data.battery?.rated_energy_wh ? `${(data.battery.rated_energy_wh / 1000).toFixed(1)} kWh` : '--'"></span>
                                             </div>
                                             <div class="flex items-center justify-between">
                                                 <span class="text-gray-500">Available Energy</span>
                                                 <span class="font-medium"
-                                                    x-text="`${((data.battery?.available_energy_wh || 0) / 1000).toFixed(1)} kWh`"></span>
+                                                    x-text="data.battery?.available_energy_wh ? `${(data.battery.available_energy_wh / 1000).toFixed(1)} kWh` : '--'"></span>
                                             </div>
                                             <div class="flex items-center justify-between">
                                                 <span class="text-gray-500">Temperature</span>
@@ -939,46 +948,46 @@
                 // Data
                 data: {
                     battery: {
-                        soc: 86.0,
-                        soh: 96.3,
-                        rated_energy_wh: 13600,
-                        available_energy_wh: 11724,
-                        temperature: 25.5,
+                        soc: 0,
+                        soh: 0,
+                        rated_energy_wh: 0,
+                        available_energy_wh: 0,
+                        temperature: 0,
                         status: 0,
-                        statusText: 'OK',
-                        cycles: 150,
-                        dc_energy_injected_wh: 5317760,
-                        dc_energy_absorbed_wh: 5435940
+                        statusText: '--',
+                        cycles: 0,
+                        dc_energy_injected_wh: 0,
+                        dc_energy_absorbed_wh: 0
                     },
                     inverter: {
-                        power: -1250,
-                        voltage: 240.7,
-                        current: 5.2,
-                        frequency: 50.01,
-                        powerFactor: 0.98
+                        power: 0,
+                        voltage: 0,
+                        current: 0,
+                        frequency: 0,
+                        powerFactor: 0
                     },
                     capacity: {
-                        max_charge_w: 5000,
-                        max_discharge_w: 5000
+                        max_charge_w: 0,
+                        max_discharge_w: 0
                     },
                     extensions: {
-                        operatingMode: 2,
-                        modeText: 'Backup Reserve',
-                        reserveSocSelfConsumption: 20,
-                        reserveSocTou: 20
+                        operatingMode: 0,
+                        modeText: '--',
+                        reserveSocSelfConsumption: 0,
+                        reserveSocTou: 0
                     },
                     solar_pv: {
-                        output_power_w: 3200,
-                        output_energy_wh: 11299612
+                        output_power_w: 0,
+                        output_energy_wh: 0
                     },
                     home_loads: {
-                        home_loads_w: 400,
-                        pv_output_w: 3200,
-                        pv_proximal_w: 3000
+                        home_loads_w: 0,
+                        pv_output_w: 0,
+                        pv_proximal_w: 0
                     },
                     battery_lifetime: {
-                        dc_energy_injected_wh: 5317760,
-                        dc_energy_absorbed_wh: 5435940
+                        dc_energy_injected_wh: 0,
+                        dc_energy_absorbed_wh: 0
                     }
                 },
 

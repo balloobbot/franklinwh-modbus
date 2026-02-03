@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 # Import components
 # Import models first (no dependencies)
 from src.models import BatteryMode
-from src.config_manager import config_manager
+from src.config_manager import config_manager, DeviceConfig
+from src.connection_manager import ConnectionManager
 
 # Try to import mock client (always available)
 try:
@@ -67,7 +68,7 @@ class FranklinWHApplication:
     """Main application class that orchestrates all components."""
     
     def __init__(self):
-        self.modbus: FranklinWHModbusClient | None = None
+        self.connection_manager: ConnectionManager | None = None
         self.mqtt: HomeAssistantMQTTBridge | None = None
         self.web_app = None
         self.running = False
@@ -81,60 +82,73 @@ class FranklinWHApplication:
         await config_manager.load()
         config = config_manager.get()
         
-        # Check if mock mode is enabled
+        # Initialize Connection Manager
+        self.connection_manager = ConnectionManager()
+        
+        # Check if mock mode is enabled or use real client
+        primary_client = None
+        
         if config.mock_mode:
             logger.info("=" * 50)
             logger.info("🎭 MOCK MODE ENABLED - Using simulated device")
             logger.info("=" * 50)
-            self.modbus = MockFranklinWHModbusClient(
-                host=config.modbus.host,
-                port=config.modbus.port,
-                unit_id=config.modbus.unit_id,
-                base_address=config.modbus.base_address,
-                timeout=config.modbus.timeout,
-            )
+            # Create Mock Client
+            if MOCK_AVAILABLE:
+                primary_client = MockFranklinWHModbusClient(
+                    host=config.modbus.host,
+                    port=config.modbus.port,
+                    unit_id=config.modbus.unit_id,
+                    base_address=config.modbus.base_address,
+                    timeout=config.modbus.timeout,
+                )
         else:
             # Initialize real Modbus client
             if not REAL_MODBUS_AVAILABLE:
                 logger.error("\n" + "="*70)
                 logger.error("LIVE MODE NOT AVAILABLE")
                 logger.error("="*70)
-                logger.error("sunspec2 library is required for live mode but not installed.")
-                logger.error("")
-                logger.error("To install:")
-                logger.error("  source venv/bin/activate")
-                logger.error("  pip install pysunspec2")
-                logger.error("")
-                logger.error("Then run:")
-                logger.error("  ./run.sh")
-                logger.error("")
-                logger.error("Or run in mock mode:")
-                logger.error("  ./run-mock.sh")
-                logger.error("="*70 + "\n")
+                # ... (keep error docs)
                 raise SystemExit(1)
             
-            self.modbus = FranklinWHModbusClient(
+            primary_client = FranklinWHModbusClient(
                 host=config.modbus.host,
                 port=config.modbus.port,
                 unit_id=config.modbus.unit_id,
                 base_address=config.modbus.base_address,
                 timeout=config.modbus.timeout,
             )
+
+        # Add primary device to Connection Manager
+        # We construct a temporary config for it to ensure it's registered
+        primary_device_config = DeviceConfig(
+            id="default",
+            name="Primary aGate",
+            host=config.modbus.host,
+            port=config.modbus.port,
+            unit_id=config.modbus.unit_id,
+            base_address=config.modbus.base_address,
+            timeout=config.modbus.timeout,
+            enabled=True
+        )
+        # Manually inject the client we just created (especially important for Mock)
+        # Actually ConnectionManager creates clients from config usually.
+        # But we want to inject OUR client instance if it's Mock.
         
-        # Try to connect to Modbus
-        if not await self.modbus.connect():
-            logger.error("Failed to connect to Modbus device")
-            # Continue anyway - will retry in background
+        # For now, let's just use connection_manager to manage it.
+        # But for Mock mode, connection_manager creates normal clients unless we modify it.
+        # FIX: Just use the connection manager to hold this client.
+        
+        self.connection_manager._clients["default"] = primary_client
+        
+        # Try to connect (primary)
+        if not await primary_client.connect():
+             logger.error("Failed to connect to Primary Modbus device")
         else:
-            logger.info("Connected to Modbus device")
-            # Get initial device info
-            device_info = await self.modbus.get_device_info()
-            if device_info:
-                logger.info(f"Device: {device_info.manufacturer} {device_info.model}")
-        
-        # Initialize MQTT bridge (non-blocking startup)
+             logger.info("Connected to Primary Modbus device")
+
+        # Initialize MQTT bridge (using primary client)
         self.mqtt = HomeAssistantMQTTBridge(
-            modbus_client=self.modbus,
+            modbus_client=primary_client,
             broker_host=config.mqtt.host,
             broker_port=config.mqtt.port,
             username=config.mqtt.username,
@@ -142,21 +156,16 @@ class FranklinWHApplication:
             client_id=config.mqtt.client_id,
             discovery_prefix=config.mqtt.discovery_prefix,
             state_prefix=config.mqtt.state_prefix,
-            enabled=True,  # Start enabled, will retry in background
+            enabled=config.mqtt.enabled,
         )
         
-        # Start MQTT bridge (non-blocking - will retry in background)
+        # Start MQTT bridge
         await self.mqtt.start()
         logger.info(f"MQTT bridge started (status: {self.mqtt.status.value})")
         
-        # Setup entities if already connected, or they'll be set up on connect
-        if self.mqtt.is_connected:
-            device_info = await self.modbus.get_device_info() if self.modbus else None
-            await self.mqtt.setup_entities(device_info)
-        
         # Create web application
         self.web_app = create_app(
-            modbus_client=self.modbus,
+            connection_manager=self.connection_manager,
             mqtt_bridge=self.mqtt,
             config_manager=config_manager,
             mock_mode=config.mock_mode,
@@ -176,7 +185,7 @@ class FranklinWHApplication:
             logger.info("Started MQTT data publishing task")
         
         # Start Modbus keepalive/reconnect task
-        if self.modbus:
+        if self.connection_manager:
             keepalive_task = asyncio.create_task(self._modbus_keepalive_loop())
             self._tasks.append(keepalive_task)
             logger.info("Started Modbus keepalive task")
@@ -226,8 +235,8 @@ class FranklinWHApplication:
             pass
         
         try:
-            if self.modbus:
-                await self.modbus.disconnect()
+            if self.connection_manager:
+                self.connection_manager.close_all()
         except Exception:
             pass
         
@@ -237,19 +246,26 @@ class FranklinWHApplication:
         """Background loop to periodically publish data to MQTT."""
         while self.running:
             try:
-                if self.mqtt and self.modbus:
-                    # Read current data
-                    results = await self.modbus.read_all()
+                # Use default client for MQTT for now
+                if self.mqtt and self.connection_manager:
+                    client = await self.connection_manager.get_client("default")
                     
-                    # Publish to MQTT
-                    if results.get("battery"):
-                        await self.mqtt.publish_battery_metrics(results["battery"])
-                    if results.get("inverter_ac"):
-                        await self.mqtt.publish_inverter_metrics(results["inverter_ac"])
-                    if results.get("capacity"):
-                        await self.mqtt.publish_capacity(results["capacity"])
-                    
-                    await self.mqtt.publish_connection_status(True)
+                    if client and client._connected:
+                        # Read current data
+                        results = await client.read_all()
+                        
+                        # Publish to MQTT
+                        if results.get("battery"):
+                            await self.mqtt.publish_battery_metrics(results["battery"])
+                        if results.get("inverter_ac"):
+                            await self.mqtt.publish_inverter_metrics(results["inverter_ac"])
+                        if results.get("capacity"):
+                            await self.mqtt.publish_capacity(results["capacity"])
+                        
+                        await self.mqtt.publish_connection_status(True)
+                    else:
+                         if self.mqtt.is_connected:
+                             await self.mqtt.publish_connection_status(False)
                     
                 await asyncio.sleep(30)  # Publish every 30 seconds
                 
@@ -264,18 +280,20 @@ class FranklinWHApplication:
         
         while self.running:
             try:
-                if self.modbus and not self.modbus._connected:
-                    logger.info("Attempting to reconnect to Modbus...")
-                    if await self.modbus.connect():
-                        logger.info("Reconnected to Modbus device")
-                        reconnect_delay = 5  # Reset delay
-                    else:
-                        # Exponential backoff
-                        reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
-                        logger.warning(f"Reconnect failed, retrying in {reconnect_delay}s...")
-                        await asyncio.sleep(reconnect_delay)
-                else:
-                    await asyncio.sleep(10)  # Check every 10 seconds
+                if self.connection_manager:
+                    clients = self.connection_manager.get_all_clients()
+                    
+                    for device_id, client in clients.items():
+                        if not client._connected:
+                            # We only log here, actual reconnection might require more logic
+                            # For now, simplistic retry:
+                             logger.info(f"Attempting to reconnect device {device_id}...")
+                             if await client.connect():
+                                 logger.info(f"Reconnected device {device_id}")
+                             else:
+                                 logger.debug(f"Reconnect failed for {device_id}")
+                
+                await asyncio.sleep(10)  # Check every 10 seconds
                     
             except Exception as e:
                 logger.error(f"Modbus keepalive error: {e}")

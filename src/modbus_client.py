@@ -290,7 +290,40 @@ class FranklinWHModbusClient:
                     self._logger.debug(f"Error closing Modbus client: {e}")
                 finally:
                     self._client = None
+                    
+    def close(self) -> None:
+        """Sync wrapper to close connection."""
+        if self._connected:
+            asyncio.create_task(self.disconnect())
     
+    async def _get_raw_client(self) -> Optional[ModbusTcpClient]:
+        """Get or create raw client for extension reading."""
+        if self._client:
+            return self._client
+            
+        async with self._lock:
+            # Check again under lock
+            if self._client:
+                return self._client
+                
+            # Create temporary raw client sharing connection params
+            try:
+                client = ModbusTcpClient(
+                    host=self.host,
+                    port=self.port,
+                    timeout=self.timeout,
+                )
+                connected = await asyncio.get_event_loop().run_in_executor(
+                    None, client.connect
+                )
+                if connected:
+                    self._client = client
+                    return client
+            except Exception as e:
+                self._logger.error(f"Failed to create fallback raw client: {e}")
+                return None
+        return None
+
     async def read_model(self, model_id: int, force: bool = False) -> Optional[Any]:
         """
         Read a SunSpec model.
@@ -635,14 +668,15 @@ class FranklinWHModbusClient:
         metrics = HomeLoadMetrics()
         
         # Use raw Modbus client to read extension registers
-        if not self._client:
+        client = await self._get_raw_client()
+        if not client:
             return metrics  # Return empty if no raw client
         
         try:
             # Read block from 15500 (14 registers covers 15500-15513)
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self._client.read_holding_registers(
+                lambda: client.read_holding_registers(
                     address=15500,
                     count=14,
                     device_id=self.unit_id

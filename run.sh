@@ -19,9 +19,10 @@ fi
 # Set default environment variables
 export MODBUS_HOST="${MODBUS_HOST:-192.168.0.110}"
 export MODBUS_PORT="${MODBUS_PORT:-502}"
-export MODBUS_UNIT="${MODBUS_UNIT:-2}"
+export MODBUS_UNIT=1
 export MQTT_HOST="${MQTT_HOST:-192.168.0.109}"
 export MQTT_PORT="${MQTT_PORT:-1883}"
+export MQTT_ENABLED=false
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 # Run the application

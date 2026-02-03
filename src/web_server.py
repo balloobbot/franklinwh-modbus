@@ -9,9 +9,11 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
+from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -19,19 +21,23 @@ from pydantic import BaseModel
 from src.models import BatteryMode
 
 if TYPE_CHECKING:
-    from src.config_manager import ConfigManager
+    from src.config_manager import ConfigManager, DeviceConfig
     from src.mqtt_handler import HomeAssistantMQTTBridge
     from src.modbus_client import FranklinWHModbusClient
+    from src.connection_manager import ConnectionManager
 
 try:
-    from src.config_manager import ConfigManager
+    from src.config_manager import ConfigManager, DeviceConfig
     from src.mqtt_handler import HomeAssistantMQTTBridge
     from src.modbus_client import FranklinWHModbusClient
+    from src.connection_manager import ConnectionManager
 except ImportError:
     # Allow importing for type checking even if deps not available
     ConfigManager = None
+    DeviceConfig = None
     HomeAssistantMQTTBridge = None
     FranklinWHModbusClient = None
+    ConnectionManager = None
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +64,20 @@ class ThemeConfigRequest(BaseModel):
     mode: str = "auto"
 
 
+class WidgetConfigRequest(BaseModel):
+    enabled: bool = True
+    position: int = 0
+    color: str = "#3b82f6"
+    expanded: bool = True
+
+
 class SettingsRequest(BaseModel):
     modbus: Optional[ModbusConfigRequest] = None
     mqtt: Optional[MQTTConfigRequest] = None
     theme: Optional[ThemeConfigRequest] = None
     auto_refresh: Optional[bool] = None
     refresh_interval: Optional[int] = None
+    widgets: Optional[Dict[str, WidgetConfigRequest]] = None
 
 
 class ModeRequest(BaseModel):
@@ -79,13 +93,24 @@ class PowerLimitRequest(BaseModel):
     max_discharge_kw: float
 
 
+class TopologyRequest(BaseModel):
+    id: str
+    name: str
+    host: str
+    port: int = 502
+    unit_id: int = 1
+    base_address: int = 40001
+    timeout: int = 3
+    enabled: bool = True
+
 class RawRegisterRequest(BaseModel):
     start_address: int
     count: int = 41
+    device_id: Optional[str] = None
 
 
 def create_app(
-    modbus_client: FranklinWHModbusClient,
+    connection_manager: ConnectionManager,
     mqtt_bridge: Optional[HomeAssistantMQTTBridge],
     config_manager: ConfigManager,
     mock_mode: bool = False,
@@ -94,10 +119,17 @@ def create_app(
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        """Application lifespan handler."""
+        """Application lifespan manager."""
         logger.info("Web server starting up...")
+        
+        # Initialize connections from config
+        config = config_manager.get()
+        await connection_manager.initialize_from_config(config.devices)
+        
         yield
+        
         logger.info("Web server shutting down...")
+        connection_manager.close_all()
     
     app = FastAPI(
         title="FranklinWH Battery Manager",
@@ -110,7 +142,7 @@ def create_app(
     app.state.mock_mode = mock_mode
     
     # Store references
-    app.state.modbus = modbus_client
+    app.state.connection_manager = connection_manager
     app.state.mqtt = mqtt_bridge
     app.state.config = config_manager
     
@@ -118,22 +150,28 @@ def create_app(
     app.state.websockets: list[WebSocket] = []
     
     # Mount static files
-    static_dir = Path(__file__).parent.parent / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    # Check if static directory exists, if not create it
+    static_path = Path("static")
+    if not static_path.exists():
+        static_path.mkdir()
+        
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    
+    # Jinja2 Templates
+    templates = Jinja2Templates(directory="templates")
     
     @app.get("/", response_class=HTMLResponse)
-    async def root():
-        """Serve the main HTML page."""
-        index_file = static_dir / "index.html"
-        if index_file.exists():
-            return HTMLResponse(content=index_file.read_text())
-        return HTMLResponse(content="<h1>FranklinWH Battery Manager</h1><p>Static files not found</p>")
+    async def get_dashboard(request: Request):
+        return templates.TemplateResponse("dashboard.html", {"request": request})
     
+    @app.get("/topology", response_class=HTMLResponse)
+    async def get_topology_page(request: Request):
+        return templates.TemplateResponse("topology.html", {"request": request})
+
     @app.get("/api/health")
-    async def health():
+    async def health(device_id: Optional[str] = None):
         """Health check endpoint with MQTT status."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         mqtt = app.state.mqtt
         
         mqtt_status = {
@@ -151,9 +189,9 @@ def create_app(
         }
     
     @app.get("/api/data")
-    async def get_data():
+    async def get_data(device_id: Optional[str] = None):
         """Get current battery and inverter data."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -226,9 +264,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/api/extensions")
-    async def get_extensions():
+    async def get_extensions(device_id: Optional[str] = None):
         """Get FranklinWH extension register values."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -265,9 +303,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/api/solar")
-    async def get_solar():
+    async def get_solar(device_id: Optional[str] = None):
         """Get Solar PV data (Model 502)."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -283,9 +321,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/api/home-loads")
-    async def get_home_loads():
+    async def get_home_loads(device_id: Optional[str] = None):
         """Get Home Load data (FranklinWH extension registers)."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -301,9 +339,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/api/battery-lifetime")
-    async def get_battery_lifetime():
+    async def get_battery_lifetime(device_id: Optional[str] = None):
         """Get Battery Lifetime Energy data (Model 714)."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -321,9 +359,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.post("/api/mode")
-    async def set_mode(request: ModeRequest):
+    async def set_mode(request: ModeRequest, device_id: Optional[str] = None):
         """Set battery operating mode."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -336,7 +374,7 @@ def create_app(
             }
             
             # For now, use the extension method which supports the 5 modes
-            from modbus_client_franklinwh import FranklinWHRegisterMap
+            from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
             success = await register_map.set_operating_mode(request.mode)
             
@@ -349,14 +387,14 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.post("/api/reserve")
-    async def set_reserve(request: ReserveRequest):
+    async def set_reserve(request: ReserveRequest, device_id: Optional[str] = None):
         """Set reserve SOC."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
         try:
-            from modbus_client_franklinwh import FranklinWHRegisterMap
+            from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
             success = await register_map.set_reserve_soc(request.value)
             
@@ -369,14 +407,14 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.post("/api/reserve2")
-    async def set_reserve2(request: ReserveRequest):
+    async def set_reserve2(request: ReserveRequest, device_id: Optional[str] = None):
         """Set reserve SOC 2."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
         try:
-            from modbus_client_franklinwh import FranklinWHRegisterMap
+            from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
             success = await register_map.set_reserve_soc_2(request.value)
             
@@ -389,9 +427,9 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e))
     
     @app.post("/api/power_limits")
-    async def set_power_limits(request: PowerLimitRequest):
+    async def set_power_limits(request: PowerLimitRequest, device_id: Optional[str] = None):
         """Set power limits."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
@@ -415,12 +453,12 @@ def create_app(
     @app.post("/api/raw_registers")
     async def read_raw_registers(request: RawRegisterRequest):
         """Read raw Modbus registers."""
-        modbus = app.state.modbus
+        modbus = await app.state.connection_manager.get_client(request.device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
         try:
-            from modbus_client_franklinwh import FranklinWHRegisterMap
+            from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
             
             block = await register_map.read_raw_block(request.start_address, request.count)
@@ -456,6 +494,8 @@ def create_app(
                 "host": config.mqtt.host,
                 "port": config.mqtt.port,
                 "username": config.mqtt.username,
+                # Password masked for security
+                "enabled": config.mqtt.enabled,
             },
             "theme": {
                 "primary_color": config.theme.primary_color,
@@ -465,23 +505,54 @@ def create_app(
             },
             "auto_refresh": config.auto_refresh,
             "refresh_interval": config.refresh_interval,
-            "widgets": config.widgets,
+            "widgets": {k: asdict(v) for k, v in config.widgets.items()},
         }
-    
+
     @app.post("/api/settings")
-    async def update_settings(request: SettingsRequest):
-        """Update settings."""
+    async def save_settings(request: SettingsRequest):
+        """Save settings to disk."""
         try:
-            updates = {}
+            config = app.state.config.get()
             
             if request.modbus:
-                updates["modbus"] = request.modbus.dict()
+                config.modbus.host = request.modbus.host
+                config.modbus.port = request.modbus.port
+                config.modbus.unit_id = request.modbus.unit_id
+                config.modbus.base_address = request.modbus.base_address
+                config.modbus.timeout = request.modbus.timeout
+                
             if request.mqtt:
-                updates["mqtt"] = request.mqtt.dict()
+                config.mqtt.host = request.mqtt.host
+                config.mqtt.port = request.mqtt.port
+                config.mqtt.username = request.mqtt.username
+                if request.mqtt.password:  # Only update if provided
+                    config.mqtt.password = request.mqtt.password
+                config.mqtt.enabled = request.mqtt.enabled
+                
             if request.theme:
-                updates["theme"] = request.theme.dict()
+                config.theme.mode = request.theme.mode
+                config.theme.primary_color = request.theme.primary_color
+                
             if request.auto_refresh is not None:
-                updates["auto_refresh"] = request.auto_refresh
+                config.auto_refresh = request.auto_refresh
+                
+            if request.refresh_interval is not None:
+                config.refresh_interval = request.refresh_interval
+
+            # Handle widgets if present
+            if request.widgets:
+                for key, w_conf in request.widgets.items():
+                    if key in config.widgets:
+                        config.widgets[key].enabled = w_conf.enabled
+                        config.widgets[key].position = w_conf.position
+                        config.widgets[key].color = w_conf.color
+                        config.widgets[key].expanded = w_conf.expanded
+            
+            await app.state.config.save()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
             if request.refresh_interval is not None:
                 updates["refresh_interval"] = request.refresh_interval
             
@@ -562,15 +633,92 @@ def create_app(
             "message": "MQTT restarted - connecting in background"
         }
     
+    # Topology Endpoints
+    
+    @app.get("/api/topology")
+    async def get_topology():
+        """Get configured topology."""
+        config = app.state.config.get()
+        clients = app.state.connection_manager.get_all_clients()
+        
+        devices = []
+        for dev_id, dev_conf in config.devices.items():
+            client = clients.get(dev_id)
+            connected = client._connected if client else False
+            devices.append({
+                **asdict(dev_conf),
+                "connected": connected,
+                "status": "Online" if connected else "Offline"
+            })
+            
+        return {"devices": devices}
+
+    @app.post("/api/topology")
+    async def add_device(request: TopologyRequest):
+        """Add or update a device in topology."""
+        try:
+            device_config = DeviceConfig(
+                id=request.id,
+                name=request.name,
+                host=request.host,
+                port=request.port,
+                unit_id=request.unit_id,
+                base_address=request.base_address,
+                timeout=request.timeout,
+                enabled=request.enabled
+            )
+            
+            # Start connection (with validation)
+            # This will raise ValueError if validation fails
+            try:
+                await app.state.connection_manager.add_client(device_config)
+            except ValueError as e:
+                # Validation failed
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                # Connection failed but might be temporary
+                logger.warning(f"Connection failed during add: {e}")
+                # We might still want to add it if it's just offline?
+                # For validation purposes, we probably want to fail if we can't validate.
+                # Let's failing for now to be strict.
+                raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
+
+            # Save to config only if validation passed
+            app.state.config.add_device(device_config)
+            await app.state.config.save()
+            
+            return {"success": True, "device": asdict(device_config)}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error adding device: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.delete("/api/topology/{device_id}")
+    async def remove_device(device_id: str):
+        """Remove a device from topology."""
+        try:
+            # Remove from connection manager first
+            await app.state.connection_manager.remove_client(device_id)
+            
+            # Remove from config
+            app.state.config.remove_device(device_id)
+            await app.state.config.save()
+            
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Error removing device: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
     @app.websocket("/ws")
-    async def websocket_endpoint(websocket: WebSocket):
+    async def websocket_endpoint(websocket: WebSocket, device_id: Optional[str] = None):
         """WebSocket endpoint for real-time updates."""
         await websocket.accept()
         app.state.websockets.append(websocket)
         
         try:
             # Send initial data
-            modbus = app.state.modbus
+            modbus = await app.state.connection_manager.get_client(device_id)
             if modbus:
                 data = await modbus.read_all()
                 await websocket.send_json({
@@ -590,11 +738,13 @@ def create_app(
                     try:
                         msg = json.loads(message)
                         if msg.get("action") == "refresh":
-                            data = await modbus.read_all()
-                            await websocket.send_json({
-                                "type": "data",
-                                "data": data,
-                            })
+                            modbus = await app.state.connection_manager.get_client(msg.get("device_id"))
+                            if modbus:
+                                data = await modbus.read_all()
+                                await websocket.send_json({
+                                    "type": "data",
+                                    "data": data,
+                                })
                     except json.JSONDecodeError:
                         pass
                     

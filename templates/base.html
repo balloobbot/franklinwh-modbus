@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" x-data="franklinWHApp()" x-init="init()" :class="{ 'dark': theme === 'dark' }">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FranklinWH Battery Manager</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Chart.js for metrics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: 'var(--color-primary)',
+                        secondary: 'var(--color-secondary)',
+                        accent: 'var(--color-accent)',
+                        surface: 'var(--color-surface)',
+                        background: 'var(--color-background)',
+                    }
+                }
+            }
+        }
+
+        // Global toast helper
+        window.showToast = function (message, type = 'info') {
+            window.dispatchEvent(new CustomEvent('notify', { detail: { message, type } }));
+        }
+    </script>
+</head>
+
+<body class="bg-background text-gray-900 dark:text-gray-100 transition-colors duration-300 min-h-screen flex text-sm"
+    @notify.window="addToast($event.detail.message, $event.detail.type)">
+
+    <!-- Sidebar -->
+    <aside
+        class="fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-0 shadow-xl lg:shadow-none"
+        :class="{'translate-x-0': sidebarOpen, '-translate-x-full': !sidebarOpen}">
+        <div class="h-full flex flex-col">
+            <!-- Logo -->
+            <div class="h-16 flex items-center px-6 border-b border-gray-200 dark:border-gray-800 gap-3">
+                <div
+                    class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/20">
+                    F
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg tracking-tight">FranklinWH</h1>
+                    <p class="text-[10px] text-gray-500 uppercase tracking-widest font-semibold">Battery Manager</p>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
+                <template x-for="item in navItems" :key="item.id">
+                    <button @click="currentTab = item.id; if(window.innerWidth < 1024) sidebarOpen = false"
+                        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative overflow-hidden"
+                        :class="currentTab === item.id ? 'bg-primary/10 text-primary font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'">
+
+                        <div class="absolute inset-0 bg-primary/10 opacity-0 transition-opacity"
+                            :class="currentTab === item.id ? 'opacity-100' : 'group-hover:opacity-50 opacity-0'"></div>
+
+                        <i
+                            :class="`fas ${item.icon} w-5 text-center transition-colors relative z-10 ${currentTab === item.id ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500'}`"></i>
+                        <span x-text="item.label" class="relative z-10"></span>
+
+                        <div x-show="currentTab === item.id" class="absolute right-0 w-1 h-6 bg-primary rounded-l-full">
+                        </div>
+                    </button>
+                </template>
+            </nav>
+
+            <!-- Status Footer -->
+            <div
+                class="p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 backdrop-blur-sm">
+                <div class="flex items-center gap-3">
+                    <div class="relative">
+                        <div class="w-2.5 h-2.5 rounded-full" :class="connected ? 'bg-emerald-500' : 'bg-red-500'">
+                        </div>
+                        <div class="absolute inset-0 rounded-full animate-ping opacity-75"
+                            :class="connected ? 'bg-emerald-500' : 'bg-red-500'"></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium" x-text="connected ? 'Connected' : 'Disconnected'"></p>
+                        <p class="text-[10px] text-gray-500"
+                            x-text="lastUpdate ? 'Updated ' + formatTime(lastUpdate) : 'Waiting for data...'"></p>
+                        <p class="text-[10px] text-gray-400 mt-1">v1.2.2</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Mobile Overlay -->
+    <div x-show="sidebarOpen" @click="sidebarOpen = false" x-transition.opacity
+        class="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"></div>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col min-w-0 bg-gray-50/50 dark:bg-gray-900/50">
+        <!-- Header -->
+        <header
+            class="h-16 bg-surface/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 transition-all duration-200">
+            <button @click="sidebarOpen = !sidebarOpen"
+                class="lg:hidden w-10 h-10 -ml-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-colors">
+                <i class="fas fa-bars"></i>
+            </button>
+
+            <!-- Connection Status Banner -->
+            <div class="flex items-center gap-4">
+                <div x-show="!connected && !mockMode" x-transition
+                    class="hidden md:flex px-3 py-1.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs font-medium items-center gap-2 border border-amber-200 dark:border-amber-800">
+                    <i class="fas fa-circle-notch fa-spin"></i>
+                    <span>CONNECTING...</span>
+                </div>
+
+                <div x-show="mockMode" x-transition
+                    class="hidden md:flex px-3 py-1.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs font-medium items-center gap-2 border border-purple-200 dark:border-purple-800">
+                    <i class="fas fa-flask"></i>
+                    <span>MOCK MODE</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <!-- Mobile Status Indicator -->
+                <div class="lg:hidden flex items-center mr-2">
+                    <div class="relative w-2.5 h-2.5">
+                        <div class="w-2.5 h-2.5 rounded-full" :class="connected ? 'bg-emerald-500' : 'bg-red-500'">
+                        </div>
+                        <div class="absolute inset-0 rounded-full animate-ping opacity-75"
+                            :class="connected ? 'bg-emerald-500' : 'bg-red-500'"></div>
+                    </div>
+                </div>
+
+                <!-- Auto Refresh Toggle -->
+                <button @click="config.auto_refresh = !config.auto_refresh"
+                    class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    :class="config.auto_refresh ? 'bg-primary/10 text-primary ring-1 ring-primary/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'">
+                    <div class="w-8 h-4 rounded-full relative transition-colors duration-200"
+                        :class="config.auto_refresh ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'">
+                        <div class="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-200"
+                            :class="config.auto_refresh ? 'translate-x-4' : 'translate-x-0'"></div>
+                    </div>
+                    <span>Auto</span>
+                </button>
+
+                <div class="h-4 w-px bg-gray-200 dark:bg-gray-700 mx-2 hidden sm:block"></div>
+
+                <span class="text-xs text-gray-400 hidden sm:block font-mono" x-text="`Next: ${nextRefresh}s`"></span>
+                <button @click="refreshData()"
+                    class="w-9 h-9 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-all active:scale-95"
+                    :class="{'animate-spin text-primary': refreshing}">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button @click="settingsOpen = true"
+                    class="w-9 h-9 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-all active:scale-95">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 p-4 lg:p-8 overflow-y-auto" x-cloak>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Application Logic -->
+    <script src="/static/js/app.js?v=1.2.2"></script>
+
+    {% include 'settings_modal.html' ignore missing %}
+    {% include 'reset_modal.html' ignore missing %}
+
+</body>
+
+</html>
+
+</body>
+
+</html>

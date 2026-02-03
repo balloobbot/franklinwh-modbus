@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+    <!-- DASHBOARD TAB -->
+    <div x-show="currentTab === 'dashboard'" x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+        class="space-y-6">
+
+        <!-- Top Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- SOC Card -->
+            <div
+                class="bg-surface rounded-2xl p-5 shadow relative overflow-hidden group hover:shadow-lg transition-all border border-gray-100 dark:border-gray-800">
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <i class="fas fa-battery-full text-6xl text-primary"></i>
+                </div>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1 font-medium">State of Charge</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300"
+                        x-text="`${data.battery?.soc?.toFixed(1) || 0}%`"></h3>
+                    <i class="fas fa-battery-half text-primary animate-pulse-soft"></i>
+                </div>
+                <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 mt-4 overflow-hidden">
+                    <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-emerald-500 h-1.5 rounded-full transition-all duration-700 ease-out"
+                        :style="`width: ${data.battery?.soc || 0}%`"></div>
+                </div>
+            </div>
+
+            <!-- Power Card -->
+            <div
+                class="bg-surface rounded-2xl p-5 shadow relative overflow-hidden group hover:shadow-lg transition-all border border-gray-100 dark:border-gray-800">
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <i class="fas fa-bolt text-6xl text-blue-500"></i>
+                </div>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1 font-medium">Power</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-3xl font-bold"
+                        :class="(data.inverter?.power || 0) > 0 ? 'text-emerald-500' : (data.inverter?.power || 0) < 0 ? 'text-blue-500' : 'text-gray-500'"
+                        x-text="`${(data.inverter?.power || 0) > 0 ? '+' : ''}${(data.inverter?.power || 0).toLocaleString()} W`">
+                    </h3>
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                        :class="(data.inverter?.power || 0) > 0 ? 'bg-emerald-100 text-emerald-600' : (data.inverter?.power || 0) < 0 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'">
+                        <i class="fas"
+                            :class="(data.inverter?.power || 0) > 0 ? 'fa-arrow-down' : (data.inverter?.power || 0) < 0 ? 'fa-arrow-up' : 'fa-minus'"></i>
+                    </div>
+                </div>
+                <p class="text-xs mt-2 font-medium"
+                    :class="(data.inverter?.power || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (data.inverter?.power || 0) < 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'"
+                    x-text="(data.inverter?.power || 0) > 0 ? '↓ Charging' : (data.inverter?.power || 0) < 0 ? '↑ Discharging' : 'Idle'">
+                </p>
+            </div>
+
+            <!-- SOH Card -->
+            <div
+                class="bg-surface rounded-2xl p-5 shadow relative overflow-hidden group hover:shadow-lg transition-all border border-gray-100 dark:border-gray-800">
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <i class="fas fa-heartbeat text-6xl text-purple-500"></i>
+                </div>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-1 font-medium">State of Health</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-3xl font-bold text-purple-600 dark:text-purple-400"
+                        x-text="`${data.battery?.soh?.toFixed(1) || '--'}%`"></h3>
+                    <i class="fas fa-heart text-purple-500/50"></i>
+                </div>
+            </div>
+
+            <!-- Mode Card -->
+            <div class="bg-surface rounded-2xl p-5 shadow border border-gray-100 dark:border-gray-800">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Operating Mode</p>
+                        <p class="text-lg font-bold" x-text="data.extensions?.modeText || '--'"></p>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                        <i class="fas fa-sliders-h text-xl"></i>
+                    </div>
+                </div>
+                <button @click="currentTab = 'control'"
+                    class="text-xs text-primary font-medium hover:underline flex items-center gap-1">
+                    Change Mode <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Layout Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Left Column: Widgets -->
+            <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" id="widgets-container">
+                <template x-for="widget in enabledWidgets" :key="widget.key">
+                    <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all duration-300"
+                        :class="{'col-span-full md:col-span-2 xl:col-span-3': widget.key === 'power_flow_chart'}">
+
+                        <!-- Widget Header -->
+                        <div
+                            class="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/30 dark:bg-gray-800/30 rounded-t-2xl">
+                            <h3 class="font-semibold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+                                <i :class="`fas ${widget.icon}`" :style="`color: ${widget.color}`"></i>
+                                <span x-text="widget.title"></span>
+                            </h3>
+                            <button @click="widgetVisibility[widget.key] = false"
+                                class="text-gray-400 hover:text-red-500 transition-colors">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- Widget Content -->
+                        <div class="p-5">
+
+                            <!-- Battery Metrics -->
+                            <template x-if="widget.key === 'battery_metrics'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Rated Energy</span>
+                                        <span class="font-medium"
+                                            x-text="`${((data.battery?.rated_energy_wh || 0)/1000).toFixed(1)} kWh`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Available Energy</span>
+                                        <span class="font-medium"
+                                            x-text="`${((data.battery?.available_energy_wh || 0)/1000).toFixed(1)} kWh`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Temperature</span>
+                                        <span class="font-medium"
+                                            x-text="data.battery?.temperature !== null ? `${data.battery.temperature.toFixed(1)}°C` : '--'"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Status</span>
+                                        <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                            :class="data.battery?.status === 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                            x-text="data.battery?.statusText || 'Unknown'"></span>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Inverter Status -->
+                            <template x-if="widget.key === 'inverter_status'">
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                        <p class="text-xs text-gray-500">Voltage</p>
+                                        <p class="font-semibold"
+                                            x-text="`${(data.inverter?.voltage || 0).toFixed(1)} V`"></p>
+                                    </div>
+                                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                        <p class="text-xs text-gray-500">Current</p>
+                                        <p class="font-semibold"
+                                            x-text="`${(data.inverter?.current || 0).toFixed(2)} A`"></p>
+                                    </div>
+                                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                        <p class="text-xs text-gray-500">Frequency</p>
+                                        <p class="font-semibold"
+                                            x-text="`${(data.inverter?.frequency || 0).toFixed(2)} Hz`"></p>
+                                    </div>
+                                    <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                        <p class="text-xs text-gray-500">Power Factor</p>
+                                        <p class="font-semibold"
+                                            x-text="data.inverter?.powerFactor !== null ? data.inverter.powerFactor.toFixed(2) : '--'">
+                                        </p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Solar PV -->
+                            <template x-if="widget.key === 'solar_pv'">
+                                <div class="space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-500">Output Power</span>
+                                        <span class="font-medium text-amber-600"
+                                            x-text="`${(data.solar_pv?.output_power_w || 0).toLocaleString()} W`"></span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-500">Lifetime Energy</span>
+                                        <span class="font-medium"
+                                            x-text="`${((data.solar_pv?.output_energy_wh || 0)/1000).toFixed(1)} kWh`"></span>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Home Loads -->
+                            <template x-if="widget.key === 'home_loads'">
+                                <div class="space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-500">Home Consumption</span>
+                                        <span class="font-medium text-blue-600"
+                                            x-text="`${(data.home_loads?.home_loads_w || 0).toLocaleString()} W`"></span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-500">PV Output</span>
+                                        <span class="font-medium text-amber-600"
+                                            x-text="data.home_loads?.pv_output_w !== null ? `${data.home_loads.pv_output_w} W` : '--'"></span>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Capacity -->
+                            <template x-if="widget.key === 'capacity'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Max Charge</span>
+                                        <span class="font-medium text-green-600"
+                                            x-text="`${((data.capacity?.max_charge_w || 0)/1000).toFixed(2)} kW`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-500">Max Discharge</span>
+                                        <span class="font-medium text-red-600"
+                                            x-text="`${((data.capacity?.max_discharge_w || 0)/1000).toFixed(2)} kW`"></span>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Reserve Settings (Read Only View) -->
+                            <template x-if="widget.key === 'reserve_settings'">
+                                <div class="space-y-4">
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-500">Self-Consumption</span>
+                                            <span class="font-medium"
+                                                x-text="`${data.extensions?.reserveSocSelfConsumption || 0}%`"></span>
+                                        </div>
+                                        <div class="w-full bg-gray-100 rounded-full h-2">
+                                            <div class="bg-primary h-2 rounded-full"
+                                                :style="`width: ${data.extensions?.reserveSocSelfConsumption || 0}%`">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-500">Time-of-Use</span>
+                                            <span class="font-medium"
+                                                x-text="`${data.extensions?.reserveSocTou || 0}%`"></span>
+                                        </div>
+                                        <div class="w-full bg-gray-100 rounded-full h-2">
+                                            <div class="bg-primary h-2 rounded-full"
+                                                :style="`width: ${data.extensions?.reserveSocTou || 0}%`"></div>
+                                        </div>
+                                    </div>
+
+                                    <button @click="currentTab = 'control'"
+                                        class="w-full py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 text-sm font-medium rounded-lg text-gray-600 transition-colors">
+                                        Edit Reserves
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- System Health -->
+                            <template x-if="widget.key === 'system_health'">
+                                <div class="flex flex-col items-center justify-center py-4">
+                                    <div
+                                        class="w-16 h-16 rounded-full bg-green-100 text-green-500 flex items-center justify-center mb-2">
+                                        <i class="fas fa-check text-2xl"></i>
+                                    </div>
+                                    <p class="font-medium">No alerts</p>
+                                    <p class="text-xs text-gray-500">System is running normally</p>
+                                </div>
+                            </template>
+
+                            <!-- Power Flow Chart -->
+                            <template x-if="widget.key === 'power_flow_chart'">
+                                <div class="h-64 w-full">
+                                    <canvas id="chart-power_flow_chart"></canvas>
+                                </div>
+                            </template>
+
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Hidden Widgets Hint -->
+            <div class="col-span-full pt-8 text-center text-gray-400 text-sm"
+                x-show="Object.values(widgetVisibility).some(v => !v)">
+                <p>Some widgets are hidden. Check settings to restore them.</p>
+                <button @click="Object.keys(widgetVisibility).forEach(k => widgetVisibility[k] = true)"
+                    class="mt-2 text-primary hover:underline">
+                    Restore All
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- CONTROL TAB -->
+    <div x-show="currentTab === 'control'" x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+        class="space-y-6">
+
+        <div class="bg-surface rounded-2xl shadow p-6">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <i class="fas fa-sliders-h text-primary"></i> Operating Mode
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button @click="setOperatingMode(1)"
+                    class="p-4 rounded-xl border-2 text-left transition-all hover:shadow-md"
+                    :class="data.extensions?.operatingMode === 1 ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'">
+                    <i class="fas fa-shield-alt text-2xl mb-2"
+                        :class="data.extensions?.operatingMode === 1 ? 'text-primary' : 'text-gray-400'"></i>
+                    <h3 class="font-bold">Backup Reserve</h3>
+                    <p class="text-xs text-gray-500 mt-1">Maintain full charge for backup</p>
+                </button>
+
+                <button @click="setOperatingMode(2)"
+                    class="p-4 rounded-xl border-2 text-left transition-all hover:shadow-md"
+                    :class="data.extensions?.operatingMode === 2 ? 'border-secondary bg-secondary/5 ring-2 ring-secondary/20' : 'border-gray-200 dark:border-gray-700 hover:border-secondary/50'">
+                    <i class="fas fa-leaf text-2xl mb-2"
+                        :class="data.extensions?.operatingMode === 2 ? 'text-secondary' : 'text-gray-400'"></i>
+                    <h3 class="font-bold">Self-Consumption</h3>
+                    <p class="text-xs text-gray-500 mt-1">Maximize solar usage</p>
+                </button>
+
+                <button @click="setOperatingMode(3)"
+                    class="p-4 rounded-xl border-2 text-left transition-all hover:shadow-md"
+                    :class="data.extensions?.operatingMode === 3 ? 'border-accent bg-accent/5 ring-2 ring-accent/20' : 'border-gray-200 dark:border-gray-700 hover:border-accent/50'">
+                    <i class="fas fa-clock text-2xl mb-2"
+                        :class="data.extensions?.operatingMode === 3 ? 'text-accent' : 'text-gray-400'"></i>
+                    <h3 class="font-bold">Time-of-Use</h3>
+                    <p class="text-xs text-gray-500 mt-1">Optimize for rates</p>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-surface rounded-2xl shadow p-6">
+                <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                    <i class="fas fa-battery-half text-primary"></i> Reserve Settings
+                </h2>
+                <div class="space-y-6">
+                    <div>
+                        <label class="flex justify-between mb-2">
+                            <span>Reserve SOC (Primary)</span>
+                            <span class="font-mono" x-text="`${pendingReserveSoc}%`"></span>
+                        </label>
+                        <input type="range" min="0" max="100" x-model.number="pendingReserveSoc" class="w-full">
+                        <p class="text-xs text-gray-500 mt-1">Minimum battery level for backup power</p>
+                    </div>
+                    <div>
+                        <label class="flex justify-between mb-2">
+                            <span>Reserve SOC 2</span>
+                            <span class="font-mono" x-text="`${pendingReserveSoc2}%`"></span>
+                        </label>
+                        <input type="range" min="-128" max="127" x-model.number="pendingReserveSoc2" class="w-full">
+                    </div>
+                    <div class="flex gap-3">
+                        <button @click="setReserveSoc(pendingReserveSoc)" :disabled="settingReserve"
+                            class="flex-1 py-3 rounded-lg bg-primary text-white font-medium disabled:opacity-50">
+                            <span x-text="settingReserve ? 'Applying...' : 'Apply Reserve SOC'"></span>
+                        </button>
+                        <button @click="setReserveSoc2(pendingReserveSoc2)" :disabled="settingReserve2"
+                            class="flex-1 py-3 rounded-lg bg-secondary text-white font-medium disabled:opacity-50">
+                            <span x-text="settingReserve2 ? 'Applying...' : 'Apply Reserve SOC 2'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-surface rounded-2xl shadow p-6">
+                <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                    <i class="fas fa-bolt text-primary"></i> Power Limits
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-sm text-gray-500">Max Charge (kW)</label>
+                        <input type="number" step="0.1" x-model.number="pendingMaxCharge"
+                            class="w-full mt-1 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-500">Max Discharge (kW)</label>
+                        <input type="number" step="0.1" x-model.number="pendingMaxDischarge"
+                            class="w-full mt-1 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                    </div>
+                </div>
+                <button @click="setPowerLimits()"
+                    class="w-full mt-4 py-3 rounded-lg bg-accent text-white font-medium hover:opacity-90">
+                    Apply Power Limits
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- LOGS TAB (Placeholder) -->
+    <div x-show="currentTab === 'logs'">
+        <div class="bg-surface rounded-2xl shadow p-4">
+            <h2 class="text-xl font-bold mb-4">System Logs</h2>
+            <div class="font-mono text-xs space-y-1 max-h-96 overflow-y-auto bg-gray-900 text-green-400 p-4 rounded-lg">
+                <template x-for="log in logs" :key="log.id">
+                    <div
+                        :class="`text-${log.level === 'error' ? 'red' : log.level === 'warning' ? 'amber' : 'green'}-400`">
+                        <span class="text-gray-500" x-text="`[${log.time}]`"></span>
+                        <span x-text="log.message"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- RAW REGISTERS TAB (Placeholder) -->
+    <div x-show="currentTab === 'raw'">
+        <div class="bg-surface rounded-2xl shadow p-6">
+            <h2 class="text-xl font-bold mb-4">Raw Modbus Registers</h2>
+            <div class="flex items-center gap-2 mb-4">
+                <input type="text" x-model="rawStartAddr" placeholder="Start (15000)"
+                    class="w-28 px-3 py-2 rounded border dark:bg-gray-800">
+                <input type="number" x-model.number="rawCount" placeholder="Count"
+                    class="w-24 px-3 py-2 rounded border dark:bg-gray-800">
+                <button @click="readRawRegisters()" class="px-4 py-2 rounded-lg bg-primary text-white">Search</button>
+            </div>
+            <!-- Table placeholder -->
+            <p class="text-gray-500">Register view component active</p>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
