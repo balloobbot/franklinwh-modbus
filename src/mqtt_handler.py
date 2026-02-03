@@ -17,11 +17,83 @@ from dataclasses import asdict
 from enum import Enum
 
 try:
-    from asyncio_mqtt import Client, MqttError
+    import paho.mqtt.client as mqtt
+    import asyncio
     MQTT_AVAILABLE = True
+    
+    class AsyncMQTTClient:
+        """Async wrapper for paho-mqtt."""
+        def __init__(self, hostname: str, port: int = 1883, client_id: str = "", 
+                     username: str = "", password: str = ""):
+            self.hostname = hostname
+            self.port = port
+            self._client = mqtt.Client(client_id=client_id)
+            if username:
+                self._client.username_pw_set(username, password)
+            self._connected = False
+            self._message_queue = asyncio.Queue()
+            self._client.on_message = self._on_message
+            self._client.on_connect = self._on_connect
+            self._client.on_disconnect = self._on_disconnect
+            
+        def _on_connect(self, client, userdata, flags, rc):
+            self._connected = (rc == 0)
+            
+        def _on_disconnect(self, client, userdata, rc):
+            self._connected = False
+            
+        def _on_message(self, client, userdata, msg):
+            asyncio.create_task(self._message_queue.put(msg))
+            
+        async def connect(self):
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._client.connect, self.hostname, self.port, 60)
+            self._client.loop_start()
+            # Wait for connection
+            for _ in range(50):  # 5 second timeout
+                if self._connected:
+                    return
+                await asyncio.sleep(0.1)
+            raise ConnectionError("MQTT connection timeout")
+            
+        async def disconnect(self):
+            self._client.loop_stop()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._client.disconnect)
+            
+        async def subscribe(self, topic: str):
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._client.subscribe, topic)
+            
+        async def publish(self, topic: str, payload: str, retain: bool = False):
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._client.publish, topic, payload, 0, retain)
+            
+        def is_connected(self):
+            return self._connected
+            
+        async def messages(self):
+            """Async generator for messages."""
+            while True:
+                try:
+                    msg = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
+                    # Create a simple message object
+                    class Msg:
+                        def __init__(self, topic, payload):
+                            self.topic = type('Topic', (), {'value': topic})()
+                            self.payload = payload
+                    yield Msg(msg.topic, msg.payload)
+                except asyncio.TimeoutError:
+                    if not self._connected:
+                        raise Exception("Connection lost")
+                    continue
+    
+    class MqttError(Exception):
+        pass
+        
 except ImportError:
     MQTT_AVAILABLE = False
-    logging.warning("asyncio-mqtt not available")
+    logging.warning("paho-mqtt not available")
 
 from src.models import (
     BatteryMode,
@@ -78,7 +150,7 @@ class HomeAssistantMQTTBridge:
         self.discovery_prefix = discovery_prefix
         self.state_prefix = state_prefix
         
-        self._client: Optional[Client] = None
+        self._client: Optional[AsyncMQTTClient] = None
         self._status = MQTTStatus.DISABLED if not enabled else MQTTStatus.OFFLINE
         self._logger = logging.getLogger(__name__)
         
@@ -254,11 +326,12 @@ class HomeAssistantMQTTBridge:
                 auth["username"] = self.username
                 auth["password"] = self.password
             
-            self._client = Client(
+            self._client = AsyncMQTTClient(
                 hostname=self.broker_host,
                 port=self.broker_port,
                 client_id=self.client_id,
-                **auth,
+                username=self.username,
+                password=self.password,
             )
             
             await self._client.connect()
