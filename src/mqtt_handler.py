@@ -480,7 +480,7 @@ class HomeAssistantMQTTBridge:
         if self._device_info and self._device_info.serial_number and self._device_info.serial_number != 'Unknown':
             # Use last 8 chars of serial for readability
             serial_short = self._device_info.serial_number[-8:]
-            unique_base = f"{unique_base}_{serial_short}"
+            unique_base = f"{unique_prefix}_{serial_short}"
         else:
             unique_base = unique_prefix
         
