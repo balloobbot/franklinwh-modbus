@@ -97,7 +97,9 @@
 
                     <div>
                         <label class="block text-sm font-medium mb-1">Password</label>
-                        <input type="password" x-model="config.password" placeholder="Optional"
+                        <input type="password" x-model="config.password" 
+                            :placeholder="config.has_password && !passwordChanged ? '•••••••• (unchanged)' : 'Optional'"
+                            @input="onPasswordChange()"
                             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
                     </div>
                 </div>
@@ -309,7 +311,7 @@
                 <div class="space-y-2 text-sm font-mono">
                     <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
                         <span class="text-gray-500">Discovery topic:</span><br>
-                        <span x-text="`${config.discovery_prefix}/sensor/${config.unique_id_prefix}_soc/config`"></span>
+                        <span x-text="getPreviewUniqueId() ? `${config.discovery_prefix}/sensor/${getPreviewUniqueId()}_soc/config` : 'Select a device to see preview'"></span>
                     </div>
                     <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
                         <span class="text-gray-500">State topic:</span><br>
@@ -317,7 +319,7 @@
                     </div>
                     <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
                         <span class="text-gray-500">Unique ID:</span><br>
-                        <span x-text="`${config.unique_id_prefix}_soc`"></span>
+                        <span x-text="getPreviewUniqueId() ? `${getPreviewUniqueId()}_soc` : 'Select a device to see preview'"></span>
                     </div>
                 </div>
             </div>
@@ -355,6 +357,7 @@
                 port: 1883,
                 username: '',
                 password: '',
+                has_password: false,  // Track if password was previously set
                 client_id: 'franklinwh_bridge',
                 site_name: 'Home',
                 site_id: 'default',
@@ -378,6 +381,7 @@
             sites: [],
             showBrowseModal: false,
             originalConfig: null,
+            passwordChanged: false,
             hasChanges: false,
             saving: false,
             testing: false,
@@ -411,7 +415,13 @@
                             if (!data.mqtt.publish_devices) {
                                 data.mqtt.publish_devices = {};
                             }
+                            // Track if password was previously set
+                            const hadPassword = data.mqtt.has_password;
                             this.config = { ...this.config, ...data.mqtt };
+                            // Clear password field (don't show dots), but track that it exists
+                            this.config.password = '';
+                            this.config.has_password = hadPassword;
+                            this.passwordChanged = false;
                             this.originalConfig = JSON.parse(JSON.stringify(this.config));
                         }
                         // Load sites for device site name display
@@ -422,6 +432,10 @@
                 } catch (e) {
                     console.error('Failed to load config:', e);
                 }
+            },
+            
+            onPasswordChange() {
+                this.passwordChanged = true;
             },
 
             async loadDevices() {
@@ -508,16 +522,25 @@
             async saveConfig() {
                 this.saving = true;
                 try {
+                    // Build config to send - only include password if changed
+                    const configToSend = { ...this.config };
+                    if (!this.passwordChanged) {
+                        delete configToSend.password;  // Don't send empty password
+                    }
+                    delete configToSend.has_password;  // Don't send this internal flag
+                    
                     const response = await fetch('/api/settings', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mqtt: this.config })
+                        body: JSON.stringify({ mqtt: configToSend })
                     });
 
                     if (!response.ok) throw new Error('Save failed');
 
-                    this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                    // Reload config to get updated has_password status
+                    await this.loadConfig();
                     this.hasChanges = false;
+                    this.passwordChanged = false;
                     showToast('MQTT configuration saved', 'success');
                     
                     // Restart MQTT to apply changes
@@ -656,6 +679,16 @@
                     }
                 });
                 return entities;
+            },
+
+            getPreviewUniqueId() {
+                // Get the unique ID for the first enabled device (for preview)
+                const enabledDevice = this.devices.find(d => this.config.publish_devices[d.id] !== false);
+                if (!enabledDevice) return null;
+                
+                const serial = enabledDevice.serial_number ? enabledDevice.serial_number.slice(-8) : enabledDevice.id;
+                const prefix = this.config.unique_id_prefix || 'franklinwh';
+                return `${prefix}_${serial}`;
             }
         }
     }

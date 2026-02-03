@@ -815,6 +815,13 @@ def create_app(
             return {"success": True, "message": "MQTT already enabled", "status": mqtt.status.value}
         
         success = await mqtt.enable()
+        
+        # Persist enabled state to config
+        if success:
+            config = app.state.config.get()
+            config.mqtt.enabled = True
+            await app.state.config.save()
+        
         return {
             "success": success,
             "status": mqtt.status.value,
@@ -832,6 +839,12 @@ def create_app(
             return {"success": True, "message": "MQTT already disabled", "status": mqtt.status.value}
         
         await mqtt.disable()
+        
+        # Persist disabled state to config
+        config = app.state.config.get()
+        config.mqtt.enabled = False
+        await app.state.config.save()
+        
         return {
             "success": True,
             "status": mqtt.status.value,
