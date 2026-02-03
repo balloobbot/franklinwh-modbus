@@ -667,26 +667,64 @@ def create_app(
             username = data.get("username", "")
             password = data.get("password", "")
             
-            # Attempt connection test
+            # Attempt connection test using raw paho-mqtt for better compatibility
             try:
                 import asyncio
-                from asyncio_mqtt import Client, MqttError
+                import paho.mqtt.client as mqtt
                 
-                client_kwargs = {"hostname": host, "port": port}
+                # Create a temporary client
+                test_client = mqtt.Client(client_id="franklinwh_test_" + str(asyncio.get_event_loop().time()))
+                
                 if username:
-                    client_kwargs["username"] = username
-                    client_kwargs["password"] = password
+                    test_client.username_pw_set(username, password)
                 
-                # Try to connect with short timeout
-                client = Client(**client_kwargs)
-                await asyncio.wait_for(client.__aenter__(), timeout=5.0)
-                await client.__aexit__(None, None, None)
+                # Connection result container
+                conn_result = {"connected": False, "error": None}
                 
-                return {"success": True, "message": "Connection successful"}
-            except asyncio.TimeoutError:
-                return {"success": False, "message": "Connection timeout"}
-            except MqttError as e:
-                return {"success": False, "message": f"MQTT error: {str(e)}"}
+                def on_connect(client, userdata, flags, rc):
+                    if rc == 0:
+                        conn_result["connected"] = True
+                    else:
+                        error_codes = {
+                            1: "Incorrect protocol version",
+                            2: "Invalid client identifier",
+                            3: "Server unavailable",
+                            4: "Bad username or password",
+                            5: "Not authorized"
+                        }
+                        conn_result["error"] = error_codes.get(rc, f"Connection refused (code {rc})")
+                
+                def on_connect_fail(client, userdata):
+                    conn_result["error"] = "Connection failed"
+                
+                test_client.on_connect = on_connect
+                test_client.on_connect_fail = on_connect_fail
+                
+                # Try to connect with timeout
+                try:
+                    test_client.connect(host, port, keepalive=5)
+                    test_client.loop_start()
+                    
+                    # Wait for connection result
+                    for _ in range(50):  # 5 seconds timeout
+                        await asyncio.sleep(0.1)
+                        if conn_result["connected"] or conn_result["error"]:
+                            break
+                    
+                    test_client.loop_stop()
+                    test_client.disconnect()
+                    
+                    if conn_result["connected"]:
+                        return {"success": True, "message": "Connection successful"}
+                    else:
+                        error_msg = conn_result["error"] or "Connection timeout"
+                        return {"success": False, "message": error_msg}
+                        
+                except Exception as e:
+                    return {"success": False, "message": f"Connection error: {str(e)}"}
+                    
+            except ImportError:
+                return {"success": False, "message": "MQTT library not available"}
             except Exception as e:
                 return {"success": False, "message": str(e)}
         except Exception as e:
