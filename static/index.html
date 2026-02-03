@@ -392,15 +392,23 @@
                     </button>
 
                     <!-- Mode Indicator -->
+                    <!-- Loading state while checking mode -->
+                    <div x-show="mockMode === null" x-transition
+                        class="flex items-center gap-2 px-3 py-1.5 bg-gray-500 text-white rounded-lg font-bold text-sm">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>CHECKING...</span>
+                    </div>
+                    <!-- MOCK Mode Badge -->
                     <div x-show="mockMode === true" x-transition
                         class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg font-bold text-sm animate-pulse">
                         <i class="fas fa-flask"></i>
                         <span>MOCK MODE</span>
                     </div>
+                    <!-- LIVE Mode Badge -->
                     <div x-show="mockMode === false" x-transition
                         :class="`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-sm ${connected ? 'bg-green-600' : 'bg-amber-500'} text-white`">
-                        <i class="fas fa-bolt"></i>
-                        <span x-text="connected ? 'LIVE' : 'CONNECTING...'"></span>
+                        <i :class="`fas ${connected ? 'fa-bolt' : 'fa-plug'}`"></i>
+                        <span x-text="connected ? 'LIVE' : 'OFFLINE'"></span>
                     </div>
 
                     <!-- Auto-refresh Toggle -->
@@ -973,8 +981,12 @@
                     extensions: {
                         operatingMode: 0,
                         modeText: '--',
-                        reserveSocSelfConsumption: 0,
-                        reserveSocTou: 0
+                        // SunSpec2-aligned naming from API
+                        reserveSoc: null,      // 15017: Self-Consumption Reserve (Model 713 SoC)
+                        reserveSoc2: null,     // 15040: TOU Reserve 
+                        // Aliases for clarity
+                        get reserveSocSelfConsumption() { return this.reserveSoc; },
+                        get reserveSocTou() { return this.reserveSoc2; }
                     },
                     solar_pv: {
                         output_power_w: 0,
@@ -1289,13 +1301,28 @@
                         if (apiData.home_loads) this.data.home_loads = apiData.home_loads;
                         if (apiData.battery_lifetime) this.data.battery_lifetime = apiData.battery_lifetime;
                         if (apiData.extensions) {
-                            this.data.extensions = apiData.extensions;
-                            // Update pending reserve values from API
+                            // Preserve the extensions object structure, update individual fields
+                            this.data.extensions.operatingMode = apiData.extensions.operatingMode ?? apiData.extensions.operating_mode ?? this.data.extensions.operatingMode;
+                            this.data.extensions.modeText = apiData.extensions.modeText ?? apiData.extensions.mode_text ?? this.data.extensions.modeText;
+                            
+                            // Update reserve SOC values from API
+                            // API uses camelCase: reserveSoc, reserveSoc2
                             if (apiData.extensions.reserveSoc !== null && apiData.extensions.reserveSoc !== undefined) {
+                                this.data.extensions.reserveSoc = apiData.extensions.reserveSoc;
                                 this.pendingReserveSoc = apiData.extensions.reserveSoc;
                             }
                             if (apiData.extensions.reserveSoc2 !== null && apiData.extensions.reserveSoc2 !== undefined) {
+                                this.data.extensions.reserveSoc2 = apiData.extensions.reserveSoc2;
                                 this.pendingReserveSoc2 = apiData.extensions.reserveSoc2;
+                            }
+                            // Also check snake_case variants from API
+                            if (apiData.extensions.reserve_soc !== null && apiData.extensions.reserve_soc !== undefined) {
+                                this.data.extensions.reserveSoc = apiData.extensions.reserve_soc;
+                                this.pendingReserveSoc = apiData.extensions.reserve_soc;
+                            }
+                            if (apiData.extensions.reserve_soc_2 !== null && apiData.extensions.reserve_soc_2 !== undefined) {
+                                this.data.extensions.reserveSoc2 = apiData.extensions.reserve_soc_2;
+                                this.pendingReserveSoc2 = apiData.extensions.reserve_soc_2;
                             }
                         }
 

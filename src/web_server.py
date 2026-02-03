@@ -199,21 +199,49 @@ def create_app(
             data = await modbus.read_all()
             
             # Get extensions data if available
+            # FranklinWH Extension Registers (non-SunSpec):
+            # 15016: Operating Mode (0=Standby, 1=Normal, 2=Backup, 3=Self-Consume, 4=TOU)
+            # 15017: Reserve SOC - Self-Consumption mode reserve (maps to Model 713 SoC reserve)
+            # 15040: Reserve SOC 2 - TOU mode reserve (int8, -128 to 127)
             extensions_data = None
             try:
                 from src.modbus_client_franklinwh import FranklinWHRegisterMap
                 register_map = FranklinWHRegisterMap(modbus)
                 metrics = await register_map.read_all_metrics()
                 mode_text = await register_map.get_operating_mode_text(metrics.operating_mode)
+                
+                # Normalize reserveSoc2 (handle unsigned int16 -> signed int8 conversion)
+                reserve_soc_2_normalized = metrics.reserve_soc_2
+                if reserve_soc_2_normalized is not None and reserve_soc_2_normalized > 32767:
+                    reserve_soc_2_normalized = reserve_soc_2_normalized - 65536
+                
                 extensions_data = {
+                    # SunSpec2-aligned naming (camelCase)
                     "operatingMode": metrics.operating_mode,
                     "modeText": mode_text,
-                    "reserveSoc": metrics.reserve_soc,
-                    "reserveSoc2": metrics.reserve_soc_2 if metrics.reserve_soc_2 is None or metrics.reserve_soc_2 <= 32767 else metrics.reserve_soc_2 - 65536,
+                    "reserveSoc": metrics.reserve_soc,  # Register 15017
+                    "reserveSoc2": reserve_soc_2_normalized,  # Register 15040
+                    
+                    # Snake_case aliases for API consistency
+                    "operating_mode": metrics.operating_mode,
+                    "mode_text": mode_text,
+                    "reserve_soc": metrics.reserve_soc,
+                    "reserve_soc_2": reserve_soc_2_normalized,
+                    
+                    # Human-readable aliases
                     "reserve_soc_self_consumption": metrics.reserve_soc,
-                    "reserve_soc_tou": metrics.reserve_soc_2 if metrics.reserve_soc_2 is None or metrics.reserve_soc_2 <= 32767 else metrics.reserve_soc_2 - 65536,
+                    "reserve_soc_tou": reserve_soc_2_normalized,
+                    
+                    # Traceability: Register addresses
+                    "_meta": {
+                        "operating_mode_register": 15016,
+                        "reserve_soc_register": 15017,
+                        "reserve_soc_2_register": 15040,
+                        "source": "franklinwh_extensions"
+                    }
                 }
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Extensions not available: {e}")
                 pass  # Extensions are optional
             
             return {
@@ -277,26 +305,48 @@ def create_app(
             
             mode_text = await register_map.get_operating_mode_text(metrics.operating_mode)
             
+            # Normalize reserveSoc2 (handle unsigned int16 -> signed int8 conversion)
+            reserve_soc_2_normalized = metrics.reserve_soc_2
+            if reserve_soc_2_normalized is not None and reserve_soc_2_normalized > 32767:
+                reserve_soc_2_normalized = reserve_soc_2_normalized - 65536
+            
             return {
-                # New naming convention
+                # SunSpec2-aligned naming (camelCase) - Primary
+                "operatingMode": metrics.operating_mode,
+                "modeText": mode_text,
+                "reserveSoc": metrics.reserve_soc,  # Register 15017
+                "reserveSoc2": reserve_soc_2_normalized,  # Register 15040
+                
+                # Structured operating mode
                 "operating_mode": {
                     "raw": metrics.operating_mode,
                     "text": mode_text,
                 },
+                
+                # Snake_case aliases for API consistency
+                "mode_text": mode_text,
+                "reserve_soc": metrics.reserve_soc,
+                "reserve_soc_2": reserve_soc_2_normalized,
+                
+                # Human-readable aliases
                 "reserve_soc_self_consumption": metrics.reserve_soc,
-                "reserve_soc_tou": metrics.reserve_soc_2 if metrics.reserve_soc_2 is None or metrics.reserve_soc_2 <= 32767 else metrics.reserve_soc_2 - 65536,
-                # Old naming for backward compatibility
-                "operatingMode": metrics.operating_mode,
-                "modeText": mode_text,
-                "reserveSoc": metrics.reserve_soc,
-                "reserveSoc2": metrics.reserve_soc_2 if metrics.reserve_soc_2 is None or metrics.reserve_soc_2 <= 32767 else metrics.reserve_soc_2 - 65536,
-                # Raw values
+                "reserve_soc_tou": reserve_soc_2_normalized,
+                
+                # Raw register values (for debugging)
                 "soc_raw": metrics.soc_raw,
                 "soh_raw": metrics.soh_raw,
                 "power_raw": metrics.power_raw,
                 "voltage_raw": metrics.voltage_raw,
                 "current_raw": metrics.current_raw,
                 "status_flags": metrics.status_flags,
+                
+                # Traceability metadata
+                "_meta": {
+                    "operating_mode_register": 15016,
+                    "reserve_soc_register": 15017,
+                    "reserve_soc_2_register": 15040,
+                    "source": "franklinwh_extensions"
+                }
             }
         except Exception as e:
             logger.error(f"Error reading extensions: {e}")
