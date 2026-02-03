@@ -49,11 +49,15 @@ try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self._client.connect, self.hostname, self.port, 60)
             self._client.loop_start()
-            # Wait for connection
-            for _ in range(50):  # 5 second timeout
+            # Wait for connection - be more patient
+            for i in range(100):  # 10 second timeout
                 if self._connected:
                     return
                 await asyncio.sleep(0.1)
+            # Check if client thinks it's connected even if callback didn't fire
+            if self._client.is_connected():
+                self._connected = True
+                return
             raise ConnectionError("MQTT connection timeout")
             
         async def disconnect(self):
@@ -74,9 +78,11 @@ try:
             
         async def messages(self):
             """Async generator for messages."""
+            empty_count = 0
             while True:
                 try:
                     msg = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
+                    empty_count = 0  # Reset counter on successful message
                     # Create a simple message object
                     class Msg:
                         def __init__(self, topic, payload):
@@ -84,8 +90,11 @@ try:
                             self.payload = payload
                     yield Msg(msg.topic, msg.payload)
                 except asyncio.TimeoutError:
-                    if not self._connected:
-                        raise Exception("Connection lost")
+                    # Check if we're still connected - allow some grace period
+                    if not self._connected and not self._client.is_connected():
+                        empty_count += 1
+                        if empty_count > 5:  # ~5 seconds of being disconnected
+                            raise Exception("Connection lost")
                     continue
     
     class MqttError(Exception):
