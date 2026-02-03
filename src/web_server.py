@@ -51,10 +51,31 @@ class ModbusConfigRequest(BaseModel):
 
 
 class MQTTConfigRequest(BaseModel):
-    host: str
-    port: int = 1883
-    username: str = ""
-    password: str = ""
+    # Broker settings
+    host: Optional[str] = None
+    port: Optional[int] = 1883
+    username: Optional[str] = ""
+    password: Optional[str] = ""
+    client_id: Optional[str] = "franklinwh_bridge"
+    enabled: Optional[bool] = False
+    
+    # HA Discovery settings
+    discovery_prefix: Optional[str] = "homeassistant"
+    state_prefix: Optional[str] = "franklinwh"
+    ha_device_name: Optional[str] = "FranklinWH Battery"
+    unique_id_prefix: Optional[str] = "franklinwh"
+    
+    # Entity selection
+    publish_battery: Optional[bool] = True
+    publish_inverter: Optional[bool] = True
+    publish_solar: Optional[bool] = True
+    publish_home_loads: Optional[bool] = True
+    publish_capacity: Optional[bool] = True
+    publish_controls: Optional[bool] = True
+    
+    # Advanced
+    retain_discovery: Optional[bool] = True
+    qos: Optional[int] = 0
 
 
 class ThemeConfigRequest(BaseModel):
@@ -541,11 +562,29 @@ def create_app(
                 "timeout": config.modbus.timeout,
             },
             "mqtt": {
+                # Broker settings
                 "host": config.mqtt.host,
                 "port": config.mqtt.port,
                 "username": config.mqtt.username,
-                # Password masked for security
+                # Password masked for security - only indicate if set
+                "has_password": bool(config.mqtt.password),
+                "client_id": config.mqtt.client_id,
                 "enabled": config.mqtt.enabled,
+                # HA Discovery settings
+                "discovery_prefix": config.mqtt.discovery_prefix,
+                "state_prefix": config.mqtt.state_prefix,
+                "ha_device_name": config.mqtt.ha_device_name,
+                "unique_id_prefix": config.mqtt.unique_id_prefix,
+                # Entity selection
+                "publish_battery": config.mqtt.publish_battery,
+                "publish_inverter": config.mqtt.publish_inverter,
+                "publish_solar": config.mqtt.publish_solar,
+                "publish_home_loads": config.mqtt.publish_home_loads,
+                "publish_capacity": config.mqtt.publish_capacity,
+                "publish_controls": config.mqtt.publish_controls,
+                # Advanced
+                "retain_discovery": config.mqtt.retain_discovery,
+                "qos": config.mqtt.qos,
             },
             "theme": {
                 "primary_color": config.theme.primary_color,
@@ -572,12 +611,19 @@ def create_app(
                 config.modbus.timeout = request.modbus.timeout
                 
             if request.mqtt:
-                config.mqtt.host = request.mqtt.host
-                config.mqtt.port = request.mqtt.port
-                config.mqtt.username = request.mqtt.username
-                if request.mqtt.password:  # Only update if provided
-                    config.mqtt.password = request.mqtt.password
-                config.mqtt.enabled = request.mqtt.enabled
+                mqtt_fields = [
+                    'host', 'port', 'username', 'password', 'client_id',
+                    'discovery_prefix', 'state_prefix', 'ha_device_name', 'unique_id_prefix',
+                    'publish_battery', 'publish_inverter', 'publish_solar', 
+                    'publish_home_loads', 'publish_capacity', 'publish_controls',
+                    'retain_discovery', 'qos', 'enabled'
+                ]
+                for field in mqtt_fields:
+                    if hasattr(request.mqtt, field):
+                        value = getattr(request.mqtt, field)
+                        if field == 'password' and not value:
+                            continue  # Don't clear password if not provided
+                        setattr(config.mqtt, field, value)
                 
             if request.theme:
                 config.theme.mode = request.theme.mode
@@ -603,13 +649,61 @@ def create_app(
         except Exception as e:
             logger.error(f"Error saving settings: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-            if request.refresh_interval is not None:
-                updates["refresh_interval"] = request.refresh_interval
+    
+    # MQTT Admin Endpoints
+    
+    @app.get("/mqtt-admin")
+    async def mqtt_admin_page(request: Request):
+        """MQTT Administration page."""
+        return templates.TemplateResponse("mqtt_admin.html", {"request": request})
+    
+    @app.post("/api/mqtt/test")
+    async def test_mqtt_connection(request: Request):
+        """Test MQTT broker connection without saving."""
+        try:
+            data = await request.json()
+            host = data.get("host", "localhost")
+            port = data.get("port", 1883)
+            username = data.get("username", "")
+            password = data.get("password", "")
             
-            await app.state.config.update(updates)
-            return {"success": True}
+            # Attempt connection test
+            try:
+                import asyncio
+                from asyncio_mqtt import Client, MqttError
+                
+                client_kwargs = {"hostname": host, "port": port}
+                if username:
+                    client_kwargs["username"] = username
+                    client_kwargs["password"] = password
+                
+                # Try to connect with short timeout
+                client = Client(**client_kwargs)
+                await asyncio.wait_for(client.__aenter__(), timeout=5.0)
+                await client.__aexit__(None, None, None)
+                
+                return {"success": True, "message": "Connection successful"}
+            except asyncio.TimeoutError:
+                return {"success": False, "message": "Connection timeout"}
+            except MqttError as e:
+                return {"success": False, "message": f"MQTT error: {str(e)}"}
+            except Exception as e:
+                return {"success": False, "message": str(e)}
         except Exception as e:
-            logger.error(f"Error saving settings: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/mqtt/republish")
+    async def republish_discovery():
+        """Republish all MQTT discovery messages."""
+        mqtt = app.state.mqtt
+        if not mqtt:
+            raise HTTPException(status_code=503, detail="MQTT bridge not available")
+        
+        try:
+            await mqtt.setup_entities()
+            return {"success": True, "message": "Discovery messages republished"}
+        except Exception as e:
+            logger.error(f"Error republishing discovery: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
     # MQTT Control Endpoints

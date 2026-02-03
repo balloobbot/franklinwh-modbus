@@ -70,19 +70,45 @@ class DeviceConfig:
     base_address: int = 40001
     timeout: int = 3
     enabled: bool = True
+    # Discovered device info (populated after first connection)
+    serial_number: str = ""
+    model: str = ""
+    manufacturer: str = ""
+    firmware_version: str = ""
+    last_connected: str = ""  # ISO timestamp
 
 @dataclass
 class MQTTConfig:
-    """MQTT configuration."""
+    """MQTT configuration with Home Assistant discovery options."""
+    # Broker settings
     host: str = "localhost"
     port: int = 1883
     username: str = ""
     password: str = ""
-    topic_prefix: str = "franklinwh"
+    
+    # Client settings
     client_id: str = "franklinwh_bridge"
-    discovery_prefix: str = "homeassistant"
-    state_prefix: str = "franklinwh"
     enabled: bool = False
+    
+    # Home Assistant Discovery settings
+    discovery_prefix: str = "homeassistant"  # HA discovery topic prefix
+    state_prefix: str = "franklinwh"  # State topic prefix
+    
+    # Device naming in HA
+    ha_device_name: str = "FranklinWH Battery"  # Display name in HA
+    unique_id_prefix: str = "franklinwh"  # Prefix for unique_ids
+    
+    # Entity selection - which entities to publish
+    publish_battery: bool = True
+    publish_inverter: bool = True
+    publish_solar: bool = True
+    publish_home_loads: bool = True
+    publish_capacity: bool = True
+    publish_controls: bool = True  # Mode, reserve SOC controls
+    
+    # Advanced options
+    retain_discovery: bool = True  # Retain discovery messages
+    qos: int = 0  # MQTT QoS level (0, 1, or 2)
 
 
 @dataclass

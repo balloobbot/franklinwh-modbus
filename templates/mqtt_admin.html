@@ -1,0 +1,465 @@
+{% extends "base.html" %}
+
+{% block title %}MQTT Admin - FranklinWH Manager{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto" x-data="mqttAdmin()">
+    
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold">MQTT Administration</h1>
+            <p class="text-gray-500 dark:text-gray-400">Configure Home Assistant integration and entity publishing</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium"
+                :class="status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
+                        status === 'connecting' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'">
+                <div class="w-2 h-2 rounded-full animate-pulse"
+                    :class="status === 'online' ? 'bg-emerald-500' : 
+                            status === 'connecting' ? 'bg-amber-500' : 'bg-gray-400'"></div>
+                <span x-text="statusText"></span>
+            </div>
+            <button @click="testConnection()" :disabled="testing"
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
+                <i :class="testing ? 'fas fa-circle-notch fa-spin' : 'fas fa-plug'"></i>
+                <span x-text="testing ? 'Testing...' : 'Test Connection'"></span>
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left Column: Broker Settings -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- Connection Settings -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i class="fas fa-server text-primary"></i>
+                    Broker Connection
+                </h2>
+                
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <label class="font-medium text-sm">Enable MQTT</label>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" x-model="config.enabled" class="sr-only peer" @change="onEnabledChange()">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                        </label>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Broker Host</label>
+                        <input type="text" x-model="config.host" placeholder="192.168.1.100"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Port</label>
+                            <input type="number" x-model.number="config.port"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">QoS</label>
+                            <select x-model.number="config.qos"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                                <option value="0">0 (At most once)</option>
+                                <option value="1">1 (At least once)</option>
+                                <option value="2">2 (Exactly once)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Client ID</label>
+                        <input type="text" x-model="config.client_id"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        <p class="text-xs text-gray-500 mt-1">Must be unique across all MQTT clients</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Authentication -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i class="fas fa-lock text-primary"></i>
+                    Authentication
+                </h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Username</label>
+                        <input type="text" x-model="config.username" placeholder="Optional"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Password</label>
+                        <input type="password" x-model="config.password" placeholder="Optional"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Column: Home Assistant Settings -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- HA Discovery Settings -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i class="fas fa-home text-primary"></i>
+                    Home Assistant Discovery
+                </h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Discovery Prefix</label>
+                        <input type="text" x-model="config.discovery_prefix"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        <p class="text-xs text-gray-500 mt-1">Default: homeassistant</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">State Topic Prefix</label>
+                        <input type="text" x-model="config.state_prefix"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Device Name in HA</label>
+                        <input type="text" x-model="config.ha_device_name"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Unique ID Prefix</label>
+                        <input type="text" x-model="config.unique_id_prefix"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        <p class="text-xs text-gray-500 mt-1">Used to avoid conflicts with existing devices</p>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2">
+                        <label class="text-sm font-medium">Retain Discovery Messages</label>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" x-model="config.retain_discovery" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4">Actions</h2>
+                <div class="space-y-3">
+                    <button @click="restartMQTT()" :disabled="restarting"
+                        class="w-full py-2.5 px-4 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2">
+                        <i :class="restarting ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
+                        <span x-text="restarting ? 'Restarting...' : 'Restart MQTT'"></span>
+                    </button>
+                    
+                    <button @click="republishDiscovery()" :disabled="republishing"
+                        class="w-full py-2.5 px-4 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2">
+                        <i :class="republishing ? 'fas fa-circle-notch fa-spin' : 'fas fa-broadcast-tower'"></i>
+                        <span x-text="republishing ? 'Publishing...' : 'Republish Discovery'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Entity Selection -->
+        <div class="lg:col-span-1 space-y-6">
+            <!-- Entity Selection -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i class="fas fa-list-check text-primary"></i>
+                    Entities to Publish
+                </h2>
+                <p class="text-sm text-gray-500 mb-4">Select which sensors and controls to expose in Home Assistant</p>
+                
+                <div class="space-y-3">
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-battery-full text-emerald-500"></i>
+                            <div>
+                                <span class="font-medium">Battery Sensors</span>
+                                <p class="text-xs text-gray-500">SOC, SOH, Temperature, Cycles</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_battery" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-bolt text-amber-500"></i>
+                            <div>
+                                <span class="font-medium">Inverter Sensors</span>
+                                <p class="text-xs text-gray-500">Power, Voltage, Current, Frequency</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_inverter" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-sun text-orange-500"></i>
+                            <div>
+                                <span class="font-medium">Solar PV Sensors</span>
+                                <p class="text-xs text-gray-500">Output power, Energy produced</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_solar" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-home text-blue-500"></i>
+                            <div>
+                                <span class="font-medium">Home Load Sensors</span>
+                                <p class="text-xs text-gray-500">Home consumption, PV output</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_home_loads" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-tachometer-alt text-purple-500"></i>
+                            <div>
+                                <span class="font-medium">Capacity Info</span>
+                                <p class="text-xs text-gray-500">Max charge/discharge limits</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_capacity" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+
+                    <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-sliders-h text-cyan-500"></i>
+                            <div>
+                                <span class="font-medium">Controls</span>
+                                <p class="text-xs text-gray-500">Mode select, Reserve SOC</p>
+                            </div>
+                        </div>
+                        <input type="checkbox" x-model="config.publish_controls" class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Preview -->
+            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                <h2 class="text-lg font-semibold mb-4">Preview</h2>
+                <div class="space-y-2 text-sm font-mono">
+                    <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
+                        <span class="text-gray-500">Discovery topic:</span><br>
+                        <span x-text="`${config.discovery_prefix}/sensor/${config.unique_id_prefix}_soc/config`"></span>
+                    </div>
+                    <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
+                        <span class="text-gray-500">State topic:</span><br>
+                        <span x-text="`${config.state_prefix}/battery/soc`"></span>
+                    </div>
+                    <div class="p-2 bg-gray-100 dark:bg-gray-800 rounded">
+                        <span class="text-gray-500">Unique ID:</span><br>
+                        <span x-text="`${config.unique_id_prefix}_soc`"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Footer -->
+    <div class="fixed bottom-0 left-0 right-0 bg-surface border-t border-gray-200 dark:border-gray-800 p-4 z-40"
+        x-show="hasChanges" x-transition>
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                <i class="fas fa-info-circle mr-1"></i>
+                You have unsaved changes
+            </p>
+            <div class="flex gap-3">
+                <button @click="resetConfig()" class="px-4 py-2 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+                    Reset
+                </button>
+                <button @click="saveConfig()" :disabled="saving"
+                    class="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
+                    <i :class="saving ? 'fas fa-circle-notch fa-spin' : 'fas fa-save'"></i>
+                    <span x-text="saving ? 'Saving...' : 'Save Changes'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function mqttAdmin() {
+        return {
+            config: {
+                enabled: false,
+                host: 'localhost',
+                port: 1883,
+                username: '',
+                password: '',
+                client_id: 'franklinwh_bridge',
+                discovery_prefix: 'homeassistant',
+                state_prefix: 'franklinwh',
+                ha_device_name: 'FranklinWH Battery',
+                unique_id_prefix: 'franklinwh',
+                publish_battery: true,
+                publish_inverter: true,
+                publish_solar: true,
+                publish_home_loads: true,
+                publish_capacity: true,
+                publish_controls: true,
+                retain_discovery: true,
+                qos: 0
+            },
+            originalConfig: null,
+            hasChanges: false,
+            saving: false,
+            testing: false,
+            restarting: false,
+            republishing: false,
+            status: 'unknown',
+            statusText: 'Unknown',
+
+            init() {
+                this.loadConfig();
+                this.checkStatus();
+                // Auto-refresh status every 5s
+                setInterval(() => this.checkStatus(), 5000);
+                
+                // Watch for changes
+                this.$watch('config', () => {
+                    this.hasChanges = JSON.stringify(this.config) !== JSON.stringify(this.originalConfig);
+                }, { deep: true });
+            },
+
+            async loadConfig() {
+                try {
+                    const response = await fetch('/api/settings');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.mqtt) {
+                            this.config = { ...this.config, ...data.mqtt };
+                            this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load config:', e);
+                }
+            },
+
+            async checkStatus() {
+                try {
+                    const response = await fetch('/api/mqtt/status');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.status = data.status;
+                        this.statusText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+                    }
+                } catch (e) {
+                    this.status = 'unknown';
+                    this.statusText = 'Unknown';
+                }
+            },
+
+            async saveConfig() {
+                this.saving = true;
+                try {
+                    const response = await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mqtt: this.config })
+                    });
+
+                    if (!response.ok) throw new Error('Save failed');
+
+                    this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                    this.hasChanges = false;
+                    showToast('MQTT configuration saved', 'success');
+                    
+                    // Restart MQTT to apply changes
+                    await this.restartMQTT();
+                } catch (e) {
+                    showToast('Failed to save: ' + e.message, 'error');
+                } finally {
+                    this.saving = false;
+                }
+            },
+
+            resetConfig() {
+                this.config = JSON.parse(JSON.stringify(this.originalConfig));
+                this.hasChanges = false;
+            },
+
+            async testConnection() {
+                this.testing = true;
+                try {
+                    const response = await fetch('/api/mqtt/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            host: this.config.host,
+                            port: this.config.port,
+                            username: this.config.username,
+                            password: this.config.password
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        showToast('Connection successful', 'success');
+                    } else {
+                        showToast('Connection failed: ' + result.message, 'error');
+                    }
+                } catch (e) {
+                    showToast('Test failed: ' + e.message, 'error');
+                } finally {
+                    this.testing = false;
+                }
+            },
+
+            async restartMQTT() {
+                this.restarting = true;
+                try {
+                    const response = await fetch('/api/mqtt/restart', { method: 'POST' });
+                    if (response.ok) {
+                        showToast('MQTT restarted', 'success');
+                        setTimeout(() => this.checkStatus(), 2000);
+                    }
+                } catch (e) {
+                    showToast('Restart failed', 'error');
+                } finally {
+                    this.restarting = false;
+                }
+            },
+
+            async republishDiscovery() {
+                this.republishing = true;
+                try {
+                    const response = await fetch('/api/mqtt/republish', { method: 'POST' });
+                    if (response.ok) {
+                        showToast('Discovery messages republished', 'success');
+                    }
+                } catch (e) {
+                    showToast('Republish failed', 'error');
+                } finally {
+                    this.republishing = false;
+                }
+            },
+
+            async onEnabledChange() {
+                if (this.config.enabled) {
+                    // Enable MQTT
+                    await fetch('/api/mqtt/enable', { method: 'POST' });
+                } else {
+                    // Disable MQTT
+                    await fetch('/api/mqtt/disable', { method: 'POST' });
+                }
+                setTimeout(() => this.checkStatus(), 1000);
+            }
+        }
+    }
+</script>
+{% endblock %}

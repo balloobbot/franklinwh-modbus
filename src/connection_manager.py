@@ -44,15 +44,45 @@ class ConnectionManager:
                     asyncio.create_task(self._connect_client(device_id, client))
     
     async def _connect_client(self, device_id: str, client: FranklinWHModbusClient):
-        """Attempt to connect a client."""
+        """Attempt to connect a client and discover device info."""
         try:
             connected = await client.connect()
             if connected:
                 logger.info(f"Device {device_id} connected successfully")
+                # Auto-discover device info
+                await self._discover_device_info(device_id, client)
             else:
                 logger.warning(f"Device {device_id} failed to connect")
         except Exception as e:
             logger.error(f"Error connecting device {device_id}: {e}")
+    
+    async def _discover_device_info(self, device_id: str, client: FranklinWHModbusClient):
+        """Discover and store device information after connection."""
+        try:
+            # Import here to avoid circular imports
+            from src.config_manager import config_manager
+            
+            # Get device info from Modbus
+            info = await client.get_device_info()
+            if info:
+                logger.info(f"Discovered device info for {device_id}: {info.manufacturer} {info.model} (S/N: {info.serial_number})")
+                
+                # Update config with discovered info
+                config = config_manager.get()
+                if device_id in config.devices:
+                    device = config.devices[device_id]
+                    device.manufacturer = info.manufacturer
+                    device.model = info.model
+                    device.serial_number = info.serial_number
+                    device.firmware_version = info.version
+                    from datetime import datetime
+                    device.last_connected = datetime.now().isoformat()
+                    
+                    # Save config
+                    await config_manager.save()
+                    logger.info(f"Updated device config for {device_id}")
+        except Exception as e:
+            logger.warning(f"Could not discover device info for {device_id}: {e}")
 
     async def get_client(self, device_id: str = "default") -> Optional[FranklinWHModbusClient]:
         """Get a client by ID. Returns the first available if not specified."""
