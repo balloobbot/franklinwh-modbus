@@ -435,8 +435,8 @@
             status: 'unknown',
             statusText: 'Unknown',
 
-            init() {
-                this.loadConfig();
+            async init() {
+                await this.loadConfig();
                 this.loadDevices();
                 this.checkStatus();
                 // Auto-refresh status every 5s
