@@ -6,26 +6,52 @@
 <div class="max-w-7xl mx-auto" x-data="mqttAdmin()">
     
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
             <h1 class="text-2xl font-bold">MQTT Administration</h1>
             <p class="text-gray-500 dark:text-gray-400">Configure Home Assistant integration and entity publishing</p>
         </div>
-        <div class="flex items-center gap-3">
+        
+        <!-- Status & Actions Bar -->
+        <div class="flex flex-wrap items-center gap-3">
+            <!-- Status Badge -->
             <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium"
                 :class="status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
                         status === 'connecting' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'">
-                <div class="w-2 h-2 rounded-full animate-pulse"
-                    :class="status === 'online' ? 'bg-emerald-500' : 
-                            status === 'connecting' ? 'bg-amber-500' : 'bg-gray-400'"></div>
+                        status === 'disabled' ? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' :
+                        'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'">
+                <div class="w-2 h-2 rounded-full"
+                    :class="status === 'online' ? 'bg-emerald-500 animate-pulse' : 
+                            status === 'connecting' ? 'bg-amber-500 animate-pulse' : 
+                            status === 'disabled' ? 'bg-gray-400' : 'bg-red-500'"></div>
                 <span x-text="statusText"></span>
             </div>
-            <button @click="testConnection()" :disabled="testing"
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
-                <i :class="testing ? 'fas fa-circle-notch fa-spin' : 'fas fa-plug'"></i>
-                <span x-text="testing ? 'Testing...' : 'Test Connection'"></span>
-            </button>
+            
+            <!-- Auto-start indicator -->
+            <div x-show="config.enabled" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                <i class="fas fa-check-circle mr-1"></i>Auto-start
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="flex items-center gap-2">
+                <button @click="testConnection()" :disabled="testing"
+                    class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg disabled:opacity-50 flex items-center gap-1">
+                    <i :class="testing ? 'fas fa-circle-notch fa-spin' : 'fas fa-plug'"></i>
+                    <span x-text="testing ? 'Testing...' : 'Test'"></span>
+                </button>
+                
+                <button @click="restartMQTT()" :disabled="restarting"
+                    class="px-3 py-1.5 text-sm bg-amber-500 text-white hover:bg-amber-600 rounded-lg disabled:opacity-50 flex items-center gap-1">
+                    <i :class="restarting ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
+                    <span x-text="restarting ? 'Restarting...' : 'Restart'"></span>
+                </button>
+                
+                <button @click="republishDiscovery()" :disabled="republishing"
+                    class="px-3 py-1.5 text-sm bg-primary text-white hover:bg-primary/90 rounded-lg disabled:opacity-50 flex items-center gap-1">
+                    <i :class="republishing ? 'fas fa-circle-notch fa-spin' : 'fas fa-broadcast-tower'"></i>
+                    <span x-text="republishing ? 'Publishing...' : 'Republish'"></span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -47,6 +73,38 @@
                             <input type="checkbox" x-model="config.enabled" class="sr-only peer" @change="onEnabledChange()">
                             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                         </label>
+                    </div>
+                    
+                    <!-- Connection Status Detail -->
+                    <div class="p-3 rounded-lg text-sm" 
+                        :class="status === 'online' ? 'bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800' : 
+                                status === 'connecting' ? 'bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' :
+                                status === 'disabled' ? 'bg-gray-50 border border-gray-200 dark:bg-gray-800 dark:border-gray-700' :
+                                'bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800'">
+                        <div class="flex items-center gap-2 mb-1">
+                            <i :class="status === 'online' ? 'fas fa-check-circle text-emerald-600' : 
+                                       status === 'connecting' ? 'fas fa-spinner fa-spin text-amber-600' :
+                                       status === 'disabled' ? 'fas fa-power-off text-gray-500' :
+                                       'fas fa-exclamation-circle text-red-600'"></i>
+                            <span class="font-medium" 
+                                :class="status === 'online' ? 'text-emerald-700 dark:text-emerald-400' : 
+                                        status === 'connecting' ? 'text-amber-700 dark:text-amber-400' :
+                                        status === 'disabled' ? 'text-gray-600 dark:text-gray-400' :
+                                        'text-red-700 dark:text-red-400'"
+                                x-text="status === 'online' ? 'Connected to broker' : 
+                                        status === 'connecting' ? 'Connecting to broker...' :
+                                        status === 'disabled' ? 'MQTT is disabled' :
+                                        'Connection failed'"></span>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 ml-6" x-show="config.enabled && status !== 'disabled'">
+                            <span x-text="config.host + ':' + config.port"></span>
+                            <span x-show="status === 'online'">• Publishing entities</span>
+                            <span x-show="status === 'connecting'">• Auto-retry enabled</span>
+                            <span x-show="status === 'offline'">• Will retry automatically</span>
+                        </p>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 ml-6" x-show="!config.enabled">
+                            Toggle to enable auto-connect on startup
+                        </p>
                     </div>
 
                     <div>
@@ -208,23 +266,6 @@
                 </div>
             </div>
 
-            <!-- Actions -->
-            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
-                <h2 class="text-lg font-semibold mb-4">Actions</h2>
-                <div class="space-y-3">
-                    <button @click="restartMQTT()" :disabled="restarting"
-                        class="w-full py-2.5 px-4 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2">
-                        <i :class="restarting ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
-                        <span x-text="restarting ? 'Restarting...' : 'Restart MQTT'"></span>
-                    </button>
-                    
-                    <button @click="republishDiscovery()" :disabled="republishing"
-                        class="w-full py-2.5 px-4 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2">
-                        <i :class="republishing ? 'fas fa-circle-notch fa-spin' : 'fas fa-broadcast-tower'"></i>
-                        <span x-text="republishing ? 'Publishing...' : 'Republish Discovery'"></span>
-                    </button>
-                </div>
-            </div>
         </div>
 
         <!-- Right Column: Entity Selection -->
@@ -326,6 +367,9 @@
             </div>
         </div>
     </div>
+    
+    <!-- Spacer for fixed footer -->
+    <div class="h-20" x-show="hasChanges"></div>
 
     <!-- Save Footer -->
     <div class="fixed bottom-0 left-0 right-0 bg-surface border-t border-gray-200 dark:border-gray-800 p-4 z-40"
@@ -418,12 +462,20 @@
                             }
                             // Track if password was previously set
                             const hadPassword = data.mqtt.has_password;
+                            const wasEnabled = data.mqtt.enabled;
                             this.config = { ...this.config, ...data.mqtt };
                             // Clear password field (don't show dots), but track that it exists
                             this.config.password = '';
                             this.config.has_password = hadPassword;
                             this.passwordChanged = false;
                             this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                            
+                            // Notify if MQTT is configured to auto-start
+                            if (wasEnabled) {
+                                setTimeout(() => {
+                                    showToast('MQTT is enabled and will auto-connect', 'info');
+                                }, 1000);
+                            }
                         }
                         // Load sites for device site name display
                         if (data.sites) {
