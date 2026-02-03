@@ -399,25 +399,37 @@ class HomeAssistantMQTTBridge:
             await self._set_status(MQTTStatus.OFFLINE)
     
     def _get_device_payload(self, ha_device_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get device payload for HA discovery."""
-        # Use provided name or default
-        display_name = ha_device_name or "FranklinWH Battery"
+        """Get device payload for HA discovery with exact SunSpec Model 1 info."""
         
         if self._device_info:
-            # If using default name, append last 4 of serial for uniqueness
-            if ha_device_name is None and self._device_info.serial_number:
-                short_serial = self._device_info.serial_number[-4:]
-                display_name = f"FranklinWH {self._device_info.model} {short_serial}"
+            # Use exact values from SunSpec Model 1
+            manufacturer = self._device_info.manufacturer if self._device_info.manufacturer else "FranklinWH"
+            model = self._device_info.model if self._device_info.model else "aPower"
+            serial = self._device_info.serial_number if self._device_info.serial_number else "unknown"
+            version = self._device_info.version if self._device_info.version else ""
+            
+            # Build display name: custom name or "{Model} {SerialShort}"
+            if ha_device_name:
+                display_name = ha_device_name
+            else:
+                # Use last 4 chars of serial for display
+                short_serial = serial[-4:] if len(serial) >= 4 else serial
+                display_name = f"{model} {short_serial}"
+            
+            # Device identifier includes serial for true uniqueness
             return {
-                "identifiers": [f"franklinwh_{self._device_info.serial_number}"],
+                "identifiers": [f"franklinwh_{serial}"],
                 "name": display_name,
-                "manufacturer": self._device_info.manufacturer,
-                "model": self._device_info.model,
-                "sw_version": self._device_info.version,
+                "manufacturer": manufacturer,
+                "model": model,
+                "sw_version": version,
+                "serial_number": serial,  # HA may use this
             }
+        
+        # Fallback when no device info available
         return {
             "identifiers": ["franklinwh_battery"],
-            "name": display_name,
+            "name": ha_device_name or "FranklinWH Battery",
             "manufacturer": "FranklinWH",
             "model": "aPower",
         }
@@ -426,7 +438,7 @@ class HomeAssistantMQTTBridge:
         """Setup Home Assistant discovery entities with configurable options.
         
         Args:
-            device_info: Device information for HA device registry
+            device_info: Device information from SunSpec Model 1 (Mn, Md, SN, etc.)
             mqtt_config: MQTTConfig with entity selection options (optional)
         """
         if not self._client or self._status != MQTTStatus.ONLINE:
@@ -458,6 +470,16 @@ class HomeAssistantMQTTBridge:
             publish_capacity = True
             publish_controls = True
         
+        # Build unique ID base: include serial number for multi-device support
+        # Format: {prefix}_{serial_last8}_{entity} or {prefix}_{entity} if no serial
+        if self._device_info and self._device_info.serial_number and self._device_info.serial_number != 'Unknown':
+            # Use last 8 chars of serial for readability
+            serial_short = self._device_info.serial_number[-8:]
+            unique_base = f"{unique_base}_{serial_short}"
+        else:
+            unique_base = unique_prefix
+        
+        # Get device payload with exact SunSpec Model 1 info
         device = self._get_device_payload(ha_device_name)
         
         # Build entity list based on config
@@ -465,7 +487,7 @@ class HomeAssistantMQTTBridge:
         
         if publish_battery:
             entities.extend([
-                {"type": "sensor", "name": f"{unique_prefix}_soc", "config": {
+                {"type": "sensor", "name": f"{unique_base}_soc", "config": {
                     "name": "State of Charge",
                     "state_topic": f"{self.state_prefix}/battery/soc",
                     "unit_of_measurement": "%",
@@ -474,7 +496,7 @@ class HomeAssistantMQTTBridge:
                     "value_template": "{{ value | float | round(1) }}",
                     "icon": "mdi:battery",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_soh", "config": {
+                {"type": "sensor", "name": f"{unique_base}_soh", "config": {
                     "name": "State of Health",
                     "state_topic": f"{self.state_prefix}/battery/soh",
                     "unit_of_measurement": "%",
@@ -482,7 +504,7 @@ class HomeAssistantMQTTBridge:
                     "value_template": "{{ value | float | round(1) }}",
                     "icon": "mdi:heart-pulse",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_temperature", "config": {
+                {"type": "sensor", "name": f"{unique_base}_temperature", "config": {
                     "name": "Battery Temperature",
                     "state_topic": f"{self.state_prefix}/battery/temperature",
                     "unit_of_measurement": "°C",
@@ -490,7 +512,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:thermometer",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_cycles", "config": {
+                {"type": "sensor", "name": f"{unique_base}_cycles", "config": {
                     "name": "Cycle Count",
                     "state_topic": f"{self.state_prefix}/battery/cycles",
                     "state_class": "total_increasing",
@@ -500,7 +522,7 @@ class HomeAssistantMQTTBridge:
         
         if publish_inverter:
             entities.extend([
-                {"type": "sensor", "name": f"{unique_prefix}_power", "config": {
+                {"type": "sensor", "name": f"{unique_base}_power", "config": {
                     "name": "Power",
                     "state_topic": f"{self.state_prefix}/inverter/power",
                     "unit_of_measurement": "W",
@@ -508,7 +530,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:flash",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_voltage", "config": {
+                {"type": "sensor", "name": f"{unique_base}_voltage", "config": {
                     "name": "Voltage",
                     "state_topic": f"{self.state_prefix}/inverter/voltage",
                     "unit_of_measurement": "V",
@@ -516,7 +538,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:lightning-bolt",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_current", "config": {
+                {"type": "sensor", "name": f"{unique_base}_current", "config": {
                     "name": "Current",
                     "state_topic": f"{self.state_prefix}/inverter/current",
                     "unit_of_measurement": "A",
@@ -524,7 +546,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:current-ac",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_frequency", "config": {
+                {"type": "sensor", "name": f"{unique_base}_frequency", "config": {
                     "name": "Frequency",
                     "state_topic": f"{self.state_prefix}/inverter/frequency",
                     "unit_of_measurement": "Hz",
@@ -536,7 +558,7 @@ class HomeAssistantMQTTBridge:
         
         if publish_solar:
             entities.extend([
-                {"type": "sensor", "name": f"{unique_prefix}_solar_power", "config": {
+                {"type": "sensor", "name": f"{unique_base}_solar_power", "config": {
                     "name": "Solar Power",
                     "state_topic": f"{self.state_prefix}/solar/output_power",
                     "unit_of_measurement": "W",
@@ -544,7 +566,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:solar-power",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_solar_energy", "config": {
+                {"type": "sensor", "name": f"{unique_base}_solar_energy", "config": {
                     "name": "Solar Energy",
                     "state_topic": f"{self.state_prefix}/solar/output_energy",
                     "unit_of_measurement": "Wh",
@@ -556,7 +578,7 @@ class HomeAssistantMQTTBridge:
         
         if publish_home_loads:
             entities.extend([
-                {"type": "sensor", "name": f"{unique_prefix}_home_loads", "config": {
+                {"type": "sensor", "name": f"{unique_base}_home_loads", "config": {
                     "name": "Home Loads",
                     "state_topic": f"{self.state_prefix}/home_loads/home_loads_w",
                     "unit_of_measurement": "W",
@@ -564,7 +586,7 @@ class HomeAssistantMQTTBridge:
                     "state_class": "measurement",
                     "icon": "mdi:home-lightning-bolt",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_pv_output", "config": {
+                {"type": "sensor", "name": f"{unique_base}_pv_output", "config": {
                     "name": "PV Output",
                     "state_topic": f"{self.state_prefix}/home_loads/pv_output_w",
                     "unit_of_measurement": "W",
@@ -576,14 +598,14 @@ class HomeAssistantMQTTBridge:
         
         if publish_capacity:
             entities.extend([
-                {"type": "sensor", "name": f"{unique_prefix}_max_charge", "config": {
+                {"type": "sensor", "name": f"{unique_base}_max_charge", "config": {
                     "name": "Max Charge Power",
                     "state_topic": f"{self.state_prefix}/capacity/max_charge_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "icon": "mdi:arrow-down-bold",
                 }},
-                {"type": "sensor", "name": f"{unique_prefix}_max_discharge", "config": {
+                {"type": "sensor", "name": f"{unique_base}_max_discharge", "config": {
                     "name": "Max Discharge Power",
                     "state_topic": f"{self.state_prefix}/capacity/max_discharge_w",
                     "unit_of_measurement": "W",
@@ -594,14 +616,14 @@ class HomeAssistantMQTTBridge:
         
         # Always add status sensors
         entities.extend([
-            {"type": "binary_sensor", "name": f"{unique_prefix}_connected", "config": {
+            {"type": "binary_sensor", "name": f"{unique_base}_connected", "config": {
                 "name": "Connected",
                 "state_topic": f"{self.state_prefix}/status/connected",
                 "payload_on": "true",
                 "payload_off": "false",
                 "device_class": "connectivity",
             }},
-            {"type": "sensor", "name": f"{unique_prefix}_mqtt_status", "config": {
+            {"type": "sensor", "name": f"{unique_base}_mqtt_status", "config": {
                 "name": "MQTT Status",
                 "state_topic": f"{self.state_prefix}/status/mqtt",
                 "icon": "mdi:network-outline",
