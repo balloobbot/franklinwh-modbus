@@ -302,9 +302,8 @@ class HomeAssistantMQTTBridge:
                         self._retry_count = 0
                         await self._set_status(MQTTStatus.ONLINE)
                         
-                        # Setup entities on first connect
-                        if self._device_info:
-                            await self.setup_entities(self._device_info)
+                        # Setup entities on connect (always, with or without device info)
+                        await self.setup_entities(self._device_info)
                         
                         # Start message processing
                         await self._process_messages()
