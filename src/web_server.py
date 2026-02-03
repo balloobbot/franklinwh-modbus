@@ -122,6 +122,7 @@ class ModeRequest(BaseModel):
 
 class ReserveRequest(BaseModel):
     value: int
+    type: str = "self_consumption"  # "self_consumption" or "tou"
 
 
 class PowerLimitRequest(BaseModel):
@@ -479,7 +480,7 @@ def create_app(
     
     @app.post("/api/reserve")
     async def set_reserve(request: ReserveRequest, device_id: Optional[str] = None):
-        """Set reserve SOC."""
+        """Set reserve SOC (self-consumption or TOU)."""
         modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
@@ -487,12 +488,18 @@ def create_app(
         try:
             from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
-            success = await register_map.set_reserve_soc(request.value)
+            
+            if request.type == "tou":
+                success = await register_map.set_reserve_soc_2(request.value)
+                label = "reserve_soc_2"
+            else:
+                success = await register_map.set_reserve_soc(request.value)
+                label = "reserve_soc"
             
             if success:
-                return {"success": True, "reserve_soc": request.value}
+                return {"success": True, label: request.value}
             else:
-                raise HTTPException(status_code=400, detail="Failed to set reserve")
+                raise HTTPException(status_code=400, detail=f"Failed to set {label}")
         except Exception as e:
             logger.error(f"Error setting reserve: {e}")
             raise HTTPException(status_code=500, detail=str(e))
