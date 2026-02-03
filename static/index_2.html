@@ -1,0 +1,31 @@
+    <!-- Toasts -->
+    <div class="fixed top-4 right-4 z-50 space-y-2" x-cloak>
+        <template x-for="t in toasts" :key="t.id">
+            <div x-show="t.visible" x-transition
+                 :class="`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] ${t.type==='success'?'bg-green-500':t.type==='error'?'bg-red-500':'bg-amber-500'} text-white`">
+                <i :class="`fas fa-${t.type==='success'?'check-circle':t.type==='error'?'exclamation-circle':'exclamation-triangle'}`"></i>
+                <span x-text="t.message"></span>
+                <button @click="removeToast(t.id)" class="ml-auto"><i class="fas fa-times"></i></button>
+            </div>
+        </template>
+    </div>
+
+    <!-- Modal -->
+    <div x-show="modal.open" class="fixed inset-0 z-40 flex items-center justify-center p-4" style="display:none">
+        <div @click="closeModal()" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+        <div x-show="modal.open" x-transition class="relative bg-surface rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div class="flex items-center gap-3 mb-4">
+                <div :class="`w-12 h-12 rounded-full flex items-center justify-center ${modal.type==='danger'?'bg-red-100 text-red-600':'bg-amber-100 text-amber-600'}`">
+                    <i :class="`fas fa-2x ${modal.icon}`"></i>
+                </div>
+                <div>
+                    <h3 x-text="modal.title" class="text-lg font-semibold"></h3>
+                    <p x-text="modal.message" class="text-sm text-gray-500"></p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="closeModal()" class="px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">Cancel</button>
+                <button @click="modal.onConfirm();closeModal()" :class="`px-4 py-2 rounded-lg text-white ${modal.type==='danger'?'bg-red-500':'bg-primary'}`">Confirm</button>
+            </div>
+        </div>
+    </div>

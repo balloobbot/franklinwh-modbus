@@ -1,0 +1,58 @@
+    <script>
+        function franklinWHApp() {
+            return {
+                // State
+                theme: 'auto',
+                sidebarOpen: true,
+                settingsOpen: false,
+                currentTab: 'dashboard',
+                connected: false,
+                refreshing: false,
+                saving: false,
+                settingMode: false,
+                settingReserve: false,
+                settingReserve2: false,
+                readingRaw: false,
+                
+                // Data
+                data: {
+                    battery: { soc: 86.0, soh: 96.3, ratedEnergyWh: 13600000, availableEnergyWh: 11724000, temperature: 25.5, status: 0, statusText: 'OK', cycles: 150 },
+                    inverter: { power: -1250, voltage: 240.7, current: 5.2, frequency: 50.01, powerFactor: 0.98 },
+                    capacity: { maxChargeW: 5000, maxDischargeW: 5000 },
+                    extensions: { operatingMode: 2, modeText: 'Backup Reserve', reserveSoc: 20, reserveSoc2: -9 }
+                },
+                pendingReserveSoc: 20,
+                pendingReserveSoc2: -9,
+                pendingMaxCharge: 5.0,
+                pendingMaxDischarge: 5.0,
+                
+                // UI State
+                toasts: [],
+                modal: { open: false, title: '', message: '', type: 'confirm', icon: 'fa-exclamation-triangle', onConfirm: () => {} },
+                alerts: [],
+                logs: [],
+                rawRegisters: [],
+                rawStartAddr: '15000',
+                rawCount: 41,
+                
+                // Config
+                config: {
+                    modbus: { host: '192.168.0.110', port: 502, unit_id: 2, base_address: 40000, timeout: 5 },
+                    mqtt: { host: '192.168.0.109', port: 1883, username: '', password: '' },
+                    auto_refresh: true,
+                    refresh_interval: 30,
+                    theme: { primary_color: '#3b82f6', secondary_color: '#10b981', accent_color: '#f59e0b' },
+                    widgets: {
+                        battery_metrics: { enabled: true, position: 0, color: '#10b981', expanded: true, icon: 'fa-battery-full', title: 'Battery Metrics' },
+                        inverter_status: { enabled: true, position: 1, color: '#3b82f6', expanded: true, icon: 'fa-bolt', title: 'Inverter Status' },
+                        capacity: { enabled: true, position: 2, color: '#f59e0b', expanded: true, icon: 'fa-tachometer-alt', title: 'Power Capacity' },
+                        reserve_settings: { enabled: true, position: 3, color: '#8b5cf6', expanded: true, icon: 'fa-lock', title: 'Reserve Settings' },
+                        system_health: { enabled: true, position: 4, color: '#ef4444', expanded: true, icon: 'fa-heartbeat', title: 'System Health' }
+                    }
+                },
+                
+                // Computed
+                get enabledWidgets() {
+                    return Object.entries(this.config.widgets)
+                        .filter(([_, w]) => w.enabled)
+                        .sort((a,

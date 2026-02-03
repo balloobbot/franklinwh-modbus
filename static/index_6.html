@@ -1,0 +1,75 @@
+                    <!-- Widgets -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                        <template x-for="w in enabledWidgets" :key="w.key">
+                            <div class="bg-surface rounded-2xl shadow overflow-hidden" :style="`border-top:3px solid ${w.color}`">
+                                <div class="px-5 py-4 border-b dark:border-gray-700 flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <i :class="`fas ${w.icon}`" :style="`color:${w.color}`"></i>
+                                        <h3 class="font-semibold capitalize" x-text="w.title"></h3>
+                                    </div>
+                                    <button @click="w.expanded=!w.expanded"><i :class="`fas fa-chevron-${w.expanded?'up':'down'}`"></i></button>
+                                </div>
+                                <div x-show="w.expanded" class="p-5">
+                                    
+                                    <!-- Battery Widget -->
+                                    <template x-if="w.key==='battery_metrics'">
+                                        <div class="space-y-3">
+                                            <div class="flex justify-between"><span class="text-gray-500">Rated Energy</span><span x-text="`${((data.battery?.ratedEnergyWh||0)/1000).toFixed(2)}kWh`"></span></div>
+                                            <div class="flex justify-between"><span class="text-gray-500">Available</span><span x-text="`${((data.battery?.availableEnergyWh||0)/1000).toFixed(2)}kWh`"></span></div>
+                                            <div class="flex justify-between"><span class="text-gray-500">Temperature</span><span x-text="data.battery?.temperature!==null?`${data.battery.temperature.toFixed(1)}°C`:'--'"></span></div>
+                                            <div class="flex justify-between"><span class="text-gray-500">Status</span><span :class="`px-2 py-1 rounded text-xs ${(data.battery?.status||0)===0?'bg-green-100 text-green-700':'bg-amber-100 text-amber-700'}`" x-text="data.battery?.statusText||'Unknown'"></span></div>
+                                        </div>
+                                    </template>
+                                    
+                                    <!-- Inverter Widget -->
+                                    <template x-if="w.key==='inverter_status'">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded"><p class="text-xs text-gray-500">Voltage</p><p class="font-semibold" x-text="`${data.inverter?.voltage?.toFixed(1)||'--'}V`"></p></div>
+                                            <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded"><p class="text-xs text-gray-500">Current</p><p class="font-semibold" x-text="`${data.inverter?.current?.toFixed(2)||'--'}A`"></p></div>
+                                            <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded"><p class="text-xs text-gray-500">Frequency</p><p class="font-semibold" x-text="`${data.inverter?.frequency?.toFixed(2)||'--'}Hz`"></p></div>
+                                            <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded"><p class="text-xs text-gray-500">PF</p><p class="font-semibold" x-text="data.inverter?.powerFactor?.toFixed(2)||'--'"></p></div>
+                                        </div>
+                                    </template>
+                                    
+                                    <!-- Capacity Widget -->
+                                    <template x-if="w.key==='capacity'">
+                                        <div class="space-y-3">
+                                            <div class="flex justify-between"><span class="text-gray-500">Max Charge</span><span class="text-green-600 font-medium" x-text="`${((data.capacity?.maxChargeW||0)/1000).toFixed(2)}kW`"></span></div>
+                                            <div class="flex justify-between"><span class="text-gray-500">Max Discharge</span><span class="text-red-600 font-medium" x-text="`${((data.capacity?.maxDischargeW||0)/1000).toFixed(2)}kW`"></span></div>
+                                        </div>
+                                    </template>
+                                    
+                                    <!-- Reserve Widget -->
+                                    <template x-if="w.key==='reserve_settings'">
+                                        <div class="space-y-4">
+                                            <div>
+                                                <label class="text-sm text-gray-500">Reserve SOC</label>
+                                                <div class="flex items-center gap-3">
+                                                    <input type="range" min="0" max="100" x-model.number="pendingReserveSoc" class="flex-1">
+                                                    <span class="w-12 text-right font-mono" x-text="`${pendingReserveSoc}%`"></span>
+                                                </div>
+                                            </div>
+                                            <button @click="setReserveSoc(pendingReserveSoc)" :disabled="settingReserve" class="w-full py-2 rounded-lg bg-primary text-white disabled:opacity-50">
+                                                <span x-text="settingReserve?'Setting...':'Apply'"></span>
+                                            </button>
+                                        </div>
+                                    </template>
+                                    
+                                    <!-- Alerts Widget -->
+                                    <template x-if="w.key==='system_health'">
+                                        <div class="space-y-2 max-h-48 overflow-y-auto">
+                                            <template x-for="alert in alerts" :key="alert.id">
+                                                <div :class="`p-3 rounded-lg text-sm ${alert.severity==='error'?'bg-red-50 text-red-700':alert.severity==='warning'?'bg-amber-50 text-amber-700':'bg-blue-50 text-blue-700'}`">
+                                                    <p class="font-medium" x-text="alert.title"></p>
+                                                    <p class="text-xs opacity-80" x-text="alert.message"></p>
+                                                </div>
+                                            </template>
+                                            <p x-show="alerts.length===0" class="text-center text-gray-400 py-4">No alerts</p>
+                                        </div>
+                                    </template>
+                                    
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" x-data="franklinWHApp()" x-init="init()" :class="{ 'dark': theme === 'dark' }">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FranklinWH Battery Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root{--color-primary:#3b82f6;--color-secondary:#10b981;--color-accent:#f59e0b;--color-surface:#fff;--color-background:#f3f4f6}
+        .dark{--color-surface:#1f2937;--color-background:#111827}
+        *{font-family:'Inter',sans-serif}
+        ::-webkit-scrollbar{width:8px;height:8px}
+        ::-webkit-scrollbar-thumb{background:var(--color-primary);border-radius:4px}
+        @keyframes pulse-soft{0%,100%{opacity:1}50%{opacity:.7}}
+        .animate-pulse-soft{animation:pulse-soft 2s ease-in-out infinite}
+        .glass{background:rgba(255,255,255,.8);backdrop-filter:blur(12px)}
+        .dark .glass{background:rgba(31,41,55,.8)}
+        [x-cloak]{display:none!important}
+    </style>
+    <script>
+        tailwind.config={darkMode:'class',theme:{extend:{colors:{primary:'var(--color-primary)',secondary:'var(--color-secondary)',accent:'var(--color-accent)',surface:'var(--color-surface)',background:'var(--color-background)'}}}}
+    </script>
+</head>
+<body class="bg-background text-gray-800 dark:text-gray-100 min-h-screen transition-colors duration-300">

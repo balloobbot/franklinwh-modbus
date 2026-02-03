@@ -1,0 +1,18 @@
+franklinwh-ha/
+├── Dockerfile
+├── config.yaml          # Home Assistant add-on config
+├── requirements.txt
+├── src/
+│   ├── __init__.py
+│   ├── main.py          # Entry point
+│   ├── modbus_client.py # Async Modbus TCP client
+│   ├── mqtt_handler.py  # MQTT discovery and publishing
+│   ├── web_server.py    # FastAPI web interface
+│   └── config_manager.py # Settings persistence
+├── static/
+│   ├── index.html
+│   ├── css/
+│   │   └── styles.css
+│   └── js/
+│       └── app.js
+└── data/                # Persistent storage

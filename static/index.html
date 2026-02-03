@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en" x-data="franklinWHApp()" x-init="init()" :class="{ 'dark': theme === 'dark' }">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FranklinWH Battery Manager</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Chart.js for metrics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: 'var(--color-primary)',
+                        secondary: 'var(--color-secondary)',
+                        accent: 'var(--color-accent)',
+                        surface: 'var(--color-surface)',
+                        background: 'var(--color-background)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --color-primary: #3b82f6;
+            --color-secondary: #10b981;
+            --color-accent: #f59e0b;
+            --color-surface: #ffffff;
+            --color-background: #f3f4f6;
+        }
+
+        .dark {
+            --color-surface: #1f2937;
+            --color-background: #111827;
+        }
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--color-primary);
+            border-radius: 4px;
+        }
+
+        @keyframes pulse-soft {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        .animate-pulse-soft {
+            animation: pulse-soft 2s ease-in-out infinite;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--color-primary);
+            cursor: pointer;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 6px;
+            border-radius: 3px;
+            background: #e5e7eb;
+        }
+
+        .dark input[type=range]::-webkit-slider-runnable-track {
+            background: #374151;
+        }
+    </style>
+</head>
+
+<body class="bg-background text-gray-800 dark:text-gray-100 min-h-screen transition-colors duration-300">
+
+    <!-- Toast Notifications -->
+    <div class="fixed top-4 right-4 z-50 space-y-2" x-cloak>
+        <template x-for="toast in toasts" :key="toast.id">
+            <div x-show="toast.visible" x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 translate-x-full" x-transition:enter-end="opacity-100 translate-x-0"
+                x-transition:leave="transition ease-in duration-200"
+                x-transition:leave-start="opacity-100 translate-x-0" x-transition:leave-end="opacity-0 translate-x-full"
+                :class="`px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] ${
+                    toast.type === 'success' ? 'bg-green-500 text-white' :
+                    toast.type === 'error' ? 'bg-red-500 text-white' :
+                    'bg-amber-500 text-white'
+                 }`">
+                <i :class="`fas ${
+                    toast.type === 'success' ? 'fa-check-circle' :
+                    toast.type === 'error' ? 'fa-exclamation-circle' :
+                    'fa-exclamation-triangle'
+                }`"></i>
+                <span x-text="toast.message"></span>
+                <button @click="removeToast(toast.id)" class="ml-auto opacity-75 hover:opacity-100">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </template>
+    </div>
+
+    <!-- Modal Dialog -->
+    <div x-show="modal.open" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+        class="fixed inset-0 z-40 flex items-center justify-center p-4" style="display: none;">
+        <div @click="closeModal()" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+        <div x-show="modal.open" x-transition:enter="transition ease-out duration-300"
+            x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-95"
+            class="relative bg-surface rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div class="flex items-center gap-3 mb-4">
+                <div :class="`w-12 h-12 rounded-full flex items-center justify-center ${
+                    modal.type === 'danger' ? 'bg-red-100 text-red-600' :
+                    modal.type === 'confirm' ? 'bg-amber-100 text-amber-600' :
+                    'bg-blue-100 text-blue-600'
+                }`">
+                    <i :class="`fas fa-2x ${modal.icon}`"></i>
+                </div>
+                <div>
+                    <h3 x-text="modal.title" class="text-lg font-semibold"></h3>
+                    <p x-text="modal.message" class="text-sm text-gray-500 dark:text-gray-400"></p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button @click="closeModal()"
+                    class="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors">
+                    Cancel
+                </button>
+                <button @click="modal.onConfirm(); closeModal()" :class="`px-4 py-2 rounded-lg text-white transition-colors ${
+                            modal.type === 'danger' ? 'bg-red-500 hover:bg-red-600' :
+                            modal.type === 'confirm' ? 'bg-amber-500 hover:bg-amber-600' :
+                            'bg-primary hover:opacity-90'
+                        }`">
+                    Confirm
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel (Slide-over) -->
+    <div x-show="settingsOpen" class="fixed inset-0 z-30" style="display: none;">
+        <div @click="settingsOpen = false" x-transition:enter="transition-opacity ease-out duration-300"
+            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+            x-transition:leave="transition-opacity ease-in duration-200" x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+        <div x-show="settingsOpen" x-transition:enter="transition ease-out duration-300"
+            x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0"
+            x-transition:leave="transition ease-in duration-200" x-transition:leave-start="translate-x-0"
+            x-transition:leave-end="translate-x-full"
+            class="absolute right-0 top-0 h-full w-full max-w-md bg-surface shadow-xl overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold">Settings</h2>
+                    <button @click="settingsOpen = false"
+                        class="w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center transition-colors">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <!-- Connection Settings -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        Modbus Connection
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Host</label>
+                            <input type="text" x-model="config.modbus.host"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-primary focus:border-transparent">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Port</label>
+                                <input type="number" x-model.number="config.modbus.port"
+                                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">Unit ID</label>
+                                <input type="number" x-model.number="config.modbus.unit_id"
+                                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MQTT Settings -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        MQTT Broker
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Host</label>
+                            <input type="text" x-model="config.mqtt.host"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Port</label>
+                            <input type="number" x-model.number="config.mqtt.port"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Appearance -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        Appearance
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Theme</label>
+                            <select x-model="theme" @change="applyTheme()"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                                <option value="auto">Auto (System)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Primary Color</label>
+                            <div class="flex gap-2 flex-wrap">
+                                <template
+                                    x-for="color in ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']">
+                                    <button @click="setPrimaryColor(color)" :class="`w-8 h-8 rounded-full border-2 transition-all ${
+                                                config.theme.primary_color === color ? 'border-gray-800 dark:border-white scale-110' : 'border-transparent'
+                                            }`" :style="`background-color: ${color}`"></button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Widget Configuration -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        Dashboard Widgets
+                    </h3>
+                    <div class="space-y-3">
+                        <template x-for="(widget, key) in config.widgets" :key="key">
+                            <div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+                                <div class="flex items-center gap-3">
+                                    <div :class="`w-3 h-3 rounded-full`" :style="`background-color: ${widget.color}`">
+                                    </div>
+                                    <span class="capitalize" x-text="key.replace('_', ' ')"></span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" x-model="widget.enabled" class="sr-only peer">
+                                    <div
+                                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary">
+                                    </div>
+                                </label>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex gap-3">
+                    <button @click="saveSettings()" :disabled="saving"
+                        class="flex-1 px-4 py-3 rounded-lg bg-primary text-white font-medium hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                        <i x-show="saving" class="fas fa-spinner fa-spin"></i>
+                        <span x-text="saving ? 'Saving...' : 'Save Settings'"></span>
+                    </button>
+                    <button @click="resetSettings()"
+                        class="px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="flex h-screen overflow-hidden">
+
+        <!-- Sidebar -->
+        <aside class="w-64 bg-surface shadow-lg flex flex-col transition-all duration-300"
+            :class="{ '-ml-64': !sidebarOpen, 'ml-0': sidebarOpen }">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-lg">
+                        F
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight">FranklinWH</h1>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Battery Manager</p>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+                <template x-for="item in navItems" :key="item.id">
+                    <button @click="currentTab = item.id" :class="`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                                currentTab === item.id 
+                                    ? 'bg-primary/10 text-primary font-medium' 
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            }`">
+                        <i :class="`fas ${item.icon} w-5`"></i>
+                        <span x-text="item.label"></span>
+                        <span x-show="item.badge" x-text="item.badge"
+                            class="ml-auto text-xs bg-red-500 text-white px-2 py-0.5 rounded-full"></span>
+                    </button>
+                </template>
+            </nav>
+
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3 text-sm">
+                    <div :class="`w-2 h-2 rounded-full animate-pulse-soft ${
+                        connected ? 'bg-green-500' : 'bg-red-500'
+                    }`"></div>
+                    <span class="text-gray-500 dark:text-gray-400 capitalize"
+                        x-text="connected ? 'connected' : 'disconnected'"></span>
+                </div>
+                <div x-show="lastUpdate" class="mt-1 text-xs text-gray-400">
+                    Updated: <span x-text="formatTime(lastUpdate)"></span>
+                </div>
+                <div class="mt-2 text-[10px] text-gray-300 dark:text-gray-600 font-mono">
+                    v1.2.0-beta
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col min-w-0 bg-background">
+
+            <!-- Header -->
+            <header class="h-16 bg-surface shadow flex items-center justify-between px-6">
+                <div class="flex items-center gap-4">
+                    <button @click="sidebarOpen = !sidebarOpen"
+                        class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-colors">
+                        <i class="fas fa-bars"></i>
+                    </button>
+
+                    <!-- Mode Indicator -->
+                    <div x-show="mockMode === true" x-transition
+                        class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg font-bold text-sm animate-pulse">
+                        <i class="fas fa-flask"></i>
+                        <span>MOCK MODE</span>
+                    </div>
+                    <div x-show="mockMode === false" x-transition
+                        :class="`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-sm ${connected ? 'bg-green-600' : 'bg-amber-500'} text-white`">
+                        <i class="fas fa-bolt"></i>
+                        <span x-text="connected ? 'LIVE' : 'CONNECTING...'"></span>
+                    </div>
+
+                    <!-- Auto-refresh Toggle -->
+                    <label class="flex items-center gap-2 cursor-pointer ml-2">
+                        <div class="relative">
+                            <input type="checkbox" x-model="config.auto_refresh" class="sr-only peer">
+                            <div
+                                class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary">
+                            </div>
+                        </div>
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Auto</span>
+                    </label>
+
+                    <span x-show="config.auto_refresh && nextRefresh > 0" class="text-xs text-gray-400"
+                        x-text="`Next: ${nextRefresh}s`"></span>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <!-- Refresh Now -->
+                    <button @click="refreshData()" :disabled="refreshing"
+                        class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-colors disabled:opacity-50">
+                        <i :class="`fas fa-sync-alt ${refreshing ? 'fa-spin' : ''}`"></i>
+                    </button>
+
+                    <!-- Settings -->
+                    <button @click="settingsOpen = true"
+                        class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center transition-colors">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Tab Content -->
+            <div class="flex-1 overflow-y-auto p-6">
+
+                <!-- DASHBOARD TAB -->
+                <div x-show="currentTab === 'dashboard'" x-transition:enter="transition ease-out duration-200"
+                    x-transition:enter-start="opacity-0 translate-y-4"
+                    x-transition:enter-end="opacity-100 translate-y-0" class="space-y-6">
+
+                    <!-- Quick Stats Row -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- SOC Card -->
+                        <div class="bg-surface rounded-2xl p-5 shadow relative overflow-hidden">
+                            <div class="flex justify-between items-start mb-4">
+                                <div>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">State of Charge</p>
+                                    <p class="text-3xl font-bold" x-text="`${data.battery?.soc?.toFixed(1) || '--'}%`">
+                                    </p>
+                                </div>
+                                <div :class="`w-12 h-12 rounded-xl flex items-center justify-center ${
+                                    (data.battery?.soc || 0) > 50 ? 'bg-green-100 text-green-600' :
+                                    (data.battery?.soc || 0) > 20 ? 'bg-amber-100 text-amber-600' :
+                                    'bg-red-100 text-red-600'
+                                }`">
+                                    <i class="fas fa-battery-three-quarters text-xl"></i>
+                                </div>
+                            </div>
+                            <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-red-500 via-amber-500 to-green-500 transition-all duration-500"
+                                    :style="`width: ${data.battery?.soc || 0}%`"></div>
+                            </div>
+                        </div>
+
+                        <!-- Power Card -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">Power</p>
+                                    <p class="text-2xl font-bold"
+                                        :class="(data.inverter?.power || 0) > 0 ? 'text-green-500' : (data.inverter?.power || 0) < 0 ? 'text-red-500' : ''"
+                                        x-text="`${data.inverter?.power > 0 ? '+' : ''}${data.inverter?.power?.toFixed(0) || '--'} W`">
+                                    </p>
+                                </div>
+                                <div
+                                    class="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                                    <i class="fas fa-bolt text-xl"></i>
+                                </div>
+                            </div>
+                            <p class="text-sm"
+                                :class="(data.inverter?.power || 0) > 0 ? 'text-green-600' : 'text-red-600'">
+                                <i :class="`fas fa-arrow-${(data.inverter?.power || 0) > 0 ? 'down' : 'up'}`"></i>
+                                <span
+                                    x-text="(data.inverter?.power || 0) > 0 ? 'Charging' : ((data.inverter?.power || 0) < 0 ? 'Discharging' : 'Idle')"></span>
+                            </p>
+                        </div>
+
+                        <!-- SOH Card -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">State of Health</p>
+                                    <p class="text-3xl font-bold text-primary"
+                                        x-text="`${data.battery?.soh?.toFixed(1) || '--'}%`"></p>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        <span
+                                            x-text="data.battery?.cycles ? `${data.battery.cycles} cycles` : ''"></span>
+                                    </p>
+                                </div>
+                                <div
+                                    class="w-12 h-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                                    <i class="fas fa-heartbeat text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mode Card -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">Operating Mode</p>
+                                    <p class="text-lg font-bold" x-text="data.extensions?.modeText || '--'"></p>
+                                </div>
+                                <div
+                                    class="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                                    <i class="fas fa-cog text-xl"></i>
+                                </div>
+                            </div>
+                            <button @click="currentTab = 'control'" class="text-sm text-primary hover:underline">
+                                Change Mode <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Widget Grid -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                        <template x-for="widget in enabledWidgets" :key="widget.key">
+                            <div x-show="widget.enabled" x-transition:enter="transition ease-out duration-200"
+                                x-transition:enter-start="opacity-0 scale-95"
+                                x-transition:enter-end="opacity-100 scale-100"
+                                class="bg-surface rounded-2xl shadow overflow-hidden"
+                                :style="`border-top: 3px solid ${widget.color}`">
+
+                                <!-- Widget Header -->
+                                <div
+                                    class="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <i :class="`fas ${widget.icon}`" :style="`color: ${widget.color}`"></i>
+                                        <h3 class="font-semibold capitalize" x-text="widget.title"></h3>
+                                    </div>
+                                    <button @click="widget.expanded = !widget.expanded"
+                                        class="w-8 h-8 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                                        <i :class="`fas fa-chevron-${widget.expanded ? 'up' : 'down'}`"></i>
+                                    </button>
+                                </div>
+
+                                <!-- Widget Content -->
+                                <div x-show="widget.expanded" class="p-5">
+
+                                    <!-- Battery Metrics Widget -->
+                                    <template x-if="widget.key === 'battery_metrics'">
+                                        <div class="space-y-4">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-500">Rated Energy</span>
+                                                <span class="font-medium"
+                                                    x-text="`${((data.battery?.rated_energy_wh || 0) / 1000).toFixed(1)} kWh`"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-500">Available Energy</span>
+                                                <span class="font-medium"
+                                                    x-text="`${((data.battery?.available_energy_wh || 0) / 1000).toFixed(1)} kWh`"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-500">Temperature</span>
+                                                <span class="font-medium"
+                                                    x-text="data.battery?.temperature !== null ? `${data.battery.temperature.toFixed(1)} °C` : '--'"></span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-500">Status</span>
+                                                <span :class="`px-2 py-1 rounded text-xs font-medium ${
+                                                    data.battery?.status === 0 ? 'bg-green-100 text-green-700' :
+                                                    data.battery?.status === 1 ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`" x-text="data.battery?.statusText || 'Unknown'"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Inverter Status Widget -->
+                                    <template x-if="widget.key === 'inverter_status'">
+                                        <div class="space-y-4">
+                                            <div class="grid grid-cols-2 gap-3">
+                                                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                                    <p class="text-xs text-gray-500">Voltage</p>
+                                                    <p class="font-semibold"
+                                                        x-text="`${data.inverter?.voltage?.toFixed(1) || '--'} V`"></p>
+                                                </div>
+                                                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                                    <p class="text-xs text-gray-500">Current</p>
+                                                    <p class="font-semibold"
+                                                        x-text="`${data.inverter?.current?.toFixed(2) || '--'} A`"></p>
+                                                </div>
+                                                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                                    <p class="text-xs text-gray-500">Frequency</p>
+                                                    <p class="font-semibold"
+                                                        x-text="`${data.inverter?.frequency?.toFixed(2) || '--'} Hz`">
+                                                    </p>
+                                                </div>
+                                                <div class="text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                                    <p class="text-xs text-gray-500">Power Factor</p>
+                                                    <p class="font-semibold"
+                                                        x-text="data.inverter?.powerFactor?.toFixed(2) || '--'"></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Solar PV Widget -->
+                                    <template x-if="widget.key === 'solar_pv'">
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Output Power</span>
+                                                <span class="font-medium text-amber-600"
+                                                    x-text="`${(data.solar_pv?.output_power_w || 0).toLocaleString()} W`"></span>
+                                            </div>
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Lifetime Energy</span>
+                                                <span class="font-medium"
+                                                    x-text="`${((data.solar_pv?.output_energy_wh || 0) / 1000).toFixed(1)} kWh`"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Home Loads Widget -->
+                                    <template x-if="widget.key === 'home_loads'">
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Home Consumption</span>
+                                                <span class="font-medium text-cyan-600"
+                                                    x-text="`${(data.home_loads?.home_loads_w || 0).toLocaleString()} W`"></span>
+                                            </div>
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">PV Output</span>
+                                                <span class="font-medium text-amber-600"
+                                                    x-text="`${(data.home_loads?.pv_output_w || 0).toLocaleString()} W`"></span>
+                                            </div>
+                                            <div class="flex justify-between items-center"
+                                                x-show="data.home_loads?.pv_proximal_w">
+                                                <span class="text-gray-500">Proximal PV</span>
+                                                <span class="font-medium text-amber-500"
+                                                    x-text="`${(data.home_loads?.pv_proximal_w || 0).toLocaleString()} W`"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Power Capacity Widget -->
+                                    <template x-if="widget.key === 'capacity'">
+                                        <div class="space-y-4">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Max Charge</span>
+                                                <span class="font-medium text-green-600"
+                                                    x-text="`${((data.capacity?.max_charge_w || 0) / 1000).toFixed(2)} kW`"></span>
+                                            </div>
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Max Discharge</span>
+                                                <span class="font-medium text-red-600"
+                                                    x-text="`${((data.capacity?.max_discharge_w || 0) / 1000).toFixed(2)} kW`"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Battery Lifetime Widget -->
+                                    <template x-if="widget.key === 'battery_lifetime'">
+                                        <div class="space-y-4 text-sm">
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Total Discharged</span>
+                                                <span class="font-medium text-blue-600"
+                                                    x-text="`${((data.battery_lifetime?.dc_energy_injected_wh || 0) / 1000).toFixed(0)} kWh`"></span>
+                                            </div>
+                                            <div class="flex justify-between items-center">
+                                                <span class="text-gray-500">Total Charged</span>
+                                                <span class="font-medium text-green-600"
+                                                    x-text="`${((data.battery_lifetime?.dc_energy_absorbed_wh || 0) / 1000).toFixed(0)} kWh`"></span>
+                                            </div>
+                                            <div
+                                                class="flex justify-between items-center pt-2 border-t dark:border-gray-600">
+                                                <span class="text-gray-500">Total Throughput</span>
+                                                <span class="font-medium"
+                                                    x-text="`${(((data.battery_lifetime?.dc_energy_injected_wh || 0) + (data.battery_lifetime?.dc_energy_absorbed_wh || 0)) / 1000).toFixed(0)} kWh`"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <!-- Reserve Settings Widget -->
+                                    <template x-if="widget.key === 'reserve_settings'">
+                                        <div class="space-y-4">
+                                            <!-- Self-Consumption Reserve -->
+                                            <div>
+                                                <label class="block text-sm text-gray-500 mb-2">Self-Consumption
+                                                    Reserve</label>
+                                                <div class="flex items-center gap-3">
+                                                    <input type="range" min="0" max="100"
+                                                        x-model.number="pendingReserveSoc" class="flex-1">
+                                                    <span class="w-12 text-right font-mono"
+                                                        x-text="`${pendingReserveSoc}%`"></span>
+                                                </div>
+                                                <p class="text-xs text-gray-400 mt-1">Reserve for Self-Consumption mode
+                                                </p>
+                                            </div>
+
+                                            <!-- TOU Reserve -->
+                                            <div>
+                                                <label class="block text-sm text-gray-500 mb-2">Time-of-Use
+                                                    Reserve</label>
+                                                <div class="flex items-center gap-3">
+                                                    <input type="range" min="0" max="100"
+                                                        x-model.number="pendingReserveSoc2" class="flex-1">
+                                                    <span class="w-12 text-right font-mono"
+                                                        x-text="`${pendingReserveSoc2}%`"></span>
+                                                </div>
+                                                <p class="text-xs text-gray-400 mt-1">Reserve for Time-of-Use mode</p>
+                                            </div>
+
+                                            <button @click="setReserveSoc(pendingReserveSoc)" :disabled="settingReserve"
+                                                class="w-full py-2 rounded-lg bg-primary text-white disabled:opacity-50">
+                                                <span x-text="settingReserve ? 'Setting...' : 'Apply Reserves'"></span>
+                                            </button>
+                                        </div>
+                                    </template>
+
+                                    <!-- System Health Widget -->
+                                    <template x-if="widget.key === 'system_health'">
+                                        <div class="space-y-3">
+                                            <template x-for="alert in alerts" :key="alert.id">
+                                                <div :class="`p-3 rounded-lg text-sm ${
+                                                    alert.severity === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' :
+                                                    alert.severity === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' :
+                                                    'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                                                }`">
+                                                    <p class="font-medium" x-text="alert.title"></p>
+                                                    <p class="text-xs opacity-80" x-text="alert.message"></p>
+                                                </div>
+                                            </template>
+                                            <p x-show="alerts.length === 0" class="text-center text-gray-400 py-4">No
+                                                alerts</p>
+                                        </div>
+                                    </template>
+
+                                    <!-- Power Flow Chart Widget -->
+                                    <template x-if="widget.key === 'power_flow_chart'">
+                                        <div class="space-y-3">
+                                            <div class="h-64 w-full">
+                                                <canvas :id="`chart-${widget.key}`"></canvas>
+                                            </div>
+                                            <div class="flex justify-center gap-4 text-xs">
+                                                <span class="flex items-center gap-1"><span
+                                                        class="w-3 h-3 rounded-full bg-amber-500"></span> Solar</span>
+                                                <span class="flex items-center gap-1"><span
+                                                        class="w-3 h-3 rounded-full bg-cyan-500"></span> Home</span>
+                                                <span class="flex items-center gap-1"><span
+                                                        class="w-3 h-3 rounded-full bg-green-500"></span> Battery</span>
+                                                <span class="flex items-center gap-1"><span
+                                                        class="w-3 h-3 rounded-full bg-blue-500"></span> Grid</span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- CONTROL TAB -->
+                <div x-show="currentTab === 'control'" x-transition:enter="transition ease-out duration-200"
+                    x-transition:enter-start="opacity-0 translate-y-4"
+                    x-transition:enter-end="opacity-100 translate-y-0" class="max-w-2xl mx-auto space-y-6">
+
+                    <div class="bg-surface rounded-2xl shadow p-6">
+                        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                            <i class="fas fa-sliders-h text-primary"></i> Operating Mode
+                        </h2>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <template x-for="mode in [
+                                {id: 0, name: 'Standby', icon: 'fa-power-off', desc: 'System idle'},
+                                {id: 1, name: 'Backup Reserve', icon: 'fa-shield-alt', desc: 'Emergency backup'},
+                                {id: 2, name: 'Self-Consumption', icon: 'fa-home', desc: 'Maximize self-use'},
+                                {id: 3, name: 'Time-of-Use', icon: 'fa-clock', desc: 'Schedule based'}
+                            ]" :key="mode.id">
+                                <button @click="setOperatingMode(mode.id)" :disabled="settingMode" :class="`p-4 rounded-xl border-2 transition-all text-left ${
+                                            data.extensions?.operatingMode === mode.id 
+                                                ? 'border-primary bg-primary/5' 
+                                                : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'
+                                        }`">
+                                    <i :class="`fas ${mode.icon} text-2xl mb-2 ${
+                                        data.extensions?.operatingMode === mode.id ? 'text-primary' : 'text-gray-400'
+                                    }`"></i>
+                                    <p class="font-semibold" x-text="mode.name"></p>
+                                    <p class="text-xs text-gray-500" x-text="mode.desc"></p>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface rounded-2xl shadow p-6">
+                        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                            <i class="fas fa-battery-half text-primary"></i> Reserve Settings
+                        </h2>
+                        <div class="space-y-6">
+                            <div>
+                                <label class="flex justify-between mb-2">
+                                    <span>Reserve SOC (Primary)</span>
+                                    <span class="font-mono" x-text="`${pendingReserveSoc}%`"></span>
+                                </label>
+                                <input type="range" min="0" max="100" x-model.number="pendingReserveSoc" class="w-full">
+                                <p class="text-xs text-gray-500 mt-1">Minimum battery level for backup power</p>
+                            </div>
+                            <div>
+                                <label class="flex justify-between mb-2">
+                                    <span>Reserve SOC 2</span>
+                                    <span class="font-mono" x-text="`${pendingReserveSoc2}%`"></span>
+                                </label>
+                                <input type="range" min="-128" max="127" x-model.number="pendingReserveSoc2"
+                                    class="w-full">
+                            </div>
+                            <div class="flex gap-3">
+                                <button @click="setReserveSoc(pendingReserveSoc)" :disabled="settingReserve"
+                                    class="flex-1 py-3 rounded-lg bg-primary text-white font-medium disabled:opacity-50">
+                                    <span x-text="settingReserve ? 'Applying...' : 'Apply Reserve SOC'"></span>
+                                </button>
+                                <button @click="setReserveSoc2(pendingReserveSoc2)" :disabled="settingReserve2"
+                                    class="flex-1 py-3 rounded-lg bg-secondary text-white font-medium disabled:opacity-50">
+                                    <span x-text="settingReserve2 ? 'Applying...' : 'Apply Reserve SOC 2'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface rounded-2xl shadow p-6">
+                        <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                            <i class="fas fa-bolt text-primary"></i> Power Limits
+                        </h2>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-sm text-gray-500">Max Charge (kW)</label>
+                                <input type="number" step="0.1" x-model.number="pendingMaxCharge"
+                                    class="w-full mt-1 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                            </div>
+                            <div>
+                                <label class="text-sm text-gray-500">Max Discharge (kW)</label>
+                                <input type="number" step="0.1" x-model.number="pendingMaxDischarge"
+                                    class="w-full mt-1 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                            </div>
+                        </div>
+                        <button @click="setPowerLimits()"
+                            class="w-full mt-4 py-3 rounded-lg bg-accent text-white font-medium hover:opacity-90">
+                            Apply Power Limits
+                        </button>
+                    </div>
+                </div>
+
+                <!-- RAW REGISTERS TAB -->
+                <div x-show="currentTab === 'raw'" x-transition:enter="transition ease-out duration-200"
+                    x-transition:enter-start="opacity-0 translate-y-4"
+                    x-transition:enter-end="opacity-100 translate-y-0" class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold">Raw Modbus Registers</h2>
+                        <div class="flex items-center gap-2">
+                            <input type="text" x-model="rawStartAddr" placeholder="Start (15000)"
+                                class="w-28 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                            <input type="number" x-model.number="rawCount" placeholder="Count"
+                                class="w-24 px-3 py-2 rounded border dark:bg-gray-800 dark:border-gray-600">
+                            <button @click="readRawRegisters()" :disabled="readingRaw"
+                                class="px-4 py-2 rounded-lg bg-primary text-white disabled:opacity-50">
+                                <i :class="`fas fa-${readingRaw ? 'spinner fa-spin' : 'search'}`"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="bg-surface rounded-2xl shadow overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 dark:bg-gray-800">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">Address</th>
+                                    <th class="px-4 py-3 text-left">Hex</th>
+                                    <th class="px-4 py-3 text-left">UInt16</th>
+                                    <th class="px-4 py-3 text-left">Int16</th>
+                                    <th class="px-4 py-3 text-left">Guess</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="reg in rawRegisters" :key="reg.addr">
+                                    <tr class="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                        <td class="px-4 py-2 font-mono" x-text="reg.addr"></td>
+                                        <td class="px-4 py-2 font-mono text-gray-500" x-text="reg.hex"></td>
+                                        <td class="px-4 py-2 font-mono" x-text="reg.uint16"></td>
+                                        <td class="px-4 py-2 font-mono" x-text="reg.int16"></td>
+                                        <td class="px-4 py-2 text-xs" x-text="reg.guess || '-'"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                        <p x-show="rawRegisters.length === 0" class="text-center text-gray-400 py-8">
+                            Click search to read registers
+                        </p>
+                    </div>
+                </div>
+
+                <!-- LOGS TAB -->
+                <div x-show="currentTab === 'logs'" x-transition:enter="transition ease-out duration-200"
+                    x-transition:enter-start="opacity-0 translate-y-4"
+                    x-transition:enter-end="opacity-100 translate-y-0">
+                    <div class="bg-surface rounded-2xl shadow p-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold">System Logs</h2>
+                            <button @click="clearLogs()" class="text-sm text-red-500 hover:underline">Clear</button>
+                        </div>
+                        <div
+                            class="font-mono text-xs space-y-1 max-h-96 overflow-y-auto bg-gray-900 text-green-400 p-4 rounded-lg">
+                            <template x-for="log in logs" :key="log.id">
+                                <div
+                                    :class="`text-${log.level === 'error' ? 'red' : log.level === 'warning' ? 'amber' : 'green'}-400`">
+                                    <span class="text-gray-500" x-text="`[${log.time}]`"></span>
+                                    <span x-text="log.message"></span>
+                                </div>
+                            </template>
+                            <p x-show="logs.length === 0" class="text-gray-500">No logs yet...</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        function franklinWHApp() {
+            return {
+                // State
+                theme: 'auto',
+                sidebarOpen: true,
+                settingsOpen: false,
+                currentTab: 'dashboard',
+                connected: false,
+                mockMode: null,  // Will be set from API (null = not checked yet)
+                refreshing: false,
+                saving: false,
+                settingMode: false,
+                settingReserve: false,
+                settingReserve2: false,
+                readingRaw: false,
+                lastUpdate: null,
+                nextRefresh: 0,
+
+                // Data
+                data: {
+                    battery: {
+                        soc: 86.0,
+                        soh: 96.3,
+                        rated_energy_wh: 13600,
+                        available_energy_wh: 11724,
+                        temperature: 25.5,
+                        status: 0,
+                        statusText: 'OK',
+                        cycles: 150,
+                        dc_energy_injected_wh: 5317760,
+                        dc_energy_absorbed_wh: 5435940
+                    },
+                    inverter: {
+                        power: -1250,
+                        voltage: 240.7,
+                        current: 5.2,
+                        frequency: 50.01,
+                        powerFactor: 0.98
+                    },
+                    capacity: {
+                        max_charge_w: 5000,
+                        max_discharge_w: 5000
+                    },
+                    extensions: {
+                        operatingMode: 2,
+                        modeText: 'Backup Reserve',
+                        reserveSocSelfConsumption: 20,
+                        reserveSocTou: 20
+                    },
+                    solar_pv: {
+                        output_power_w: 3200,
+                        output_energy_wh: 11299612
+                    },
+                    home_loads: {
+                        home_loads_w: 400,
+                        pv_output_w: 3200,
+                        pv_proximal_w: 3000
+                    },
+                    battery_lifetime: {
+                        dc_energy_injected_wh: 5317760,
+                        dc_energy_absorbed_wh: 5435940
+                    }
+                },
+
+                // Widget visibility toggles
+                widgetVisibility: {
+                    battery_metrics: true,
+                    inverter_status: true,
+                    capacity: true,
+                    solar_pv: true,
+                    home_loads: true,
+                    battery_lifetime: true,
+                    reserve_settings: true,
+                    system_health: true,
+                    power_flow_chart: true
+                },
+
+                // Real-time chart data (since page opened)
+                chartData: {
+                    timestamps: [],
+                    home_loads: [],
+                    solar: [],
+                    battery: [],
+                    grid: []
+                },
+                charts: {},
+                pendingReserveSoc: 20,
+                pendingReserveSoc2: 20,
+                pendingMaxCharge: 5.0,
+                pendingMaxDischarge: 5.0,
+
+                // UI State
+                toasts: [],
+                modal: {
+                    open: false,
+                    title: '',
+                    message: '',
+                    type: 'confirm',
+                    icon: 'fa-exclamation-triangle',
+                    onConfirm: () => { }
+                },
+                alerts: [],
+                logs: [],
+                rawRegisters: [],
+                rawStartAddr: '15000',
+                rawCount: 41,
+
+                // Config
+                config: {
+                    modbus: {
+                        host: '192.168.0.110',
+                        port: 502,
+                        unit_id: 2,
+                        base_address: 40000,
+                        timeout: 5
+                    },
+                    mqtt: {
+                        host: '192.168.0.109',
+                        port: 1883,
+                        username: '',
+                        password: ''
+                    },
+                    auto_refresh: true,
+                    refresh_interval: 30,
+                    theme: {
+                        primary_color: '#3b82f6',
+                        secondary_color: '#10b981',
+                        accent_color: '#f59e0b'
+                    },
+                    widgets: {
+                        battery_metrics: {
+                            enabled: true,
+                            position: 0,
+                            color: '#10b981',
+                            expanded: true,
+                            icon: 'fa-battery-full',
+                            title: 'Battery Metrics'
+                        },
+                        inverter_status: {
+                            enabled: true,
+                            position: 1,
+                            color: '#3b82f6',
+                            expanded: true,
+                            icon: 'fa-bolt',
+                            title: 'Inverter Status'
+                        },
+                        solar_pv: {
+                            enabled: true,
+                            position: 2,
+                            color: '#f59e0b',
+                            expanded: true,
+                            icon: 'fa-sun',
+                            title: 'Solar PV'
+                        },
+                        home_loads: {
+                            enabled: true,
+                            position: 3,
+                            color: '#06b6d4',
+                            expanded: true,
+                            icon: 'fa-home',
+                            title: 'Home Loads'
+                        },
+                        capacity: {
+                            enabled: true,
+                            position: 4,
+                            color: '#f59e0b',
+                            expanded: true,
+                            icon: 'fa-tachometer-alt',
+                            title: 'Power Capacity'
+                        },
+                        battery_lifetime: {
+                            enabled: false,  // Disabled by default (optional display)
+                            position: 5,
+                            color: '#8b5cf6',
+                            expanded: true,
+                            icon: 'fa-history',
+                            title: 'Battery Lifetime'
+                        },
+                        reserve_settings: {
+                            enabled: true,
+                            position: 6,
+                            color: '#8b5cf6',
+                            expanded: true,
+                            icon: 'fa-lock',
+                            title: 'Reserve Settings'
+                        },
+                        system_health: {
+                            enabled: true,
+                            position: 7,
+                            color: '#ef4444',
+                            expanded: true,
+                            icon: 'fa-heartbeat',
+                            title: 'System Health'
+                        },
+                        power_flow_chart: {
+                            enabled: true,
+                            position: 8,
+                            color: '#6366f1',
+                            expanded: true,
+                            icon: 'fa-chart-line',
+                            title: 'Power Flow Chart'
+                        }
+                    }
+                },
+
+                // Navigation
+                navItems: [
+                    { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Dashboard' },
+                    { id: 'control', icon: 'fa-sliders-h', label: 'Control' },
+                    { id: 'logs', icon: 'fa-file-alt', label: 'Logs' },
+                    { id: 'raw', icon: 'fa-microchip', label: 'Raw Registers' }
+                ],
+
+                refreshTimer: null,
+                countdownTimer: null,
+
+                // Computed
+                get enabledWidgets() {
+                    return Object.entries(this.config.widgets)
+                        .filter(([key, w]) => w.enabled && this.widgetVisibility[key] !== false)
+                        .sort((a, b) => a[1].position - b[1].position)
+                        .map(([key, widget]) => ({ key, ...widget }));
+                },
+
+                // Initialization
+                init() {
+                    this.loadSettings();
+                    this.applyTheme();
+                    this.checkMode();  // Check if running in mock or live mode
+                    this.startAutoRefresh();
+                    this.addLog('Application initialized', 'info');
+
+                    // Check system preference for dark mode
+                    if (this.theme === 'auto') {
+                        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        document.documentElement.classList.toggle('dark', prefersDark);
+                    }
+
+                    // Initialize charts after DOM is ready
+                    this.$nextTick(() => {
+                        this.initCharts();
+                        this.refreshData();
+                    });
+                },
+
+                async checkMode() {
+                    try {
+                        const response = await fetch('/api/health');
+                        if (response.ok) {
+                            const data = await response.json();
+                            this.mockMode = data.mock_mode === true;
+                            this.connected = data.modbus_connected === true;
+                            if (this.mockMode) {
+                                this.addLog('Running in MOCK MODE', 'warning');
+                            } else {
+                                this.addLog('Running in LIVE MODE', 'info');
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to check mode:', e);
+                        this.connected = false;
+                    }
+                },
+
+                // Theme handling
+                applyTheme() {
+                    const root = document.documentElement;
+                    if (this.theme === 'dark') {
+                        root.classList.add('dark');
+                    } else if (this.theme === 'light') {
+                        root.classList.remove('dark');
+                    } else {
+                        // Auto
+                        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        root.classList.toggle('dark', prefersDark);
+                    }
+                    this.setPrimaryColor(this.config.theme.primary_color);
+                },
+
+                setPrimaryColor(color) {
+                    this.config.theme.primary_color = color;
+                    document.documentElement.style.setProperty('--color-primary', color);
+                },
+
+                // Settings persistence
+                loadSettings() {
+                    try {
+                        const saved = localStorage.getItem('franklinwh_settings');
+                        if (saved) {
+                            const parsed = JSON.parse(saved);
+                            this.config = { ...this.config, ...parsed.config };
+                            this.theme = parsed.theme || 'auto';
+                        }
+                    } catch (e) {
+                        console.error('Failed to load settings:', e);
+                    }
+                },
+
+                saveSettings() {
+                    this.saving = true;
+                    setTimeout(() => {
+                        try {
+                            localStorage.setItem('franklinwh_settings', JSON.stringify({
+                                config: this.config,
+                                theme: this.theme
+                            }));
+                            this.addToast('Settings saved', 'success');
+                            this.settingsOpen = false;
+                        } catch (e) {
+                            this.addToast('Failed to save settings', 'error');
+                        }
+                        this.saving = false;
+                    }, 500);
+                },
+
+                resetSettings() {
+                    this.modal = {
+                        open: true,
+                        title: 'Reset Settings?',
+                        message: 'This will restore default settings.',
+                        type: 'confirm',
+                        icon: 'fa-exclamation-triangle',
+                        onConfirm: () => {
+                            localStorage.removeItem('franklinwh_settings');
+                            location.reload();
+                        }
+                    };
+                },
+
+                // Data refresh
+                startAutoRefresh() {
+                    this.refreshData();
+                    this.refreshTimer = setInterval(() => {
+                        if (this.config.auto_refresh) {
+                            this.refreshData();
+                        }
+                    }, this.config.refresh_interval * 1000);
+
+                    this.countdownTimer = setInterval(() => {
+                        if (this.config.auto_refresh && this.nextRefresh > 0) {
+                            this.nextRefresh--;
+                        } else if (this.config.auto_refresh) {
+                            this.nextRefresh = this.config.refresh_interval;
+                        }
+                    }, 1000);
+                },
+
+                async refreshData() {
+                    this.refreshing = true;
+                    try {
+                        const response = await fetch('/api/data');
+                        if (!response.ok) throw new Error('API Error');
+                        const apiData = await response.json();
+
+                        // Update data from API
+                        if (apiData.battery) this.data.battery = apiData.battery;
+                        if (apiData.inverter) this.data.inverter = apiData.inverter;
+                        if (apiData.capacity) this.data.capacity = apiData.capacity;
+                        if (apiData.solar_pv) this.data.solar_pv = apiData.solar_pv;
+                        if (apiData.home_loads) this.data.home_loads = apiData.home_loads;
+                        if (apiData.battery_lifetime) this.data.battery_lifetime = apiData.battery_lifetime;
+                        if (apiData.extensions) {
+                            this.data.extensions = apiData.extensions;
+                            // Update pending reserve values from API
+                            if (apiData.extensions.reserveSoc !== null && apiData.extensions.reserveSoc !== undefined) {
+                                this.pendingReserveSoc = apiData.extensions.reserveSoc;
+                            }
+                            if (apiData.extensions.reserveSoc2 !== null && apiData.extensions.reserveSoc2 !== undefined) {
+                                this.pendingReserveSoc2 = apiData.extensions.reserveSoc2;
+                            }
+                        }
+
+                        // Update chart data
+                        this.updateChartData();
+
+                        this.connected = true;
+                        this.lastUpdate = new Date();
+                        this.nextRefresh = this.config.refresh_interval;
+                    } catch (e) {
+                        console.error('Fetch error:', e);
+                        this.connected = false;
+                        this.addLog('Failed to refresh data', 'error');
+                    }
+                    this.refreshing = false;
+                },
+
+                updateChartData() {
+                    // Add new data point to chart (keep last 60 points = 30 minutes at 30s interval)
+                    const now = new Date().toLocaleTimeString();
+
+                    this.chartData.timestamps.push(now);
+                    this.chartData.home_loads.push(this.data.home_loads?.home_loads_w || 0);
+                    this.chartData.solar.push(this.data.solar_pv?.output_power_w || 0);
+                    this.chartData.battery.push(this.data.inverter?.power || 0);
+                    // Calculate grid = solar - home_loads - battery (simplified)
+                    const grid = (this.data.solar_pv?.output_power_w || 0) -
+                        (this.data.home_loads?.home_loads_w || 0) -
+                        (this.data.inverter?.power || 0);
+                    this.chartData.grid.push(grid);
+
+                    // Keep only last 60 points
+                    if (this.chartData.timestamps.length > 60) {
+                        this.chartData.timestamps.shift();
+                        this.chartData.home_loads.shift();
+                        this.chartData.solar.shift();
+                        this.chartData.battery.shift();
+                        this.chartData.grid.shift();
+                    }
+
+                    // Update chart if it exists
+                    if (this.charts.powerFlow) {
+                        this.charts.powerFlow.update('none');
+                    }
+                },
+
+                initCharts() {
+                    // Initialize Power Flow Chart
+                    const ctx = document.getElementById('chart-power_flow_chart');
+                    if (!ctx) return;
+
+                    this.charts.powerFlow = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: this.chartData.timestamps,
+                            datasets: [
+                                {
+                                    label: 'Solar',
+                                    data: this.chartData.solar,
+                                    borderColor: '#f59e0b',
+                                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                    tension: 0.4,
+                                    fill: true
+                                },
+                                {
+                                    label: 'Home',
+                                    data: this.chartData.home_loads,
+                                    borderColor: '#06b6d4',
+                                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                                    tension: 0.4,
+                                    fill: true
+                                },
+                                {
+                                    label: 'Battery',
+                                    data: this.chartData.battery,
+                                    borderColor: '#10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    tension: 0.4,
+                                    fill: false
+                                },
+                                {
+                                    label: 'Grid',
+                                    data: this.chartData.grid,
+                                    borderColor: '#3b82f6',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                    tension: 0.4,
+                                    fill: false
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    display: true,
+                                    ticks: {
+                                        maxTicksLimit: 6,
+                                        font: { size: 10 }
+                                    }
+                                },
+                                y: {
+                                    display: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Power (W)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                },
+
+                // Control actions
+                async setOperatingMode(mode) {
+                    this.settingMode = true;
+                    try {
+                        // await fetch('/api/mode', { method: 'POST', body: JSON.stringify({ mode }) });
+                        await new Promise(r => setTimeout(r, 500)); // Simulate
+
+                        const modeNames = ['Standby', 'Normal', 'Backup Reserve', 'Self-Consumption', 'Time-of-Use'];
+                        this.data.extensions.operatingMode = mode;
+                        this.data.extensions.modeText = modeNames[mode];
+                        this.addToast(`Mode changed to ${modeNames[mode]}`, 'success');
+                    } catch (e) {
+                        this.addToast('Failed to change mode', 'error');
+                    }
+                    this.settingMode = false;
+                },
+
+                async setReserveSoc(value) {
+                    this.settingReserve = true;
+                    try {
+                        await new Promise(r => setTimeout(r, 500));
+                        this.data.extensions.reserveSoc = value;
+                        this.addToast(`Reserve SOC set to ${value}%`, 'success');
+                    } catch (e) {
+                        this.addToast('Failed to set reserve', 'error');
+                    }
+                    this.settingReserve = false;
+                },
+
+                async setReserveSoc2(value) {
+                    this.settingReserve2 = true;
+                    try {
+                        await new Promise(r => setTimeout(r, 500));
+                        this.data.extensions.reserveSoc2 = value;
+                        this.addToast(`Reserve SOC 2 set to ${value}%`, 'success');
+                    } catch (e) {
+                        this.addToast('Failed to set reserve 2', 'error');
+                    }
+                    this.settingReserve2 = false;
+                },
+
+                async setPowerLimits() {
+                    this.addToast('Power limits applied', 'success');
+                },
+
+                async readRawRegisters() {
+                    this.readingRaw = true;
+                    try {
+                        // Simulate register reading
+                        await new Promise(r => setTimeout(r, 800));
+                        const start = parseInt(this.rawStartAddr);
+                        this.rawRegisters = [];
+                        for (let i = 0; i < this.rawCount; i++) {
+                            const val = Math.floor(Math.random() * 65535);
+                            const int16 = val > 32767 ? val - 65536 : val;
+                            this.rawRegisters.push({
+                                addr: start + i,
+                                hex: `0x${val.toString(16).padStart(4, '0')}`,
+                                uint16: val,
+                                int16: int16,
+                                guess: i === 11 ? 'SOC raw' : i === 36 ? 'SOH raw' : ''
+                            });
+                        }
+                    } catch (e) {
+                        this.addToast('Failed to read registers', 'error');
+                    }
+                    this.readingRaw = false;
+                },
+
+                // UI helpers
+                addToast(message, type = 'info') {
+                    const id = Date.now();
+                    this.toasts.push({ id, message, type, visible: true });
+                    setTimeout(() => this.removeToast(id), 5000);
+                },
+
+                removeToast(id) {
+                    const toast = this.toasts.find(t => t.id === id);
+                    if (toast) toast.visible = false;
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 300);
+                },
+
+                closeModal() {
+                    this.modal.open = false;
+                },
+
+                addLog(message, level = 'info') {
+                    this.logs.unshift({
+                        id: Date.now(),
+                        message,
+                        level,
+                        time: new Date().toLocaleTimeString()
+                    });
+                    // Keep only last 100 logs
+                    if (this.logs.length > 100) this.logs.pop();
+                },
+
+                clearLogs() {
+                    this.logs = [];
+                },
+
+                formatTime(date) {
+                    if (!date) return '--';
+                    return date.toLocaleTimeString();
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>

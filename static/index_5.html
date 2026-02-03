@@ -1,0 +1,80 @@
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col min-w-0 bg-background">
+            <!-- Header -->
+            <header class="h-16 bg-surface shadow flex items-center justify-between px-6">
+                <div class="flex items-center gap-4">
+                    <button @click="sidebarOpen=!sidebarOpen" class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><i class="fas fa-bars"></i></button>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" x-model="config.auto_refresh" class="sr-only peer">
+                        <div class="w-9 h-5 bg-gray-200 peer-checked:bg-primary rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full relative"></div>
+                        <span class="text-sm text-gray-600">Auto</span>
+                    </label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button @click="refreshData()" :disabled="refreshing" class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><i :class="`fas fa-sync-alt ${refreshing?'fa-spin':''}`"></i></button>
+                    <button @click="settingsOpen=true" class="w-10 h-10 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><i class="fas fa-cog"></i></button>
+                </div>
+            </header>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-6">
+                
+                <!-- Dashboard -->
+                <div x-show="currentTab==='dashboard'" x-transition class="space-y-6">
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- SOC -->
+                        <div class="bg-surface rounded-2xl p-5 shadow relative overflow-hidden">
+                            <div class="flex justify-between items-start mb-3">
+                                <div>
+                                    <p class="text-sm text-gray-500">State of Charge</p>
+                                    <p class="text-3xl font-bold" x-text="`${data.battery?.soc?.toFixed(1)||'--'}%`"></p>
+                                </div>
+                                <div :class="`w-12 h-12 rounded-xl flex items-center justify-center ${(data.battery?.soc||0)>50?'bg-green-100 text-green-600':(data.battery?.soc||0)>20?'bg-amber-100 text-amber-600':'bg-red-100 text-red-600'}`">
+                                    <i class="fas fa-battery-three-quarters text-xl"></i>
+                                </div>
+                            </div>
+                            <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-red-500 via-amber-500 to-green-500 transition-all duration-500" :style="`width:${data.battery?.soc||0}%`"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Power -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm text-gray-500">Power</p>
+                                    <p class="text-2xl font-bold" :class="(data.inverter?.power||0)>0?'text-green-500':(data.inverter?.power||0)<0?'text-red-500':''" x-text="`${data.inverter?.power>0?'+':''}${data.inverter?.power?.toFixed(0)||'--'}W`"></p>
+                                </div>
+                                <div class="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center"><i class="fas fa-bolt text-xl"></i></div>
+                            </div>
+                            <p class="text-sm mt-2" :class="(data.inverter?.power||0)>0?'text-green-600':'text-red-600'">
+                                <i :class="`fas fa-arrow-${(data.inverter?.power||0)>0?'down':'up'}`"></i>
+                                <span x-text="(data.inverter?.power||0)>0?'Charging':(data.inverter?.power||0)<0?'Discharging':'Idle'"></span>
+                            </p>
+                        </div>
+                        
+                        <!-- SOH -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm text-gray-500">State of Health</p>
+                                    <p class="text-3xl font-bold text-primary" x-text="`${data.battery?.soh?.toFixed(1)||'--'}%`"></p>
+                                    <p class="text-xs text-gray-400" x-text="data.battery?.cycles?`${data.battery.cycles} cycles`:''"></p>
+                                </div>
+                                <div class="w-12 h-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center"><i class="fas fa-heartbeat text-xl"></i></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Mode -->
+                        <div class="bg-surface rounded-2xl p-5 shadow">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-sm text-gray-500">Operating Mode</p>
+                                    <p class="text-lg font-bold" x-text="data.extensions?.modeText||'--'"></p>
+                                </div>
+                                <div class="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center"><i class="fas fa-cog text-xl"></i></div>
+                            </div>
+                            <button @click="currentTab='control'" class="text-sm text-primary hover:underline mt-2">Change <i class="fas fa-arrow-right"></i></button>
+                        </div>
+                    </div>

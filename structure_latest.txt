@@ -1,0 +1,13 @@
+franklinwh-ha/
+├── static/
+│   └── index.html          # All 8 parts combined into this single file
+├── src/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── modbus_client.py
+│   ├── mqtt_handler.py
+│   ├── web_server.py
+│   └── config_manager.py
+├── Dockerfile
+├── config.yaml
+└── requirements.txt

@@ -1,0 +1,17 @@
+# Example: Set backup reserve at 6 PM
+automation:
+  - alias: "Evening Backup Reserve"
+    trigger:
+      - platform: time
+        at: "18:00:00"
+    action:
+      - service: select.select_option
+        target:
+          entity_id: select.franklinwh_operating_mode
+        data:
+          option: "Backup Reserve"
+      - service: number.set_value
+        target:
+          entity_id: number.franklinwh_reserve_soc
+        data:
+          value: 20  # Keep 20% reserve
