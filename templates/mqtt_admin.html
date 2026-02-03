@@ -186,8 +186,9 @@
 
                     <div>
                         <label class="block text-sm font-medium mb-1">Device Name in HA</label>
-                        <input type="text" x-model="config.ha_device_name"
+                        <input type="text" x-model="config.ha_device_name" placeholder="Leave empty to use aGate model"
                             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                        <p class="text-xs text-gray-500 mt-1">Empty = use "{Model} {Serial}" from aGate nameplate</p>
                     </div>
 
                     <div>
