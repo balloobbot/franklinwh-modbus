@@ -450,12 +450,26 @@
             },
 
             async onEnabledChange() {
-                if (this.config.enabled) {
-                    // Enable MQTT
-                    await fetch('/api/mqtt/enable', { method: 'POST' });
-                } else {
-                    // Disable MQTT
-                    await fetch('/api/mqtt/disable', { method: 'POST' });
+                try {
+                    let response;
+                    if (this.config.enabled) {
+                        response = await fetch('/api/mqtt/enable', { method: 'POST' });
+                    } else {
+                        response = await fetch('/api/mqtt/disable', { method: 'POST' });
+                    }
+                    
+                    if (!response.ok) {
+                        const error = await response.json();
+                        showToast('MQTT error: ' + (error.detail || 'Unknown error'), 'error');
+                        // Revert toggle on error
+                        this.config.enabled = !this.config.enabled;
+                    } else {
+                        const result = await response.json();
+                        showToast(result.message || 'MQTT updated', 'info');
+                    }
+                } catch (e) {
+                    showToast('MQTT command failed: ' + e.message, 'error');
+                    this.config.enabled = !this.config.enabled;
                 }
                 setTimeout(() => this.checkStatus(), 1000);
             }

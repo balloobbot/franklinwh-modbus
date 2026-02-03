@@ -270,7 +270,15 @@ class HomeAssistantMQTTBridge:
             return True
             
         except Exception as e:
-            self._logger.debug(f"MQTT connection attempt failed: {e}")
+            error_msg = str(e)
+            self._logger.warning(f"MQTT connection failed: {error_msg}")
+            # Provide more helpful error messages for common issues
+            if "Not authorized" in error_msg or "not authorised" in error_msg.lower():
+                self._logger.error("MQTT authentication failed - check username/password")
+            elif "Connection refused" in error_msg:
+                self._logger.error(f"MQTT broker refused connection at {self.broker_host}:{self.broker_port}")
+            elif "Name or service not known" in error_msg or "getaddrinfo failed" in error_msg:
+                self._logger.error(f"Cannot resolve MQTT broker hostname: {self.broker_host}")
             self._client = None
             return False
     
