@@ -143,6 +143,22 @@ class FranklinWHApplication:
              logger.error("Failed to connect to Primary Modbus device")
         else:
              logger.info("Connected to Primary Modbus device")
+             
+             # Discover and store Model 1 info for mock mode
+             try:
+                 device_info = await primary_client.get_device_info()
+                 if device_info:
+                     config_manager.update_device_model1_info(
+                         device_id="default",
+                         manufacturer=device_info.manufacturer,
+                         model=device_info.model,
+                         serial_number=device_info.serial_number,
+                         firmware_version=device_info.version
+                     )
+                     await config_manager.save()
+                     logger.info(f"Stored device info: {device_info.manufacturer} {device_info.model} (S/N: {device_info.serial_number})")
+             except Exception as e:
+                 logger.warning(f"Could not store device info: {e}")
 
         # Initialize MQTT bridge (using primary client)
         self.mqtt = HomeAssistantMQTTBridge(

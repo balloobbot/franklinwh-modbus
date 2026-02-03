@@ -78,6 +78,7 @@
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <h3 class="font-medium text-gray-900 dark:text-gray-100" x-text="device.name"></h3>
+                                        <span x-show="device.manufacturer" class="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" x-text="device.manufacturer"></span>
                                         <span x-show="device.model" class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" x-text="device.model"></span>
                                     </div>
                                     <p x-show="device.description" class="text-sm text-gray-600 dark:text-gray-400 mt-1" x-text="device.description"></p>
@@ -85,6 +86,7 @@
                                         <span x-text="device.host + ':' + device.port"></span>
                                         <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300" x-text="'ID: ' + device.unit_id"></span>
                                         <span x-show="device.serial_number" class="px-1.5 py-0.5 rounded text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400" x-text="'S/N: ' + device.serial_number"></span>
+                                        <span x-show="device.firmware_version" class="px-1.5 py-0.5 rounded text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" x-text="'v' + device.firmware_version"></span>
                                     </div>
                                 </div>
                             </div>
