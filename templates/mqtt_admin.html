@@ -104,113 +104,60 @@
             </div>
         </div>
 
-        <!-- Middle Column: Home Assistant Settings -->
+        <!-- Middle Column: aGate Device Selection -->
         <div class="lg:col-span-1 space-y-6">
-            <!-- Site Configuration -->
+            <!-- aGate Device Selection - Compact Scrollable -->
             <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
-                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <i class="fas fa-map-marker-alt text-primary"></i>
-                    Site Configuration
-                </h2>
-                <p class="text-sm text-gray-500 mb-4">Group multiple aGates/batteries as a single site</p>
-                
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium mb-1">Site Name</label>
-                        <input type="text" x-model="config.site_name" placeholder="Home, Garage, Office"
-                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        <p class="text-xs text-gray-500 mt-1">Used for grouping devices in HA</p>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium mb-1">Site ID</label>
-                        <input type="text" x-model="config.site_id"
-                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        <p class="text-xs text-gray-500 mt-1">Unique identifier for this site</p>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium mb-1">Site Description</label>
-                        <input type="text" x-model="config.site_description" placeholder="e.g., Main residence backup system"
-                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        <p class="text-xs text-gray-500 mt-1">Optional description shown in device info</p>
-                    </div>
-
-                    <div class="flex items-center justify-between pt-2">
-                        <div>
-                            <label class="text-sm font-medium">Remote Site</label>
-                            <p class="text-xs text-gray-500">Check if this is a remote/off-site installation</p>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" x-model="config.is_remote_site" class="sr-only peer">
-                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                        </label>
-                    </div>
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold flex items-center gap-2">
+                        <i class="fas fa-server text-primary"></i>
+                        aGate Devices
+                    </h2>
+                    <button @click="showBrowseModal = true" 
+                        class="text-xs px-3 py-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 flex items-center gap-1">
+                        <i class="fas fa-eye"></i>
+                        Browse
+                    </button>
                 </div>
-            </div>
-
-            <!-- aGate Device Selection -->
-            <div class="bg-surface rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
-                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <i class="fas fa-server text-primary"></i>
-                    aGate Devices
-                </h2>
-                <p class="text-sm text-gray-500 mb-4">Select which aGates to publish to Home Assistant</p>
+                <p class="text-sm text-gray-500 mb-3">Select which aGates to publish</p>
                 
-                <div class="space-y-3">
+                <!-- Compact scrollable list -->
+                <div class="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
                     <template x-for="device in devices" :key="device.id">
-                        <div class="p-3 rounded-lg border" :class="getDeviceStatusClass(device)">
-                            <div class="flex items-start gap-3">
-                                <div class="flex-shrink-0 mt-1">
-                                    <i class="fas fa-server" :class="device.connected ? 'text-emerald-500' : 'text-gray-400'"></i>
+                        <div class="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+                            :class="config.publish_devices[device.id] !== false && device.connected ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''">
+                            <input type="checkbox" 
+                                :checked="config.publish_devices[device.id] !== false"
+                                @change="onPublishToggle(device.id, $event.target.checked)"
+                                class="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-sm font-medium truncate" x-text="device.name || device.id"></span>
+                                    <span x-show="device.connected" class="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Connected"></span>
+                                    <span x-show="!device.connected" class="w-1.5 h-1.5 rounded-full bg-gray-400" title="Offline"></span>
                                 </div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between mb-1">
-                                        <span class="font-medium truncate" x-text="device.name || device.id"></span>
-                                        <span class="text-xs px-2 py-1 rounded-full font-medium"
-                                            :class="getPublishStatusClass(device.publish_status)">
-                                            <span x-text="getPublishStatusText(device.publish_status)"></span>
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-gray-500 space-y-1">
-                                        <div x-show="device.model">
-                                            <span class="font-medium">Model:</span>
-                                            <span x-text="device.model"></span>
-                                        </div>
-                                        <div x-show="device.serial_number">
-                                            <span class="font-medium">Serial:</span>
-                                            <span x-text="device.serial_number"></span>
-                                        </div>
-                                        <div x-show="device.site_id">
-                                            <span class="font-medium">Site:</span>
-                                            <span x-text="device.site_name || device.site_id"></span>
-                                        </div>
-                                        <div class="flex items-center gap-2 pt-1">
-                                            <span class="w-2 h-2 rounded-full" :class="device.connected ? 'bg-emerald-500' : 'bg-gray-400'"></span>
-                                            <span x-text="device.connected ? 'Connected' : 'Offline'"></span>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Publish Toggle -->
-                                    <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-                                        <label class="text-xs font-medium">Publish to Home Assistant</label>
-                                        <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" 
-                                                x-model="config.publish_devices[device.id]"
-                                                @change="onPublishToggle(device.id, $event.target.checked)"
-                                                class="sr-only peer">
-                                            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                        </label>
-                                    </div>
+                                <div class="flex items-center gap-2 text-xs text-gray-500">
+                                    <span x-show="device.serial_number" x-text="device.serial_number" class="font-mono"></span>
+                                    <span x-show="device.model" x-text="device.model" class="text-gray-400"></span>
                                 </div>
                             </div>
+                            <span class="text-xs px-1.5 py-0.5 rounded font-medium"
+                                :class="getPublishStatusClass(device.publish_status)"
+                                x-text="getPublishStatusText(device.publish_status)">
+                            </span>
                         </div>
                     </template>
                     <div x-show="devices.length === 0" class="text-center text-gray-500 py-6">
                         <i class="fas fa-plug text-2xl mb-2"></i>
-                        <p>No aGate devices configured</p>
-                        <p class="text-xs mt-1">Add devices in Topology to enable publishing</p>
+                        <p class="text-sm">No aGate devices configured</p>
+                        <p class="text-xs mt-1">Add devices in Topology</p>
                     </div>
+                </div>
+                
+                <!-- Select All / None -->
+                <div class="flex items-center justify-between mt-3 text-sm">
+                    <button @click="selectAllDevices(true)" class="text-primary hover:underline">Select All</button>
+                    <button @click="selectAllDevices(false)" class="text-gray-500 hover:underline">Select None</button>
                 </div>
             </div>
 
@@ -429,6 +376,7 @@
             },
             devices: [],
             sites: [],
+            showBrowseModal: false,
             originalConfig: null,
             hasChanges: false,
             saving: false,
@@ -665,8 +613,92 @@
                     this.config.enabled = !this.config.enabled;
                 }
                 setTimeout(() => this.checkStatus(), 1000);
+            },
+
+            selectAllDevices(enabled) {
+                this.devices.forEach(device => {
+                    this.config.publish_devices[device.id] = enabled;
+                });
+                this.hasChanges = true;
+            },
+
+            getEntityList() {
+                // Generate list of entities that would be published
+                const entities = [];
+                const publishBattery = this.config.publish_battery;
+                const publishInverter = this.config.publish_inverter;
+                const publishSolar = this.config.publish_solar;
+                const publishHomeLoads = this.config.publish_home_loads;
+                const publishCapacity = this.config.publish_capacity;
+                const publishControls = this.config.publish_controls;
+                
+                this.devices.forEach(device => {
+                    if (this.config.publish_devices[device.id] === false) return;
+                    
+                    const serial = device.serial_number ? device.serial_number.slice(-8) : device.id;
+                    const prefix = this.config.unique_id_prefix || 'franklinwh';
+                    
+                    if (publishBattery) {
+                        entities.push({ name: `${prefix}_${serial}_soc`, type: 'sensor', device: device.name, label: 'State of Charge' });
+                        entities.push({ name: `${prefix}_${serial}_soh`, type: 'sensor', device: device.name, label: 'State of Health' });
+                        entities.push({ name: `${prefix}_${serial}_temperature`, type: 'sensor', device: device.name, label: 'Temperature' });
+                    }
+                    if (publishInverter) {
+                        entities.push({ name: `${prefix}_${serial}_grid_power`, type: 'sensor', device: device.name, label: 'Grid Power' });
+                        entities.push({ name: `${prefix}_${serial}_battery_power`, type: 'sensor', device: device.name, label: 'Battery Power' });
+                    }
+                    if (publishSolar) {
+                        entities.push({ name: `${prefix}_${serial}_solar_power`, type: 'sensor', device: device.name, label: 'Solar Power' });
+                    }
+                    if (publishControls) {
+                        entities.push({ name: `${prefix}_${serial}_mode`, type: 'select', device: device.name, label: 'Operating Mode' });
+                        entities.push({ name: `${prefix}_${serial}_reserve_soc`, type: 'number', device: device.name, label: 'Reserve SOC' });
+                    }
+                });
+                return entities;
             }
         }
     }
 </script>
+
+<!-- Browse Entities Modal -->
+<div x-show="showBrowseModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-cloak x-transition>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col" @click.away="showBrowseModal = false">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Published Entities Preview</h3>
+            <button @click="showBrowseModal = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="flex-1 overflow-auto p-4">
+            <div class="space-y-2">
+                <template x-for="entity in getEntityList()" :key="entity.name">
+                    <div class="flex items-center gap-3 p-2 rounded bg-gray-50 dark:bg-gray-700/50">
+                        <div class="w-8 h-8 rounded flex items-center justify-center"
+                            :class="entity.type === 'sensor' ? 'bg-blue-100 text-blue-600' : 
+                                    entity.type === 'select' ? 'bg-purple-100 text-purple-600' : 
+                                    'bg-amber-100 text-amber-600'">
+                            <i :class="entity.type === 'sensor' ? 'fas fa-wave-square' : 
+                                       entity.type === 'select' ? 'fas fa-list' : 
+                                       'fas fa-sliders-h'"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100" x-text="entity.label"></div>
+                            <div class="text-xs text-gray-500 font-mono truncate" x-text="entity.name"></div>
+                        </div>
+                        <div class="text-xs text-gray-400" x-text="entity.device"></div>
+                    </div>
+                </template>
+                <div x-show="getEntityList().length === 0" class="text-center text-gray-500 py-8">
+                    <i class="fas fa-info-circle text-2xl mb-2"></i>
+                    <p>No entities configured for publishing</p>
+                    <p class="text-xs mt-1">Enable aGates and entity types to see preview</p>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <button @click="showBrowseModal = false" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}

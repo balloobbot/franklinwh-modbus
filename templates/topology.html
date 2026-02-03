@@ -3,11 +3,54 @@
 {% block title %}Network Topology - FranklinWH Manager{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6" x-data="topologyManager()">
+<div class="max-w-7xl mx-auto space-y-6" x-data="topologyManager()">
+    
+    <!-- Site Configuration -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <i class="fas fa-map-marker-alt text-primary"></i>
+                Site Configuration
+            </h2>
+            <button @click="saveSiteConfig()" :disabled="savingSite"
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
+                <i :class="savingSite ? 'fas fa-circle-notch fa-spin' : 'fas fa-save'"></i>
+                <span x-text="savingSite ? 'Saving...' : 'Save Site'">Save Site</span>
+            </button>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Site Name</label>
+                <input type="text" x-model="site.name" 
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Site ID</label>
+                <input type="text" x-model="site.id" disabled
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-500 cursor-not-allowed">
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" x-model="site.is_local"
+                        class="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">Local Site</span>
+                </label>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Description</label>
+            <input type="text" x-model="site.description" placeholder="e.g., Main residence backup system"
+                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Device List -->
     <div class="lg:col-span-2 space-y-6">
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-            <h2 class="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Configured Devices</h2>
+            <h2 class="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Configured aGates</h2>
 
             <template x-if="loading">
                 <div class="flex justify-center p-8">
@@ -26,33 +69,36 @@
                 <template x-for="device in devices" :key="device.id">
                     <div class="border rounded-lg p-4 transition-colors"
                         :class="device.connected ? 'border-emerald-200 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800' : 'border-gray-200 dark:border-gray-700'">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-4">
-                                <div class="w-10 h-10 rounded-full flex items-center justify-center"
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-start gap-4 flex-1">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
                                     :class="device.connected ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-700'">
                                     <i class="fas fa-server"></i>
                                 </div>
-                                <div>
-                                    <h3 class="font-medium text-gray-900 dark:text-gray-100" x-text="device.name"></h3>
-                                    <div class="flex items-center gap-2 text-sm text-gray-500">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <h3 class="font-medium text-gray-900 dark:text-gray-100" x-text="device.name"></h3>
+                                        <span x-show="device.model" class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" x-text="device.model"></span>
+                                    </div>
+                                    <p x-show="device.description" class="text-sm text-gray-600 dark:text-gray-400 mt-1" x-text="device.description"></p>
+                                    <div class="flex items-center gap-2 text-sm text-gray-500 mt-1 flex-wrap">
                                         <span x-text="device.host + ':' + device.port"></span>
-                                        <span
-                                            class="px-1.5 py-0.5 rounded textxs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-                                            x-text="'ID: ' + device.unit_id"></span>
+                                        <span class="px-1.5 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300" x-text="'ID: ' + device.unit_id"></span>
+                                        <span x-show="device.serial_number" class="px-1.5 py-0.5 rounded text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400" x-text="'S/N: ' + device.serial_number"></span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-3 ml-2">
                                 <div class="flex items-center gap-2 px-3 py-1 rounded-full text-sm"
                                     :class="device.connected ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'">
-                                    <div class="w-2 h-2 rounded-full"
-                                        :class="device.connected ? 'bg-emerald-500' : 'bg-red-500'"></div>
+                                    <div class="w-2 h-2 rounded-full" :class="device.connected ? 'bg-emerald-500' : 'bg-red-500'"></div>
                                     <span x-text="device.status"></span>
                                 </div>
-                                <button @click="removeDevice(device.id)"
-                                    class="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                                    title="Remove Device">
+                                <button @click="editDevice(device)" class="p-2 text-gray-400 hover:text-primary transition-colors" title="Edit Device">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button @click="removeDevice(device.id)" class="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Remove Device">
                                     <i class="fas fa-trash"></i>
                                 </button>
                             </div>
@@ -73,6 +119,12 @@
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Name</label>
                         <input type="text" x-model="newDevice.name" required placeholder="e.g. Garage PowerWall"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Description <span class="text-gray-400">(Optional)</span></label>
+                        <input type="text" x-model="newDevice.description" placeholder="e.g., Main house battery"
                             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary/50 focus:border-primary">
                     </div>
 
@@ -110,15 +162,47 @@
         </div>
     </div>
 </div>
+</div>
+
+<!-- Edit Device Modal -->
+<div x-show="editingDevice" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" x-cloak x-transition>
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4" @click.away="editingDevice = null">
+        <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Edit Device</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Name</label>
+                <input type="text" x-model="editForm.name"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Description</label>
+                <input type="text" x-model="editForm.description"
+                    class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+            </div>
+        </div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button @click="editingDevice = null" class="px-4 py-2 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">Cancel</button>
+            <button @click="saveDeviceEdit()" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90">Save</button>
+        </div>
+    </div>
+</div>
 
 <script>
     function topologyManager() {
         return {
             loading: true,
             submitting: false,
+            savingSite: false,
             devices: [],
+            site: {
+                id: 'default',
+                name: 'Home',
+                description: '',
+                is_local: true
+            },
             newDevice: {
                 name: '',
+                description: '',
                 host: '',
                 port: 502,
                 unit_id: 1,
@@ -126,11 +210,61 @@
                 base_address: 40001,
                 enabled: true
             },
+            editingDevice: null,
+            editForm: {
+                name: '',
+                description: ''
+            },
 
             init() {
+                this.loadSites();
                 this.refreshTopology();
                 // Auto-refresh topology status every 10s
                 setInterval(() => this.refreshTopology(), 10000);
+            },
+            
+            async loadSites() {
+                try {
+                    const response = await fetch('/api/settings');
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.sites && data.sites.length > 0) {
+                            const defaultSite = data.sites.find(s => s.id === 'default') || data.sites[0];
+                            this.site = {
+                                id: defaultSite.id,
+                                name: defaultSite.name || 'Home',
+                                description: defaultSite.description || '',
+                                is_local: defaultSite.is_local !== false
+                            };
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading sites:', error);
+                }
+            },
+            
+            async saveSiteConfig() {
+                this.savingSite = true;
+                try {
+                    const response = await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sites: [{
+                                id: this.site.id,
+                                name: this.site.name,
+                                description: this.site.description,
+                                is_local: this.site.is_local
+                            }]
+                        })
+                    });
+                    if (!response.ok) throw new Error('Failed to save');
+                    showToast('Site configuration saved', 'success');
+                } catch (error) {
+                    showToast('Error saving site: ' + error.message, 'error');
+                } finally {
+                    this.savingSite = false;
+                }
             },
 
             async refreshTopology() {
@@ -144,6 +278,31 @@
                     console.error('Error fetching topology:', error);
                 } finally {
                     this.loading = false;
+                }
+            },
+            
+            editDevice(device) {
+                this.editingDevice = device;
+                this.editForm = {
+                    id: device.id,
+                    name: device.name,
+                    description: device.description || ''
+                };
+            },
+            
+            async saveDeviceEdit() {
+                try {
+                    const response = await fetch(`/api/topology/${this.editForm.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.editForm)
+                    });
+                    if (!response.ok) throw new Error('Failed to update');
+                    showToast('Device updated', 'success');
+                    this.editingDevice = null;
+                    await this.refreshTopology();
+                } catch (error) {
+                    showToast('Error updating device: ' + error.message, 'error');
                 }
             },
 
@@ -180,6 +339,7 @@
                     
                     this.newDevice.host = '';
                     this.newDevice.name = '';
+                    this.newDevice.description = '';
                     await this.refreshTopology();
                 } catch (error) {
                     showToast('Error adding device: ' + error.message, 'error');

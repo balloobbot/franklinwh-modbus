@@ -85,6 +85,7 @@ class DeviceConfig:
     base_address: int = 40001
     timeout: int = 3
     enabled: bool = True
+    description: str = ""  # User description for this aGate
     site_id: str = "default"  # Link to SiteConfig
     
     # SunSpec Model 1 - Device Information (persisted after discovery)

@@ -100,6 +100,12 @@ class WidgetConfigRequest(BaseModel):
     expanded: bool = True
 
 
+class SiteConfigRequest(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    is_local: bool = True
+
 class SettingsRequest(BaseModel):
     modbus: Optional[ModbusConfigRequest] = None
     mqtt: Optional[MQTTConfigRequest] = None
@@ -107,6 +113,7 @@ class SettingsRequest(BaseModel):
     auto_refresh: Optional[bool] = None
     refresh_interval: Optional[int] = None
     widgets: Optional[Dict[str, WidgetConfigRequest]] = None
+    sites: Optional[List[SiteConfigRequest]] = None
 
 
 class ModeRequest(BaseModel):
@@ -131,6 +138,11 @@ class TopologyRequest(BaseModel):
     base_address: int = 40001
     timeout: int = 3
     enabled: bool = True
+    description: str = ""
+
+class DeviceEditRequest(BaseModel):
+    name: str
+    description: str = ""
 
 class RawRegisterRequest(BaseModel):
     start_address: int
@@ -662,6 +674,14 @@ def create_app(
                         config.widgets[key].color = w_conf.color
                         config.widgets[key].expanded = w_conf.expanded
             
+            # Handle sites if present
+            if request.sites:
+                for site_req in request.sites:
+                    if site_req.id in config.sites:
+                        config.sites[site_req.id].name = site_req.name
+                        config.sites[site_req.id].description = site_req.description
+                        config.sites[site_req.id].is_local = site_req.is_local
+            
             await app.state.config.save()
             return {"success": True}
         except Exception as e:
@@ -862,6 +882,7 @@ def create_app(
             device_config = DeviceConfig(
                 id=request.id,
                 name=request.name,
+                description=request.description,
                 host=request.host,
                 port=request.port,
                 unit_id=request.unit_id,
@@ -915,6 +936,25 @@ def create_app(
             return {"success": True}
         except Exception as e:
             logger.error(f"Error removing device: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.put("/api/topology/{device_id}")
+    async def update_device(device_id: str, request: DeviceEditRequest):
+        """Update device name and description."""
+        try:
+            config = app.state.config.get()
+            if device_id not in config.devices:
+                raise HTTPException(status_code=404, detail="Device not found")
+            
+            config.devices[device_id].name = request.name
+            config.devices[device_id].description = request.description
+            await app.state.config.save()
+            
+            return {"success": True}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating device: {e}")
             raise HTTPException(status_code=500, detail=str(e))
             
     @app.websocket("/ws")
