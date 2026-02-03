@@ -374,15 +374,15 @@ class HomeAssistantMQTTBridge:
             return
         
         try:
-            async with self._client.messages() as messages:
-                async for message in messages:
-                    try:
-                        topic = message.topic.value
-                        payload = message.payload.decode()
-                        self._logger.debug(f"Received: {topic} = {payload}")
-                        await self._handle_command(topic, payload)
-                    except Exception as e:
-                        self._logger.error(f"Error processing message: {e}")
+            # messages() is an async generator, iterate directly
+            async for message in self._client.messages():
+                try:
+                    topic = message.topic.value
+                    payload = message.payload.decode()
+                    self._logger.debug(f"Received: {topic} = {payload}")
+                    await self._handle_command(topic, payload)
+                except Exception as e:
+                    self._logger.error(f"Error processing message: {e}")
         except MqttError as e:
             self._logger.warning(f"MQTT connection lost: {e}")
             await self._set_status(MQTTStatus.OFFLINE)
