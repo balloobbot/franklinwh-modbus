@@ -180,6 +180,10 @@ class HomeAssistantMQTTBridge:
         # Track if we've ever connected (for "first time" behavior)
         self._has_ever_connected = False
         
+        # Connection time tracking
+        self._connected_at: Optional[float] = None
+        self._last_connected_at: Optional[float] = None
+        
         # Callback for status changes
         self._status_callbacks: List[Callable[[MQTTStatus], None]] = []
     
@@ -197,6 +201,23 @@ class HomeAssistantMQTTBridge:
     def is_enabled(self) -> bool:
         """Check if MQTT is enabled."""
         return self._enabled
+    
+    @property
+    def connected_at(self) -> Optional[float]:
+        """Get timestamp when connection was established (Unix epoch)."""
+        return self._connected_at
+    
+    @property
+    def last_connected_at(self) -> Optional[float]:
+        """Get timestamp of last successful connection (Unix epoch)."""
+        return self._last_connected_at
+    
+    def get_uptime_seconds(self) -> Optional[int]:
+        """Get current connection uptime in seconds."""
+        if self._status == MQTTStatus.ONLINE and self._connected_at:
+            import time
+            return int(time.time() - self._connected_at)
+        return None
     
     def add_status_callback(self, callback: Callable[[MQTTStatus], None]) -> None:
         """Add callback for status changes."""
@@ -219,6 +240,19 @@ class HomeAssistantMQTTBridge:
             self._status = status
             self._logger.info(f"MQTT status changed: {old_status.value} -> {status.value}")
             
+            # Track connection time
+            import time
+            if status == MQTTStatus.ONLINE:
+                self._connected_at = time.time()
+                self._last_connected_at = self._connected_at
+                self._logger.info(f"MQTT connected at {self._format_time(self._connected_at)}")
+            elif old_status == MQTTStatus.ONLINE:
+                # Was online, now offline - log duration
+                if self._connected_at:
+                    duration = time.time() - self._connected_at
+                    self._logger.info(f"MQTT connection lasted {self._format_duration(duration)}")
+                self._connected_at = None
+            
             for callback in self._status_callbacks:
                 try:
                     if asyncio.iscoroutinefunction(callback):
@@ -227,6 +261,22 @@ class HomeAssistantMQTTBridge:
                         callback(status)
                 except Exception as e:
                     self._logger.error(f"Status callback error: {e}")
+    
+    def _format_time(self, timestamp: float) -> str:
+        """Format timestamp for logging."""
+        from datetime import datetime
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _format_duration(self, seconds: float) -> str:
+        """Format duration in human-readable form."""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds/60)}m {int(seconds%60)}s"
+        else:
+            hours = int(seconds/3600)
+            mins = int((seconds%3600)/60)
+            return f"{hours}h {mins}m"
     
     async def start(self) -> None:
         """

@@ -105,6 +105,13 @@
                         <p class="text-xs text-gray-600 dark:text-gray-400 ml-6" x-show="!config.enabled">
                             Toggle to enable auto-connect on startup
                         </p>
+                        <!-- Uptime info -->
+                        <p class="text-xs text-emerald-600 dark:text-emerald-400 ml-6 mt-1" x-show="status === 'online' && uptimeFormatted">
+                            <i class="fas fa-clock mr-1"></i>Connected for <span x-text="uptimeFormatted"></span>
+                        </p>
+                        <p class="text-xs text-gray-500 ml-6 mt-1" x-show="lastConnectedFormatted && status !== 'online'">
+                            <i class="fas fa-history mr-1"></i>Last connected: <span x-text="lastConnectedFormatted"></span>
+                        </p>
                     </div>
 
                     <div>
@@ -434,6 +441,9 @@
             republishing: false,
             status: 'unknown',
             statusText: 'Unknown',
+            uptimeSeconds: null,
+            uptimeFormatted: null,
+            lastConnectedFormatted: null,
 
             async init() {
                 await this.loadConfig();
@@ -577,10 +587,14 @@
                         const data = await response.json();
                         this.status = data.status;
                         this.statusText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+                        this.uptimeSeconds = data.uptime_seconds;
+                        this.uptimeFormatted = data.uptime_formatted;
+                        this.lastConnectedFormatted = data.last_connected_formatted;
                     }
                 } catch (e) {
                     this.status = 'unknown';
                     this.statusText = 'Unknown';
+                    this.uptimeFormatted = null;
                 }
             },
 

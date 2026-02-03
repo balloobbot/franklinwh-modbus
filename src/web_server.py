@@ -789,20 +789,50 @@ def create_app(
     @app.get("/api/mqtt/status")
     async def get_mqtt_status():
         """Get detailed MQTT connection status."""
+        import time
         mqtt = app.state.mqtt
         if not mqtt:
             raise HTTPException(status_code=503, detail="MQTT bridge not available")
+        
+        uptime_seconds = mqtt.get_uptime_seconds()
+        last_connected = mqtt.last_connected_at
         
         return {
             "enabled": mqtt.is_enabled,
             "status": mqtt.status.value,
             "connected": mqtt.is_connected,
+            "uptime_seconds": uptime_seconds,
+            "uptime_formatted": _format_uptime(uptime_seconds) if uptime_seconds else None,
+            "last_connected_at": last_connected,
+            "last_connected_formatted": _format_timestamp(last_connected) if last_connected else None,
             "broker": {
                 "host": mqtt.broker_host,
                 "port": mqtt.broker_port,
             },
             "client_id": mqtt.client_id,
         }
+    
+    def _format_uptime(seconds: int) -> str:
+        """Format uptime in human-readable form."""
+        if seconds < 60:
+            return f"{seconds}s"
+        elif seconds < 3600:
+            mins = seconds // 60
+            secs = seconds % 60
+            return f"{mins}m {secs}s"
+        elif seconds < 86400:
+            hours = seconds // 3600
+            mins = (seconds % 3600) // 60
+            return f"{hours}h {mins}m"
+        else:
+            days = seconds // 86400
+            hours = (seconds % 86400) // 3600
+            return f"{days}d {hours}h"
+    
+    def _format_timestamp(timestamp: float) -> str:
+        """Format Unix timestamp to readable string."""
+        from datetime import datetime
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
     
     @app.post("/api/mqtt/enable")
     async def enable_mqtt():
