@@ -70,8 +70,16 @@ class ConnectionManager:
         """Get all registered clients."""
         return self._clients.copy()
 
-    async def add_client(self, device_config: DeviceConfig) -> bool:
-        """Add a new client dynamically."""
+    async def add_client(self, device_config: DeviceConfig, validate: bool = True) -> bool:
+        """Add a new client dynamically.
+        
+        Args:
+            device_config: Device configuration
+            validate: If True, validates device is a FranklinWH. If False, adds without validation.
+        
+        Returns:
+            True if connected successfully, False if offline but added
+        """
         async with self._lock:
             if device_config.id in self._clients:
                 await self.remove_client(device_config.id)
@@ -89,17 +97,18 @@ class ConnectionManager:
                 client.close()
                 raise ConnectionError(f"Failed to connect to {device_config.host}:{device_config.port}")
                 
-            # Validate device
-            try:
-                info = await client.get_device_info()
-                if not info or "FranklinWH" not in info.manufacturer:
-                    logger.error(f"Device validation failed: Manufacturer is '{info.manufacturer if info else 'None'}'")
+            # Validate device (if requested)
+            if validate:
+                try:
+                    info = await client.get_device_info()
+                    if not info or "FranklinWH" not in info.manufacturer:
+                        logger.error(f"Device validation failed: Manufacturer is '{info.manufacturer if info else 'None'}'")
+                        client.close()
+                        raise ValueError(f"Device is not a FranklinWH aGate (Manufacturer: {info.manufacturer if info else 'Unknown'})")
+                except Exception as e:
+                    logger.error(f"Validation error: {e}")
                     client.close()
-                    raise ValueError(f"Device is not a FranklinWH aGate (Manufacturer: {info.manufacturer if info else 'Unknown'})")
-            except Exception as e:
-                logger.error(f"Validation error: {e}")
-                client.close()
-                raise
+                    raise
                 
             self._clients[device_config.id] = client
             return True

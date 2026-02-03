@@ -276,7 +276,7 @@ class ConfigManager:
             
         # Load Theme
         if "theme" in data:
-            config.theme = UITheme(**data["theme"])
+            config.theme = ThemeConfig(**data["theme"])
             
         # Load General Settings
         config.refresh_interval = data.get("refresh_interval", 5)
@@ -310,7 +310,7 @@ class ConfigManager:
         for key, value in updates.items():
             if hasattr(config, key):
                 attr = getattr(config, key)
-                if isinstance(attr, (ModbusConfig, MQTTConfig, UITheme)):
+                if isinstance(attr, (ModbusConfig, MQTTConfig, ThemeConfig)):
                     for sub_key, sub_value in value.items():
                         if hasattr(attr, sub_key):
                             setattr(attr, sub_key, sub_value)

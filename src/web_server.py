@@ -718,26 +718,31 @@ def create_app(
                 enabled=request.enabled
             )
             
-            # Start connection (with validation)
-            # This will raise ValueError if validation fails
-            try:
-                await app.state.connection_manager.add_client(device_config)
-            except ValueError as e:
-                # Validation failed
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                # Connection failed but might be temporary
-                logger.warning(f"Connection failed during add: {e}")
-                # We might still want to add it if it's just offline?
-                # For validation purposes, we probably want to fail if we can't validate.
-                # Let's failing for now to be strict.
-                raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
-
-            # Save to config only if validation passed
+            # ALWAYS save to config first (so device persists even if offline)
             app.state.config.add_device(device_config)
             await app.state.config.save()
+            logger.info(f"Device {request.id} saved to config")
             
-            return {"success": True, "device": asdict(device_config)}
+            # Try to connect in background (don't fail if device is offline)
+            connection_error = None
+            try:
+                await app.state.connection_manager.add_client(device_config)
+                logger.info(f"Device {request.id} connected successfully")
+            except ValueError as e:
+                # Validation failed - log but don't fail
+                connection_error = str(e)
+                logger.warning(f"Device {request.id} validation failed: {e}")
+            except Exception as e:
+                # Connection failed - device is offline but saved
+                connection_error = str(e)
+                logger.warning(f"Device {request.id} offline (will retry): {e}")
+            
+            return {
+                "success": True, 
+                "device": asdict(device_config),
+                "connected": connection_error is None,
+                "message": connection_error if connection_error else "Device added and connected"
+            }
         except HTTPException:
             raise
         except Exception as e:
