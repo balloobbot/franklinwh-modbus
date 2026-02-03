@@ -164,9 +164,20 @@
                         body: JSON.stringify(payload)
                     });
 
-                    if (!response.ok) throw new Error('Failed to add device');
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to add device');
+                    }
 
-                    showToast('Device added successfully', 'success');
+                    const result = await response.json();
+                    
+                    // Show appropriate message based on connection status
+                    if (result.connected) {
+                        showToast(result.message || 'Device added and connected', 'success');
+                    } else {
+                        showToast('Device saved but offline: ' + (result.message || 'Connection failed'), 'warning');
+                    }
+                    
                     this.newDevice.host = '';
                     this.newDevice.name = '';
                     await this.refreshTopology();
