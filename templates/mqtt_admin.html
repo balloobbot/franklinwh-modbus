@@ -455,6 +455,7 @@
                     const response = await fetch('/api/settings');
                     if (response.ok) {
                         const data = await response.json();
+                        console.log('Settings loaded:', data.mqtt);  // Debug
                         if (data.mqtt) {
                             // Ensure publish_devices exists
                             if (!data.mqtt.publish_devices) {
@@ -462,13 +463,24 @@
                             }
                             // Track if password was previously set
                             const hadPassword = data.mqtt.has_password;
-                            const wasEnabled = data.mqtt.enabled;
-                            this.config = { ...this.config, ...data.mqtt };
+                            const wasEnabled = Boolean(data.mqtt.enabled);
+                            
+                            // Merge config, ensuring enabled is a boolean
+                            this.config = { 
+                                ...this.config, 
+                                ...data.mqtt,
+                                enabled: wasEnabled  // Explicitly set as boolean
+                            };
+                            
                             // Clear password field (don't show dots), but track that it exists
                             this.config.password = '';
                             this.config.has_password = hadPassword;
                             this.passwordChanged = false;
+                            
+                            // Store original for change detection
                             this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                            
+                            console.log('Config enabled set to:', this.config.enabled);  // Debug
                             
                             // Notify if MQTT is configured to auto-start
                             if (wasEnabled) {
