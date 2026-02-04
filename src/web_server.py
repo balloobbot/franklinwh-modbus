@@ -452,20 +452,25 @@ def create_app(
     
     @app.post("/api/mode")
     async def set_mode(request: ModeRequest, device_id: Optional[str] = None):
-        """Set battery operating mode."""
+        """Set battery operating mode (FranklinWH extension register 15507).
+        
+        Mode values:
+        0 = Standby
+        1 = Backup Reserve
+        2 = Self-Consumption
+        3 = Time-of-Use
+        4 = Normal
+        """
         modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
         try:
-            # Map mode numbers to BatteryMode enum
-            mode_map = {
-                0: BatteryMode.IDLE,
-                1: BatteryMode.CHARGING,  # Normal might be different
-                2: BatteryMode.DISCHARGING,  # Backup reserve
-            }
+            # Validate mode range
+            if request.mode < 0 or request.mode > 4:
+                raise HTTPException(status_code=400, detail=f"Invalid mode {request.mode}. Must be 0-4.")
             
-            # For now, use the extension method which supports the 5 modes
+            # Use the extension method which supports the 5 FranklinWH modes
             from src.modbus_client_franklinwh import FranklinWHRegisterMap
             register_map = FranklinWHRegisterMap(modbus)
             success = await register_map.set_operating_mode(request.mode)

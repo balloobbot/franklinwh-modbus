@@ -648,7 +648,9 @@ function franklinWHApp() {
         // Control actions
         // Control functions with confirmation modal
         setOperatingMode(mode) {
-            const modeNames = ['Standby', 'Normal', 'Backup Reserve', 'Self-Consumption', 'Time-of-Use'];
+            // Mode mapping from FranklinWH extension registers (15507)
+            // 0=Standby, 1=Backup Reserve, 2=Self-Consumption, 3=Time-of-Use, 4=Normal
+            const modeNames = ['Standby', 'Backup Reserve', 'Self-Consumption', 'Time-of-Use', 'Normal'];
             const currentMode = this.data.extensions?.operatingMode || 0;
             
             this.controlModal = {
