@@ -12,19 +12,21 @@
         <div x-show="controlStatus.warning" 
              x-transition:enter="transition ease-out duration-300"
              x-transition:enter-start="opacity-0 -translate-y-4"
-             x-transition:enter-end="opacity-0 translate-y-0"
+             x-transition:enter-end="opacity-100 translate-y-0"
              class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
             <i class="fas fa-exclamation-triangle text-amber-500 text-xl mt-0.5"></i>
             <div class="flex-1">
                 <h4 class="font-semibold text-amber-800">Control Mode Warning</h4>
-                <p class="text-sm text-amber-700 mt-1" x-text="controlStatus.message">
-                    aGate may be in LOCAL mode. Control operations may fail.
-                </p>
+                <p class="text-sm text-amber-700 mt-1" x-text="controlStatus.message"></p>
                 <div class="flex gap-2 mt-2 text-xs">
-                    <span class="px-2 py-1 bg-amber-100 rounded" x-text="`Mode: ${controlStatus.control_mode || 'Unknown'}`"></span>
-                    <span class="px-2 py-1 bg-amber-100 rounded" x-text="`Write: ${controlStatus.can_write ? 'OK' : 'Blocked'}`"></span>
+                    <span class="px-2 py-1 bg-amber-100 rounded" 
+                          :class="controlStatus.inferred ? 'italic' : ''"
+                          x-text="`Mode: ${controlStatus.control_mode || 'Unknown'}`"></span>
+                    <span class="px-2 py-1 rounded" 
+                          :class="controlStatus.can_write ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                          x-text="`Write: ${controlStatus.can_write ? 'OK' : 'Blocked'}`"></span>
                 </div>
-                <p class="text-xs text-amber-600 mt-2">
+                <p class="text-xs text-amber-600 mt-2" x-show="!controlStatus.can_write">
                     <i class="fas fa-info-circle mr-1"></i>
                     Contact your installer to enable "SPAN Panel Modbus" if controls fail.
                 </p>

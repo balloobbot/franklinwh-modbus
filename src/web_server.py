@@ -581,13 +581,30 @@ def create_app(
             elif loc_rem_ctl == 2:
                 control_mode = "Both"
             
+            # Infer mode from write test if SunSpec LocRemCtl not available
+            if loc_rem_ctl is None:
+                if can_write:
+                    control_mode = "Remote (inferred)"
+                else:
+                    control_mode = "Local (inferred)"
+            
+            # Build message based on what we found
+            if can_write:
+                message = f"aGate is in {control_mode} mode. Write test passed."
+            else:
+                if "Local" in control_mode:
+                    message = f"aGate appears to be in LOCAL mode. SPAN Panel Modbus may need to be enabled by your installer."
+                else:
+                    message = f"aGate is in {control_mode} mode but writes are blocked. Check SPAN Panel Modbus setting."
+            
             return {
                 "success": True,
                 "control_mode": control_mode,
                 "loc_rem_ctl": loc_rem_ctl,
                 "can_write": can_write,
                 "write_test_message": write_message,
-                "warning": control_mode == "Local" or not can_write
+                "message": message,
+                "warning": not can_write
             }
             
         except Exception as e:

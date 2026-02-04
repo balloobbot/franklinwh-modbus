@@ -34,7 +34,8 @@ function franklinWHApp() {
             control_mode: 'Unknown',
             can_write: false,
             message: '',
-            checking: false
+            checking: false,
+            inferred: false
         },
 
         // Data
@@ -278,9 +279,8 @@ function franklinWHApp() {
                         warning: data.warning,
                         control_mode: data.control_mode,
                         can_write: data.can_write,
-                        message: data.warning 
-                            ? `aGate is in ${data.control_mode} mode. ${data.can_write ? 'Writes working.' : 'Writes blocked - may need SPAN Modbus enabled.'}`
-                            : 'Control mode OK - aGate is in REMOTE mode',
+                        message: data.message || 'Control status unknown',
+                        inferred: data.control_mode?.includes('inferred') || false,
                         checking: false
                     };
                 }
