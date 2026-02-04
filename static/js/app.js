@@ -38,6 +38,15 @@ function franklinWHApp() {
             inferred: false
         },
 
+        // Device Status Bar Info
+        deviceStatus: {
+            serial: '',  // Last 8 chars of serial
+            controlMode: '',  // LOCAL or REMOTE
+            gridStatus: '',   // Connected, Disconnected, etc.
+            chargingStatus: '',  // Charging, Discharging, Idle
+            lastUpdate: null
+        },
+
         // Data
         data: {
             battery: {
@@ -253,6 +262,7 @@ function franklinWHApp() {
             this.startAutoRefresh();
             this.startBackendConnectionCheck();  // Monitor backend connection
             this.checkControlStatus();  // Check Local/Remote mode
+            this.updateDeviceStatus();  // Update device status bar
             this.addLog('Application initialized', 'info');
 
             // Check system preference for dark mode
@@ -288,6 +298,60 @@ function franklinWHApp() {
                 console.error('Failed to check control status:', e);
             }
             this.controlStatus.checking = false;
+        },
+
+        // Update device status bar info
+        async updateDeviceStatus() {
+            try {
+                // Get device info from topology
+                const response = await fetch('/api/topology');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.devices && data.devices.length > 0) {
+                        const device = data.devices[0];  // Use first active device
+                        
+                        // Extract serial (last 8 chars)
+                        const serial = device.serial_number ? 
+                            device.serial_number.slice(-8) : 
+                            (device.id || 'Unknown');
+                        
+                        this.deviceStatus.serial = serial;
+                    }
+                }
+                
+                // Get control mode from control status
+                const controlResponse = await fetch('/api/control_status');
+                if (controlResponse.ok) {
+                    const controlData = await controlResponse.json();
+                    // Extract just LOCAL/REMOTE from control_mode
+                    let mode = controlData.control_mode || 'Unknown';
+                    if (mode.includes('Local')) mode = 'LOCAL';
+                    else if (mode.includes('Remote')) mode = 'REMOTE';
+                    else mode = 'Unknown';
+                    this.deviceStatus.controlMode = mode;
+                }
+                
+                // Get grid and charging status from data
+                if (this.data?.inverter) {
+                    // Grid status - check if we have voltage
+                    const hasVoltage = this.data.inverter.voltage > 0;
+                    this.deviceStatus.gridStatus = hasVoltage ? 'Connected' : 'Disconnected';
+                    
+                    // Charging status from power
+                    const power = this.data.inverter.power || 0;
+                    if (power > 50) {
+                        this.deviceStatus.chargingStatus = 'Charging';
+                    } else if (power < -50) {
+                        this.deviceStatus.chargingStatus = 'Discharging';
+                    } else {
+                        this.deviceStatus.chargingStatus = 'Idle';
+                    }
+                }
+                
+                this.deviceStatus.lastUpdate = new Date();
+            } catch (e) {
+                console.error('Failed to update device status:', e);
+            }
         },
 
         // Backend connection monitoring
@@ -433,9 +497,11 @@ function franklinWHApp() {
         // Data refresh
         startAutoRefresh() {
             this.refreshData();
+            this.updateDeviceStatus();  // Initial device status update
             this.refreshTimer = setInterval(() => {
                 if (this.config.auto_refresh) {
                     this.refreshData();
+                    this.updateDeviceStatus();  // Update device status on each refresh
                 }
             }, this.config.refresh_interval * 1000);
 

@@ -201,6 +201,58 @@
             </div>
         </header>
 
+        <!-- Device Status Bar -->
+        <div class="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-4 py-1.5">
+            <div class="max-w-7xl mx-auto flex items-center gap-4 text-xs">
+                <!-- Active Device Info -->
+                <div class="flex items-center gap-2" x-show="deviceStatus.serial">
+                    <i class="fas fa-server text-gray-400"></i>
+                    <span class="font-mono font-medium" x-text="deviceStatus.serial">--</span>
+                </div>
+                
+                <div class="h-3 w-px bg-gray-300 dark:bg-gray-600" x-show="deviceStatus.serial"></div>
+                
+                <!-- Control Mode -->
+                <div class="flex items-center gap-1.5" x-show="deviceStatus.controlMode">
+                    <i class="fas fa-lock" :class="deviceStatus.controlMode === 'REMOTE' ? 'text-emerald-500' : 'text-amber-500'"></i>
+                    <span :class="deviceStatus.controlMode === 'REMOTE' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'"
+                          x-text="deviceStatus.controlMode || '--'">--</span>
+                </div>
+                
+                <div class="h-3 w-px bg-gray-300 dark:bg-gray-600" x-show="deviceStatus.gridStatus"></div>
+                
+                <!-- Grid Connection -->
+                <div class="flex items-center gap-1.5" x-show="deviceStatus.gridStatus">
+                    <i class="fas fa-plug" :class="deviceStatus.gridStatus === 'Connected' ? 'text-emerald-500' : 'text-red-500'"></i>
+                    <span x-text="deviceStatus.gridStatus || '--'">--</span>
+                </div>
+                
+                <div class="h-3 w-px bg-gray-300 dark:bg-gray-600" x-show="deviceStatus.chargingStatus"></div>
+                
+                <!-- Charging Status -->
+                <div class="flex items-center gap-1.5" x-show="deviceStatus.chargingStatus">
+                    <i class="fas fa-bolt" :class="{
+                        'text-emerald-500': deviceStatus.chargingStatus === 'Charging',
+                        'text-blue-500': deviceStatus.chargingStatus === 'Discharging',
+                        'text-gray-400': deviceStatus.chargingStatus === 'Idle'
+                    }"></i>
+                    <span x-text="deviceStatus.chargingStatus || '--'">--</span>
+                </div>
+                
+                <div class="flex-1"></div>
+                
+                <!-- Connection Status -->
+                <div class="flex items-center gap-1.5">
+                    <div class="w-2 h-2 rounded-full" :class="{
+                        'bg-emerald-500': connected && backendConnected,
+                        'bg-amber-500': !connected && backendConnected,
+                        'bg-red-500': !backendConnected
+                    }"></div>
+                    <span class="text-gray-500" x-text="connected ? 'Connected' : 'Disconnected'">--</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Backend Connection Lost Banner -->
         <div x-show="backendConnected === false" 
              x-transition:enter="transition ease-out duration-300"
