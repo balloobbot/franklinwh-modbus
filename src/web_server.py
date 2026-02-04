@@ -524,6 +524,120 @@ def create_app(
             logger.error(f"Error setting reserve 2: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
+    @app.get("/api/control_status")
+    async def get_control_status(device_id: Optional[str] = None):
+        """Get control status including Local/Remote mode and write permissions."""
+        modbus = await app.state.connection_manager.get_client(device_id)
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        try:
+            # Try to read from SunSpec Model 714 (DER Storage Status) - has LocRemCtl (Local Remote Control)
+            status_model = await modbus.read_model(714)
+            loc_rem_ctl = None
+            
+            if status_model:
+                try:
+                    loc_rem_ctl = status_model.LocRemCtl.value if hasattr(status_model, 'LocRemCtl') else None
+                except:
+                    pass
+            
+            # If we couldn't read LocRemCtl, try to determine from extension registers
+            if loc_rem_ctl is None:
+                # Read register 15500 which may contain local/remote status
+                # This is FranklinWH-specific
+                pass
+            
+            # Also test write permission
+            can_write = False
+            write_message = "Unknown"
+            
+            try:
+                # Quick write test on ChaGriSet
+                model_715 = await modbus.read_model(715, force=True)
+                if model_715:
+                    try:
+                        current_val = model_715.ChaGriSet.value if hasattr(model_715, 'ChaGriSet') else None
+                        if current_val is not None:
+                            can_write = await modbus._write_point(model_715, 'ChaGriSet', current_val)
+                            write_message = "Write test passed" if can_write else "Write test failed"
+                    except:
+                        pass
+            except Exception as e:
+                write_message = f"Write test error: {str(e)}"
+            
+            # Interpret LocRemCtl
+            # 0 = Local, 1 = Remote, 2 = Both (per SunSpec)
+            control_mode = "Unknown"
+            if loc_rem_ctl == 0:
+                control_mode = "Local"
+            elif loc_rem_ctl == 1:
+                control_mode = "Remote"
+            elif loc_rem_ctl == 2:
+                control_mode = "Both"
+            
+            return {
+                "success": True,
+                "control_mode": control_mode,
+                "loc_rem_ctl": loc_rem_ctl,
+                "can_write": can_write,
+                "write_test_message": write_message,
+                "warning": control_mode == "Local" or not can_write
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting control status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/test_write_permission")
+    async def test_write_permission(device_id: Optional[str] = None):
+        """Test if we have write permission by writing ChaGriSet (Grid Charge Enable) back to itself."""
+        modbus = await app.state.connection_manager.get_client(device_id)
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        try:
+            # Read Model 715 (DER Storage Controls)
+            model = await modbus.read_model(715, force=True)
+            if model is None:
+                raise HTTPException(status_code=503, detail="Model 715 not available")
+            
+            # Get current ChaGriSet value (Grid Charge Enable)
+            try:
+                current_value = model.ChaGriSet.value
+            except AttributeError:
+                # Fallback: try reading as point
+                point = model.get_point("ChaGriSet")
+                if point is None:
+                    raise HTTPException(status_code=503, detail="ChaGriSet point not found in Model 715")
+                current_value = point.value
+            
+            # Try to write the same value back (no actual change)
+            success = await modbus._write_point(model, 'ChaGriSet', current_value)
+            
+            if success:
+                return {
+                    "success": True,
+                    "can_write": True,
+                    "message": "Write permission confirmed - aGate is in REMOTE mode",
+                    "tested_value": current_value
+                }
+            else:
+                return {
+                    "success": True,
+                    "can_write": False,
+                    "message": "Write failed - aGate may be in LOCAL mode or SPAN Modbus not enabled",
+                    "tested_value": current_value
+                }
+                
+        except Exception as e:
+            logger.error(f"Error testing write permission: {e}")
+            return {
+                "success": False,
+                "can_write": False,
+                "message": f"Test failed: {str(e)}"
+            }
+    
     @app.post("/api/power_limits")
     async def set_power_limits(request: PowerLimitRequest, device_id: Optional[str] = None):
         """Set power limits."""

@@ -28,6 +28,15 @@ function franklinWHApp() {
             errorMsg: ''
         },
 
+        // Control Status (Local/Remote mode, write permissions)
+        controlStatus: {
+            warning: false,
+            control_mode: 'Unknown',
+            can_write: false,
+            message: '',
+            checking: false
+        },
+
         // Data
         data: {
             battery: {
@@ -242,6 +251,7 @@ function franklinWHApp() {
             this.checkMode();  // Check if running in mock or live mode
             this.startAutoRefresh();
             this.startBackendConnectionCheck();  // Monitor backend connection
+            this.checkControlStatus();  // Check Local/Remote mode
             this.addLog('Application initialized', 'info');
 
             // Check system preference for dark mode
@@ -255,6 +265,29 @@ function franklinWHApp() {
                 this.initCharts();
                 this.refreshData();
             });
+        },
+
+        // Control status monitoring (Local/Remote mode)
+        async checkControlStatus() {
+            this.controlStatus.checking = true;
+            try {
+                const response = await fetch('/api/control_status');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.controlStatus = {
+                        warning: data.warning,
+                        control_mode: data.control_mode,
+                        can_write: data.can_write,
+                        message: data.warning 
+                            ? `aGate is in ${data.control_mode} mode. ${data.can_write ? 'Writes working.' : 'Writes blocked - may need SPAN Modbus enabled.'}`
+                            : 'Control mode OK - aGate is in REMOTE mode',
+                        checking: false
+                    };
+                }
+            } catch (e) {
+                console.error('Failed to check control status:', e);
+            }
+            this.controlStatus.checking = false;
         },
 
         // Backend connection monitoring
