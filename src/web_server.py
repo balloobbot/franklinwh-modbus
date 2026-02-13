@@ -7,11 +7,12 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -114,6 +115,8 @@ class SettingsRequest(BaseModel):
     refresh_interval: Optional[int] = None
     widgets: Optional[Dict[str, WidgetConfigRequest]] = None
     sites: Optional[List[SiteConfigRequest]] = None
+    log_level: Optional[str] = None
+    log_retention_days: Optional[int] = None
 
 
 class ModeRequest(BaseModel):
@@ -148,6 +151,43 @@ class DeviceEditRequest(BaseModel):
 class RawRegisterRequest(BaseModel):
     start_address: int
     count: int = 41
+    device_id: Optional[str] = None
+
+
+class WriteRegisterRequest(BaseModel):
+    address: int
+    value: int
+    data_type: str = "uint16"  # uint16, int16, uint32, int32, float32
+    device_id: Optional[str] = None
+
+
+class SunSpecWriteRequest(BaseModel):
+    model_id: int
+    point_name: str
+    value: Any
+    dry_run: bool = False  # Validate only, don't actually write
+    acknowledge_danger: bool = False  # User acknowledges the risk
+    device_id: Optional[str] = None
+
+
+class SunSpecBatchWriteRequest(BaseModel):
+    points: List[Dict[str, Any]]  # List of {model_id, point_name, value}
+    dry_run: bool = False
+    acknowledge_danger: bool = False
+    device_id: Optional[str] = None
+
+
+class SunSpecPointRequest(BaseModel):
+    point: str  # Format: "model_id.point_name" (e.g., "1.Mn")
+    verbose: bool = False
+    device_id: Optional[str] = None
+
+
+class SunSpecRawRequest(BaseModel):
+    raw: str  # Format: "start:count" (e.g., "15500:14")
+    nz: bool = False  # Only non-zero values
+    match: bool = False  # Try to match with known models
+    verbose: bool = False
     device_id: Optional[str] = None
 
 
@@ -210,9 +250,14 @@ def create_app(
     async def get_topology_page(request: Request):
         return templates.TemplateResponse("topology.html", {"request": request})
 
+    @app.get("/diagnostics", response_class=HTMLResponse)
+    async def get_diagnostics_page(request: Request):
+        """Diagnostics dashboard for data source mapping and MQTT monitoring."""
+        return templates.TemplateResponse("diagnostics.html", {"request": request})
+
     @app.get("/api/health")
     async def health(device_id: Optional[str] = None):
-        """Health check endpoint with MQTT status."""
+        """Health check endpoint with MQTT status and network quality."""
         modbus = await app.state.connection_manager.get_client(device_id)
         mqtt = app.state.mqtt
         
@@ -223,11 +268,172 @@ def create_app(
             "broker": f"{mqtt.broker_host}:{mqtt.broker_port}" if mqtt else None,
         } if mqtt else None
         
+        # Get network health if available
+        network_health = None
+        if hasattr(app.state, 'network_monitor') and app.state.network_monitor:
+            monitor = app.state.network_monitor
+            stats = monitor.last_stats
+            if stats:
+                network_health = {
+                    "quality": stats.quality.value,
+                    "packet_loss": stats.packet_loss,
+                    "avg_latency_ms": stats.avg_ms,
+                    "max_latency_ms": stats.max_ms,
+                    "jitter_ms": stats.mdev_ms,
+                }
+        
         return {
             "status": "ok",
             "mock_mode": getattr(app.state, 'mock_mode', False),
             "modbus_connected": modbus._connected if modbus else False,
             "mqtt": mqtt_status,
+            "network": network_health,
+        }
+    
+    @app.get("/api/diagnostics/data_sources")
+    async def get_data_source_mapping(device_id: Optional[str] = None):
+        """Get data source mapping for all sensors (Modbus → API → MQTT)."""
+        import time
+        modbus = await app.state.connection_manager.get_client(device_id)
+        mqtt = app.state.mqtt
+        
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        # Get current data
+        data = await modbus.read_all()
+        
+        # Build sensor mapping
+        sensors = [
+            # Grid Power
+            {
+                "display_name": "Grid Power",
+                "modbus_source": "Model 701.W",
+                "modbus_register": "40001+ (AC Power)",
+                "api_field": "inverter.power",
+                "mqtt_topic": "inverter/power",
+                "current_value": data.get("inverter_ac", {}).power_w if data.get("inverter_ac") else None,
+                "unit": "W",
+                "status": "live" if data.get("inverter_ac", {}).power_w is not None else "no_data",
+                "entity_id": "sensor.agate_x_0091_power",
+            },
+            # Battery Power (DC)
+            {
+                "display_name": "Battery Power",
+                "modbus_source": "Model 714.DCW",
+                "modbus_register": "40100+ (DC Power)",
+                "api_field": "battery.power",
+                "mqtt_topic": "battery/power",
+                "current_value": data.get("battery", {}).dc_power_w if data.get("battery") else None,
+                "unit": "W",
+                "status": "live" if data.get("battery", {}).dc_power_w is not None else "no_data",
+                "entity_id": "sensor.franklinwh_agate_x_0091_battery_power",
+            },
+            # Battery SOC
+            {
+                "display_name": "State of Charge",
+                "modbus_source": "Model 713.SoC",
+                "modbus_register": "40080+ (Battery SOC)",
+                "api_field": "battery.soc",
+                "mqtt_topic": "battery/soc",
+                "current_value": data.get("battery", {}).state_of_charge_percent if data.get("battery") else None,
+                "unit": "%",
+                "status": "live" if data.get("battery", {}).state_of_charge_percent is not None else "no_data",
+                "entity_id": "sensor.agate_x_0091_state_of_charge",
+            },
+            # Battery Temperature
+            {
+                "display_name": "Battery Temperature",
+                "modbus_source": "Model 714.Tmp",
+                "modbus_register": "40100+ (Temperature)",
+                "api_field": "battery.temperature",
+                "mqtt_topic": "battery/temperature",
+                "current_value": data.get("battery", {}).temperature_c if data.get("battery") else None,
+                "unit": "°C",
+                "status": "no_data" if data.get("battery", {}).temperature_c is None else "live",
+                "reason": "Hardware does not provide" if data.get("battery", {}).temperature_c is None else None,
+                "entity_category": "diagnostic",
+                "entity_id": "sensor.agate_x_0091_battery_temperature",
+            },
+            # Cycle Count
+            {
+                "display_name": "Cycle Count",
+                "modbus_source": "Model 714.NCyc",
+                "modbus_register": "40100+",
+                "api_field": "battery.cycles",
+                "mqtt_topic": "battery/cycles",
+                "current_value": data.get("battery", {}).cycle_count if data.get("battery") else None,
+                "unit": "cycles",
+                "status": "no_data" if data.get("battery", {}).cycle_count is None else "live",
+                "reason": "Hardware does not provide" if data.get("battery", {}).cycle_count is None else None,
+                "entity_category": "diagnostic",
+                "entity_id": "sensor.agate_x_0091_cycle_count",
+            },
+            # Home Loads
+            {
+                "display_name": "Home Loads",
+                "modbus_source": "Register 15506",
+                "modbus_register": "15506 (FranklinWH Extension)",
+                "api_field": "home_loads.home_loads_w",
+                "mqtt_topic": "home_loads/home_loads_w",
+                "current_value": data.get("home_loads", {}).home_loads_w if data.get("home_loads") else None,
+                "unit": "W",
+                "status": "live" if data.get("home_loads", {}).home_loads_w is not None else "no_data",
+                "entity_id": "sensor.agate_x_0091_home_loads",
+            },
+            # Solar Power
+            {
+                "display_name": "Solar Power",
+                "modbus_source": "Model 704.W",
+                "modbus_register": "40120+ (PV Power)",
+                "api_field": "solar_pv.output_power_w",
+                "mqtt_topic": "solar/output_power",
+                "current_value": data.get("solar_pv", {}).output_power_w if data.get("solar_pv") else None,
+                "unit": "W",
+                "status": "live" if data.get("solar_pv", {}).output_power_w is not None else "no_data",
+                "entity_id": "sensor.agate_x_0091_solar_power",
+            },
+            # Max Charge Power
+            {
+                "display_name": "Max Charge Power",
+                "modbus_source": "Model 702.WChaRteMaxRtg",
+                "modbus_register": "40235 (DERCapacity)",
+                "api_field": "capacity.max_charge_w",
+                "mqtt_topic": "capacity/max_charge_w",
+                "current_value": data.get("capacity", {}).max_charge_w if data.get("capacity") else None,
+                "unit": "W",
+                "status": "no_data" if not data.get("capacity", {}).max_charge_w else "live",
+                "reason": "Model 702 not populated" if not data.get("capacity", {}).max_charge_w else None,
+                "entity_category": "diagnostic",
+                "entity_id": "sensor.agate_x_0091_max_charge_power",
+            },
+            # Max Discharge Power
+            {
+                "display_name": "Max Discharge Power",
+                "modbus_source": "Model 702.WDisChaRteMaxRtg",
+                "modbus_register": "40236 (DERCapacity)",
+                "api_field": "capacity.max_discharge_w",
+                "mqtt_topic": "capacity/max_discharge_w",
+                "current_value": data.get("capacity", {}).max_discharge_w if data.get("capacity") else None,
+                "unit": "W",
+                "status": "no_data" if not data.get("capacity", {}).max_discharge_w else "live",
+                "reason": "Model 702 not populated" if not data.get("capacity", {}).max_discharge_w else None,
+                "entity_category": "diagnostic",
+                "entity_id": "sensor.agate_x_0091_max_discharge_power",
+            },
+        ]
+        
+        # Add MQTT status
+        mqtt_info = {
+            "connected": mqtt.is_connected if mqtt else False,
+            "broker": f"{mqtt.broker_host}:{mqtt.broker_port}" if mqtt else None,
+            "stats": mqtt.get_stats() if mqtt and mqtt.is_connected else None,
+        }
+        
+        return {
+            "sensors": sensors,
+            "mqtt": mqtt_info,
+            "timestamp": time.time(),
         }
     
     @app.get("/api/data")
@@ -242,15 +448,18 @@ def create_app(
             
             # Get extensions data if available
             # FranklinWH Extension Registers (non-SunSpec):
-            # 15016: Operating Mode (0=Standby, 1=Normal, 2=Backup, 3=Self-Consume, 4=TOU)
-            # 15017: Reserve SOC - Self-Consumption mode reserve (maps to Model 713 SoC reserve)
-            # 15040: Reserve SOC 2 - TOU mode reserve (int8, -128 to 127)
+            # 15507: Operating Mode (1=Backup, 2=Self-Consumption, 3=TOU)
+            # 15508: Reserve SOC - Self-Consumption mode reserve
+            # 15509: Reserve SOC 2 - TOU mode reserve
             extensions_data = None
             try:
                 from src.modbus_client_franklinwh import FranklinWHRegisterMap
                 register_map = FranklinWHRegisterMap(modbus)
                 metrics = await register_map.read_all_metrics()
                 mode_text = await register_map.get_operating_mode_text(metrics.operating_mode)
+                
+                # Get extended status including TOU dispatch (if applicable)
+                extended_status = await register_map.get_extended_status()
                 
                 # Normalize reserveSoc2 (handle unsigned int16 -> signed int8 conversion)
                 reserve_soc_2_normalized = metrics.reserve_soc_2
@@ -261,8 +470,8 @@ def create_app(
                     # SunSpec2-aligned naming (camelCase)
                     "operatingMode": metrics.operating_mode,
                     "modeText": mode_text,
-                    "reserveSoc": metrics.reserve_soc,  # Register 15017
-                    "reserveSoc2": reserve_soc_2_normalized,  # Register 15040
+                    "reserveSoc": metrics.reserve_soc,  # Register 15508
+                    "reserveSoc2": reserve_soc_2_normalized,  # Register 15509
                     
                     # Snake_case aliases for API consistency
                     "operating_mode": metrics.operating_mode,
@@ -274,11 +483,17 @@ def create_app(
                     "reserve_soc_self_consumption": metrics.reserve_soc,
                     "reserve_soc_tou": reserve_soc_2_normalized,
                     
+                    # TOU Dispatch State (FranklinWH-specific, non-SunSpec)
+                    "tou_dispatch": extended_status.get("tou_dispatch"),
+                    "effective_state": extended_status.get("effective_state"),
+                    "effective_state_detail": extended_status.get("effective_state_detail"),
+                    
                     # Traceability: Register addresses
                     "_meta": {
-                        "operating_mode_register": 15016,
-                        "reserve_soc_register": 15017,
-                        "reserve_soc_2_register": 15040,
+                        "operating_mode_register": 15507,
+                        "reserve_soc_register": 15508,
+                        "reserve_soc_2_register": 15509,
+                        "tou_dispatch_register": 15516,
                         "source": "franklinwh_extensions"
                     }
                 }
@@ -302,18 +517,45 @@ def create_app(
                     "available_energy_wh": data.get("battery", {}).available_energy_wh if data.get("battery") else None,
                     "status": data.get("battery", {}).status if data.get("battery") else None,
                     "status_text": data.get("battery", {}).status_text if data.get("battery") else None,
+                    "power": data.get("battery", {}).dc_power_w if data.get("battery") else None,  # Model 714.DCW
                 } if data.get("battery") else None,
                 "inverter": {
+                    # Power measurements
                     "power": data.get("inverter_ac", {}).power_w if data.get("inverter_ac") else None,
                     "voltage": data.get("inverter_ac", {}).voltage_v if data.get("inverter_ac") else None,
                     "current": data.get("inverter_ac", {}).current_a if data.get("inverter_ac") else None,
                     "frequency": data.get("inverter_ac", {}).frequency_hz if data.get("inverter_ac") else None,
+                    "apparent_power_va": data.get("inverter_ac", {}).apparent_power_va if data.get("inverter_ac") else None,
+                    "reactive_power_var": data.get("inverter_ac", {}).reactive_power_var if data.get("inverter_ac") else None,
                     "power_factor": data.get("inverter_ac", {}).power_factor if data.get("inverter_ac") else None,
+                    # Status and wiring (Model 701)
+                    "ac_type": data.get("inverter_ac", {}).ac_type if data.get("inverter_ac") else None,
+                    "ac_type_text": data.get("inverter_ac", {}).ac_type_text if data.get("inverter_ac") else "Unknown",
+                    "operating_state": data.get("inverter_ac", {}).operating_state if data.get("inverter_ac") else None,
+                    "operating_state_text": data.get("inverter_ac", {}).operating_state_text if data.get("inverter_ac") else "Unknown",
+                    "inverter_state": data.get("inverter_ac", {}).inverter_state if data.get("inverter_ac") else None,
+                    "inverter_state_text": data.get("inverter_ac", {}).inverter_state_text if data.get("inverter_ac") else "Unknown",
+                    "grid_connection_state": data.get("inverter_ac", {}).grid_connection_state if data.get("inverter_ac") else None,
+                    "grid_connection_state_text": data.get("inverter_ac", {}).grid_connection_state_text if data.get("inverter_ac") else "Unknown",
+                    "alarm": data.get("inverter_ac", {}).alarm if data.get("inverter_ac") else None,
+                    "alarm_text": data.get("inverter_ac", {}).alarm_text if data.get("inverter_ac") else None,
+                    "der_mode": data.get("inverter_ac", {}).der_mode if data.get("inverter_ac") else None,
+                    "der_mode_text": data.get("inverter_ac", {}).der_mode_text if data.get("inverter_ac") else None,
+                    # Temperatures
+                    "ambient_temperature_c": data.get("inverter_ac", {}).ambient_temperature_c if data.get("inverter_ac") else None,
+                    "cabinet_temperature_c": data.get("inverter_ac", {}).cabinet_temperature_c if data.get("inverter_ac") else None,
+                    # Lifetime energy
+                    "total_energy_injected_wh": data.get("inverter_ac", {}).total_energy_injected_wh if data.get("inverter_ac") else None,
+                    "total_energy_absorbed_wh": data.get("inverter_ac", {}).total_energy_absorbed_wh if data.get("inverter_ac") else None,
                 } if data.get("inverter_ac") else None,
                 "capacity": {
-                    "max_charge_w": data.get("capacity", {}).max_charge_w if data.get("capacity") else None,
-                    "max_discharge_w": data.get("capacity", {}).max_discharge_w if data.get("capacity") else None,
-                } if data.get("capacity") else None,
+                    "max_charge_w": data.get("capacity", {}).max_charge_w if data.get("capacity") else 5000,
+                    "max_discharge_w": data.get("capacity", {}).max_discharge_w if data.get("capacity") else 5000,
+                } if data.get("capacity") else {
+                    # Default rated capacity for FranklinWH aGate
+                    "max_charge_w": 5000,
+                    "max_discharge_w": 5000,
+                },
                 "battery_lifetime": {
                     "dc_energy_injected_wh": data.get("battery", {}).dc_energy_injected_wh if data.get("battery") else None,
                     "dc_energy_absorbed_wh": data.get("battery", {}).dc_energy_absorbed_wh if data.get("battery") else None,
@@ -356,8 +598,8 @@ def create_app(
                 # SunSpec2-aligned naming (camelCase) - Primary
                 "operatingMode": metrics.operating_mode,
                 "modeText": mode_text,
-                "reserveSoc": metrics.reserve_soc,  # Register 15017
-                "reserveSoc2": reserve_soc_2_normalized,  # Register 15040
+                "reserveSoc": metrics.reserve_soc,  # Register 15508
+                "reserveSoc2": reserve_soc_2_normalized,  # Register 15509
                 
                 # Structured operating mode
                 "operating_mode": {
@@ -384,9 +626,9 @@ def create_app(
                 
                 # Traceability metadata
                 "_meta": {
-                    "operating_mode_register": 15016,
-                    "reserve_soc_register": 15017,
-                    "reserve_soc_2_register": 15040,
+                    "operating_mode_register": 15507,
+                    "reserve_soc_register": 15508,
+                    "reserve_soc_2_register": 15509,
                     "source": "franklinwh_extensions"
                 }
             }
@@ -712,6 +954,495 @@ def create_app(
             logger.error(f"Error reading raw registers: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
+    @app.post("/api/write_register")
+    async def write_register(request: WriteRegisterRequest):
+        """Write a value to a Modbus register."""
+        modbus = await app.state.connection_manager.get_client(request.device_id)
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        try:
+            from src.modbus_client_franklinwh import FranklinWHRegisterMap
+            register_map = FranklinWHRegisterMap(modbus)
+            
+            success = await register_map.write_raw_register(request.address, request.value)
+            
+            if success:
+                return {"success": True, "message": f"Wrote 0x{request.value:04x} ({request.value}) to register {request.address}"}
+            else:
+                raise HTTPException(status_code=500, detail="Write failed - check that aGate is in REMOTE mode")
+        except Exception as e:
+            logger.error(f"Error writing register: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/sunspec/{model_id}")
+    async def get_sunspec_model(
+        model_id: int, 
+        detail: str = "values",
+        compact: bool = False,
+        map: bool = False,
+        vals: bool = False,
+        verbose: bool = False,
+        device_id: Optional[str] = None
+    ):
+        """
+        Get detailed SunSpec model information using the modbus_sunspec2_reader utility.
+        
+        Args:
+            model_id: SunSpec model ID (1, 701, 713, etc.)
+            detail: Detail level (minimal, basic, values, detailed, full)
+            compact: One-line summary of model IDs
+            map: Columnar list of model-id string-key
+            vals: One-liner per point
+            verbose: Enable verbose output
+            device_id: Optional device ID for multi-device setups
+            
+        Returns:
+            Formatted text output from the SunSpec reader
+        """
+        config = app.state.config.get()
+        
+        # Import and use the SunSpec reader utility
+        import sys
+        from io import StringIO
+        from src.modbus_sunspec2_reader import read_sunspec_device, print_device_info
+        
+        try:
+            # Capture stdout to get the formatted output
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = StringIO()
+            
+            # Call the SunSpec reader
+            device_info, error = read_sunspec_device(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                models_to_scan={model_id},
+                detail_level=detail,
+                verbose=verbose,
+            )
+            
+            # Filter to only show the requested model
+            if device_info and not error:
+                # Filter models to only include the requested one
+                all_models = device_info.get("models", {})
+                filtered_models = {}
+                for key, model_data in all_models.items():
+                    # Check if key matches model_id (could be int or string like "1" or "701_0")
+                    key_str = str(key).split('_')[0]  # Handle "701_0" -> "701"
+                    if key_str == str(model_id):
+                        filtered_models[key] = model_data
+                
+                # Create filtered device info
+                filtered_info = dict(device_info)
+                filtered_info["models"] = filtered_models
+                
+                print_device_info(
+                    filtered_info, 
+                    detail_level=detail, 
+                    show_vals=vals or detail == "values",
+                    compact=compact,
+                    map_mode=map,
+                )
+            
+            # Restore stdout and get captured output
+            sys.stdout = old_stdout
+            output = captured_output.getvalue()
+            
+            if error:
+                raise HTTPException(status_code=500, detail=error)
+            
+            return {
+                "model_id": model_id,
+                "detail_level": detail,
+                "output": output
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            sys.stdout = sys.__stdout__  # Ensure stdout is restored
+            logger.error(f"Error reading SunSpec model {model_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/sunspec_scan")
+    async def scan_sunspec_models(device_id: Optional[str] = None):
+        """
+        Scan all available SunSpec models on the device.
+        
+        Returns:
+            List of model IDs and formatted summary
+        """
+        config = app.state.config.get()
+        
+        import sys
+        from io import StringIO
+        from src.modbus_sunspec2_reader import read_sunspec_device, print_device_info
+        
+        try:
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = StringIO()
+            
+            device_info, error = read_sunspec_device(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                detail_level="basic",
+                verbose=False,
+            )
+            
+            if device_info and not error:
+                # Print compact model list
+                print_device_info(device_info, detail_level="minimal", compact=True)
+                # Also print basic info
+                print("\n---\n")
+                print_device_info(device_info, detail_level="basic")
+            
+            sys.stdout = old_stdout
+            output = captured_output.getvalue()
+            
+            if error:
+                raise HTTPException(status_code=500, detail=error)
+            
+            return {
+                "output": output
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Error scanning SunSpec models: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/sunspec/write")
+    async def write_sunspec_point(request: SunSpecWriteRequest):
+        """
+        Write a value to a SunSpec point with validation.
+        
+        This is SAFER than raw register writes because it:
+        - Uses human-readable point names (e.g., 'WChaMax')
+        - Validates values before writing
+        - Supports dry-run mode for testing
+        """
+        if not request.acknowledge_danger:
+            raise HTTPException(
+                status_code=400, 
+                detail="You must acknowledge the danger before writing"
+            )
+        
+        config = app.state.config.get()
+        
+        # Import the readwrite module
+        from src.modbus_sunspec2_readwrite import write_sunspec_point as write_point
+        
+        try:
+            success, error = write_point(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                model_id=request.model_id,
+                point_name=request.point_name,
+                value=request.value,
+                validate=True,
+                dry_run=request.dry_run,
+                verbose=False,
+            )
+            
+            # Log the write attempt
+            action = "DRY-RUN" if request.dry_run else "WRITE"
+            logger.warning(
+                f"SUNSPEC {action}: Model {request.model_id}.{request.point_name} = {request.value} "
+                f"(success={success}, error={error})"
+            )
+            
+            return {
+                "success": success,
+                "error": error,
+                "dry_run": request.dry_run,
+                "model_id": request.model_id,
+                "point_name": request.point_name,
+                "value": request.value,
+                "message": f"{'Validated' if request.dry_run else 'Wrote'} {request.point_name}={request.value}" if success else error
+            }
+            
+        except Exception as e:
+            logger.error(f"Error writing SunSpec point: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/sunspec/batch_write")
+    async def batch_write_sunspec_points(request: SunSpecBatchWriteRequest):
+        """
+        Write multiple SunSpec points atomically (all-or-nothing).
+        
+        All points are validated before any are written.
+        """
+        if not request.acknowledge_danger:
+            raise HTTPException(
+                status_code=400, 
+                detail="You must acknowledge the danger before writing"
+            )
+        
+        config = app.state.config.get()
+        
+        from src.modbus_sunspec2_readwrite import batch_write_points
+        
+        try:
+            # Convert points list to tuples
+            points_tuples = [
+                (p["model_id"], p["point_name"], p["value"])
+                for p in request.points
+            ]
+            
+            results, error = batch_write_points(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                points_to_write=points_tuples,
+                validate=True,
+                dry_run=request.dry_run,
+                atomic=True,  # All-or-nothing
+                verbose=False,
+            )
+            
+            # Log the batch write
+            action = "DRY-RUN BATCH" if request.dry_run else "BATCH WRITE"
+            success_count = sum(1 for v in results.values() if v)
+            logger.warning(
+                f"SUNSPEC {action}: {len(points_tuples)} points, {success_count} successful"
+            )
+            
+            return {
+                "results": results,
+                "error": error,
+                "dry_run": request.dry_run,
+                "total": len(points_tuples),
+                "successful": success_count,
+                "message": f"{'Validated' if request.dry_run else 'Wrote'} {success_count}/{len(points_tuples)} points"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in batch SunSpec write: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/sunspec_point")
+    async def query_sunspec_point(request: SunSpecPointRequest):
+        """
+        Query a specific SunSpec point (e.g., "1.Mn" for manufacturer).
+        
+        Format: "model_id.point_name"
+        """
+        config = app.state.config.get()
+        
+        import sys
+        from io import StringIO
+        from src.modbus_sunspec2_reader import read_sunspec_device
+        
+        try:
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = StringIO()
+            
+            device_info, error = read_sunspec_device(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                specific_point=request.point,
+                verbose=request.verbose,
+            )
+            
+            sys.stdout = old_stdout
+            output = captured_output.getvalue()
+            
+            if error:
+                raise HTTPException(status_code=500, detail=error)
+            
+            return {"output": output}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Error querying SunSpec point: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/sunspec_raw")
+    async def read_sunspec_raw(request: SunSpecRawRequest):
+        """
+        Read raw registers from SunSpec device.
+        
+        Format: "start:count" (e.g., "15500:14")
+        """
+        config = app.state.config.get()
+        
+        import sys
+        from io import StringIO
+        from src.modbus_sunspec2_reader import read_sunspec_device
+        
+        try:
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = StringIO()
+            
+            device_info, error = read_sunspec_device(
+                ip=config.modbus.host,
+                port=config.modbus.port,
+                unit=config.modbus.unit_id,
+                timeout=config.modbus.timeout,
+                base_address=config.modbus.base_address,
+                raw_read_spec=request.raw,
+                verbose=request.verbose,
+            )
+            
+            # For raw reads with --match, we need to do a full scan first
+            # The reader utility handles this internally
+            
+            sys.stdout = old_stdout
+            output = captured_output.getvalue()
+            
+            if error:
+                raise HTTPException(status_code=500, detail=error)
+            
+            return {"output": output}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Error reading raw registers: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    # Logs API Endpoints
+    
+    @app.get("/api/logs")
+    async def get_logs(
+        level: Optional[str] = None,
+        levels: Optional[List[str]] = Query(None),  # For multi-select badge filters
+        source: Optional[str] = None,
+        search: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ):
+        """
+        Get application logs with filtering.
+        
+        Query parameters:
+        - level: Filter by single level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        - levels: Filter by multiple levels (e.g., ?levels=ERROR&levels=WARNING)
+        - source: Filter by source (logger name)
+        - search: Search in message and source
+        - start_date: ISO format date (e.g., 2024-01-01T00:00:00)
+        - end_date: ISO format date
+        - limit: Max results (default 100)
+        - offset: Pagination offset
+        """
+        try:
+            from src.log_manager import log_manager
+            
+            # Prefer multi-select 'levels' over single 'level'
+            filter_levels = levels if levels else ([level] if level else None)
+            
+            logs = await log_manager.get_logs(
+                level=filter_levels[0] if filter_levels and len(filter_levels) == 1 else None,
+                levels=filter_levels if filter_levels and len(filter_levels) > 1 else None,
+                source=source,
+                search=search,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset
+            )
+            
+            return {
+                "logs": [
+                    {
+                        "id": log.id,
+                        "timestamp": log.timestamp.isoformat(),
+                        "level": log.level,
+                        "source": log.source,
+                        "message": log.message,
+                        "metadata": log.metadata
+                    }
+                    for log in logs
+                ],
+                "total": len(logs)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting logs: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/logs/stats")
+    async def get_logs_stats():
+        """Get log statistics."""
+        try:
+            from src.log_manager import log_manager
+            stats = await log_manager.get_stats()
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error getting log stats: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/logs/export")
+    async def export_logs(
+        format: str = "json",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ):
+        """
+        Export logs to JSON or CSV.
+        
+        Query parameters:
+        - format: "json" or "csv"
+        - start_date: Optional start date filter
+        - end_date: Optional end date filter
+        """
+        try:
+            from src.log_manager import log_manager
+            
+            if format.lower() == "csv":
+                content = await log_manager.export_csv(start_date, end_date)
+                media_type = "text/csv"
+                filename = f"logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            else:
+                content = await log_manager.export_json(start_date, end_date)
+                media_type = "application/json"
+                filename = f"logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type=media_type,
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
+        except Exception as e:
+            logger.error(f"Error exporting logs: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/logs/clear")
+    async def clear_old_logs():
+        """Clear logs older than max_age_days."""
+        try:
+            from src.log_manager import log_manager
+            await log_manager.clear_old_logs()
+            return {"success": True, "message": "Old logs cleared"}
+            
+        except Exception as e:
+            logger.error(f"Error clearing logs: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
     @app.get("/api/settings")
     async def get_settings():
         """Get current settings."""
@@ -766,6 +1497,8 @@ def create_app(
             "refresh_interval": config.refresh_interval,
             "widgets": {k: asdict(v) for k, v in config.widgets.items()},
             "sites": [asdict(s) for s in config.sites.values()],
+            "log_level": config.log_level,
+            "log_retention_days": config.log_retention_days,
         }
 
     @app.post("/api/settings")
@@ -824,6 +1557,19 @@ def create_app(
                         config.sites[site_req.id].name = site_req.name
                         config.sites[site_req.id].description = site_req.description
                         config.sites[site_req.id].is_local = site_req.is_local
+            
+            # Handle log settings
+            if request.log_level is not None:
+                config.log_level = request.log_level
+                # Update root logger level
+                logging.getLogger().setLevel(getattr(logging, request.log_level.upper(), logging.INFO))
+            
+            if request.log_retention_days is not None:
+                config.log_retention_days = request.log_retention_days
+                # Update log manager retention
+                from src.log_manager import log_manager
+                if log_manager:
+                    log_manager.max_age_days = request.log_retention_days
             
             await app.state.config.save()
             return {"success": True}
@@ -939,6 +1685,7 @@ def create_app(
         
         uptime_seconds = mqtt.get_uptime_seconds()
         last_connected = mqtt.last_connected_at
+        stats = mqtt.get_stats()
         
         return {
             "enabled": mqtt.is_enabled,
@@ -953,6 +1700,10 @@ def create_app(
                 "port": mqtt.broker_port,
             },
             "client_id": mqtt.client_id,
+            "stats": {
+                "messages_published": stats["messages_published"],
+                "last_publish_seconds_ago": stats["last_publish_seconds_ago"]
+            }
         }
     
     def _format_uptime(seconds: int) -> str:
@@ -1190,5 +1941,128 @@ def create_app(
         finally:
             if websocket in app.state.websockets:
                 app.state.websockets.remove(websocket)
+    
+    # Dashboard to MQTT Publishing Endpoints
+    
+    class MQTTPublishRequest(BaseModel):
+        topic: str
+        value: Union[str, float, int, bool]
+        retain: bool = False
+    
+    @app.post("/api/mqtt/publish")
+    async def mqtt_publish(request: MQTTPublishRequest):
+        """Publish a value to MQTT from dashboard."""
+        mqtt = app.state.mqtt
+        if not mqtt:
+            raise HTTPException(status_code=503, detail="MQTT bridge not available")
+        
+        if not mqtt.is_connected:
+            raise HTTPException(status_code=503, detail="MQTT not connected")
+        
+        try:
+            await mqtt.publish_state(request.topic, request.value)
+            return {
+                "success": True,
+                "topic": f"{mqtt._state_topic_base}/{request.topic}",
+                "value": request.value
+            }
+        except Exception as e:
+            logger.error(f"Error publishing to MQTT: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/mqtt/publish_grid_power")
+    async def mqtt_publish_grid_power():
+        """Calculate and publish grid power to MQTT."""
+        mqtt = app.state.mqtt
+        if not mqtt or not mqtt.is_connected:
+            raise HTTPException(status_code=503, detail="MQTT not available")
+        
+        try:
+            # Get current data
+            modbus = await app.state.connection_manager.get_client()
+            if not modbus:
+                raise HTTPException(status_code=503, detail="Modbus not available")
+            
+            data = await modbus.read_all()
+            home = data.get("home_loads", {}).home_loads_w if data.get("home_loads") else 0
+            solar = data.get("solar_pv", {}).output_power_w if data.get("solar_pv") else 0
+            battery = data.get("inverter_ac", {}).power_w if data.get("inverter_ac") else 0
+            
+            # Calculate grid power (positive = importing, negative = exporting)
+            grid_power = (home or 0) - (solar or 0) - (battery or 0)
+            
+            await mqtt.publish_state("calculated/grid_power", grid_power)
+            await mqtt.publish_state("calculated/grid_import", max(grid_power, 0))
+            await mqtt.publish_state("calculated/grid_export", max(-grid_power, 0))
+            
+            return {
+                "success": True,
+                "grid_power": grid_power,
+                "importing": max(grid_power, 0),
+                "exporting": max(-grid_power, 0)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating grid power: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/mqtt/publish_dashboard")
+    async def mqtt_publish_dashboard():
+        """Publish all dashboard-calculated values to MQTT."""
+        mqtt = app.state.mqtt
+        if not mqtt or not mqtt.is_connected:
+            raise HTTPException(status_code=503, detail="MQTT not available")
+        
+        try:
+            modbus = await app.state.connection_manager.get_client()
+            if not modbus:
+                raise HTTPException(status_code=503, detail="Modbus not available")
+            
+            data = await modbus.read_all()
+            published = []
+            
+            # Grid power calculations
+            home = data.get("home_loads", {}).home_loads_w if data.get("home_loads") else 0
+            solar = data.get("solar_pv", {}).output_power_w if data.get("solar_pv") else 0
+            battery_power = data.get("inverter_ac", {}).power_w if data.get("inverter_ac") else 0
+            
+            grid_power = (home or 0) - (solar or 0) - (battery_power or 0)
+            
+            await mqtt.publish_state("calculated/grid_power", grid_power)
+            await mqtt.publish_state("calculated/grid_import", max(grid_power, 0))
+            await mqtt.publish_state("calculated/grid_export", max(-grid_power, 0))
+            published.extend(["calculated/grid_power", "calculated/grid_import", "calculated/grid_export"])
+            
+            # Battery flow direction (for easier automation)
+            if battery_power is not None:
+                if battery_power < -50:
+                    await mqtt.publish_state("calculated/battery_flow", "charging")
+                elif battery_power > 50:
+                    await mqtt.publish_state("calculated/battery_flow", "discharging")
+                else:
+                    await mqtt.publish_state("calculated/battery_flow", "standby")
+                published.append("calculated/battery_flow")
+            
+            # Grid flow direction
+            if abs(grid_power) > 50:
+                if grid_power > 0:
+                    await mqtt.publish_state("calculated/grid_flow", "importing")
+                else:
+                    await mqtt.publish_state("calculated/grid_flow", "exporting")
+            else:
+                await mqtt.publish_state("calculated/grid_flow", "idle")
+            published.append("calculated/grid_flow")
+            
+            return {
+                "success": True,
+                "published": published,
+                "values": {
+                    "grid_power": grid_power,
+                    "battery_flow": "charging" if battery_power < -50 else ("discharging" if battery_power > 50 else "standby"),
+                    "grid_flow": "importing" if grid_power > 50 else ("exporting" if grid_power < -50 else "idle")
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error publishing dashboard values: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     return app

@@ -47,7 +47,7 @@ The dashboard provides at-a-glance monitoring of your FranklinWH battery system.
 | **State of Charge** | Model 713 (SoC) | Current battery percentage with visual bar |
 | **Power** | Model 701 (W) | Current power flow (+ charging, - discharging) |
 | **State of Health** | Model 713 (SoH) | Battery health percentage |
-| **Operating Mode** | Register 15016 | Current mode (Standby, Normal, Self-Consume, etc.) |
+| **Operating Mode** | Register 15507 | Current mode (Backup, Self-Consumption, TOU) |
 
 #### Widgets
 
@@ -58,7 +58,7 @@ The dashboard provides at-a-glance monitoring of your FranklinWH battery system.
 | Solar PV | Model 502 | Output power, lifetime energy |
 | Home Loads | Ext 15500+ | Home consumption, PV output |
 | Power Capacity | Model 703 | Max charge/discharge limits |
-| Reserve Settings | Ext 15017/15040 | Self-consumption and TOU reserves |
+| Reserve Settings | Ext 15508/15509 | Self-consumption and TOU reserves |
 | Power Flow Chart | Real-time | Historical power visualization |
 
 #### Controls Tab
@@ -330,8 +330,9 @@ Non-SunSpec registers specific to FranklinWH:
 | Register | Type | Description |
 |----------|------|-------------|
 | 15011 | uint16 | Raw SOC value |
-| 15016 | uint16 | Operating mode (0-4) |
-| 15017 | uint16 | Reserve SOC (Self-Consumption) |
+| 15507 | uint16 | Operating mode (1=Backup, 2=Self-Consumption, 3=TOU) |
+| 15508 |uint16 | Reserve SOC (Self-Consumption) |
+| 15509 | uint16 | Reserve SOC (TOU) |
 | 15036 | uint16 | Raw SOH value |
 | 15040 | int16 | Reserve SOC 2 (TOU) |
 | 15502 | uint16 | PV output power (W) |

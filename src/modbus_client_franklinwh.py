@@ -25,10 +25,14 @@ class FranklinWHRawRegisters:
     voltage_raw: Optional[int] = None       # 15025: 2407 (240.7V with SF -1)
     current_raw: Optional[int] = None       # 15024: -15567 (signed?)
     
-    # Control registers (RW) - these are the key ones you mentioned
-    operating_mode: Optional[int] = None    # 15016: 2 (matches AbnOpCatRtg, VarSetPri)
-    reserve_soc: Optional[int] = None       # 15017: 20 (matches PF - power factor?)
-    reserve_soc_2: Optional[int] = None     # 15040: -9 (FFF7)
+    # Control registers (RW) - FranklinWH extensions at 15507-15509
+    operating_mode: Optional[int] = None    # 15507: Operating mode (1=Backup, 2=Self-Consumption, 3=TOU)
+    reserve_soc: Optional[int] = None       # 15508: Self-Consumption SOC reserve %
+    reserve_soc_2: Optional[int] = None     # 15509: Time-of-Use SOC reserve %
+    
+    # TOU Dispatch state (FranklinWH-specific, non-SunSpec)
+    # Only valid when operating_mode = 3 (Time-of-Use)
+    tou_dispatch: Optional[int] = None      # 15516: 1-7 (dispatch codes)
     
     # Additional status
     status_flags: Optional[int] = None      # 15007: 263 (0107h)
@@ -51,6 +55,14 @@ class FranklinWHRegisterMap:
         "reserve_soc_2":     {"addr": 15509, "type": "uint16", "access": "rw",
                               "sf": 0, "unit": "%"},
         
+        # TOU Dispatch State (FranklinWH-specific, non-SunSpec)
+        # Active when operating_mode = 3 (Time-of-Use)
+        "tou_dispatch":      {"addr": 15516, "type": "uint16", "access": "r",
+                              "enum": {0: "Idle (No Schedule)", 1: "Home Loads", 2: "Standby", 
+                                       3: "Solar Charging", 4: "Grid Charging", 5: "Grid Discharge", 
+                                       6: "Self Consumption", 7: "Grid Export",
+                                       8: "Grid Charge"}},
+        
         # Metrics from 15500 block
         "pv_output_w":       {"addr": 15502, "type": "uint16", "access": "r", "sf": 0, "unit": "W"},
         "home_loads_w":      {"addr": 15506, "type": "uint16", "access": "r", "sf": 0, "unit": "W"},
@@ -59,7 +71,7 @@ class FranklinWHRegisterMap:
     
     # Block read optimization
     BLOCK_RANGES = [
-        (15500, 14),   # Main extension block
+        (15500, 17),   # Main extension block (includes 15500-15516 for TOU dispatch)
     ]
     
     def __init__(self, modbus_client):
@@ -274,6 +286,46 @@ class FranklinWHRegisterMap:
             self._logger.error(f"Error writing register {name}: {e}")
             return False
     
+    async def write_raw_register(self, address: int, value: int) -> bool:
+        """
+        Write a raw value directly to a Modbus register address.
+        
+        Args:
+            address: Register address
+            value: Raw uint16 value (0-65535)
+        
+        Returns:
+            True if successful
+        """
+        # Get raw client
+        raw_client = await self._get_raw_client()
+        if not raw_client:
+            return False
+        
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: raw_client.write_register(
+                    address=address,
+                    value=value,
+                    device_id=self.client.unit_id
+                )
+            )
+            
+            if result.isError():
+                self._logger.error(f"Modbus error writing value={value} to address {address}")
+                return False
+            
+            # Update cache
+            self._cache[address] = value
+            
+            self._logger.info(f"Wrote raw value={value} to address {address}")
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"Error writing raw register {address}: {e}")
+            return False
+    
     async def read_all_metrics(self) -> FranklinWHRawRegisters:
         """Read all known FranklinWH registers."""
         regs = FranklinWHRawRegisters()
@@ -288,6 +340,12 @@ class FranklinWHRegisterMap:
             regs.reserve_soc = block[15508]
         if 15509 in block:
             regs.reserve_soc_2 = block[15509]
+        
+        # Also read TOU dispatch register (15516) separately if in TOU mode
+        if regs.operating_mode == 3:
+            dispatch_block = await self.read_raw_block(15516, 1)
+            if 15516 in dispatch_block:
+                regs.tou_dispatch = dispatch_block[15516]
             
         # We don't have soc_raw etc in this block, leave them None
         
@@ -338,3 +396,59 @@ class FranklinWHRegisterMap:
             3: "Time-of-Use",
         }
         return modes.get(mode, f"Unknown({mode})")
+    
+    async def get_tou_dispatch(self) -> Optional[Dict]:
+        """
+        Get TOU dispatch state (FranklinWH-specific).
+        
+        Returns:
+            Dictionary with dispatch code and text description,
+            or None if not in TOU mode or read failed.
+        """
+        # First check if we're in TOU mode
+        mode_reg = await self.read_register("operating_mode")
+        if not mode_reg or mode_reg.get("raw_value") != 3:
+            return None  # Not in TOU mode
+        
+        # Read dispatch register
+        dispatch_reg = await self.read_register("tou_dispatch")
+        if not dispatch_reg:
+            return None
+        
+        return {
+            "code": dispatch_reg["raw_value"],
+            "text": dispatch_reg.get("enum_value", f"Unknown({dispatch_reg['raw_value']})"),
+            "is_tou": True
+        }
+    
+    async def get_extended_status(self) -> Dict:
+        """
+        Get extended status combining SunSpec and FranklinWH-specific data.
+        
+        Returns:
+            Dictionary with:
+            - operating_mode: int and text
+            - tou_dispatch: code and text (if in TOU mode)
+            - effective_state: combined state description
+        """
+        mode_reg = await self.read_register("operating_mode")
+        mode = mode_reg["raw_value"] if mode_reg else None
+        mode_text = mode_reg.get("enum_value", "Unknown") if mode_reg else "Unknown"
+        
+        result = {
+            "operating_mode": mode,
+            "operating_mode_text": mode_text,
+            "tou_dispatch": None,
+            "effective_state": mode_text,
+            "effective_state_detail": None
+        }
+        
+        # If in TOU mode, get dispatch state
+        if mode == 3:
+            dispatch = await self.get_tou_dispatch()
+            if dispatch:
+                result["tou_dispatch"] = dispatch
+                result["effective_state"] = f"TOU: {dispatch['text']}"
+                result["effective_state_detail"] = dispatch['text']
+        
+        return result

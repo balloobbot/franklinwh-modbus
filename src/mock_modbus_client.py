@@ -67,8 +67,8 @@ class MockFranklinWHModbusClient:
         self._temperature = 28.5  # Temperature °C
         self._cycles = 342  # Cycle count
         self._operating_mode = 2  # 0=Standby, 1=Normal, 2=Backup Reserve, etc.
-        self._reserve_soc = 20  # Self-Consumption Reserve (15017)
-        self._reserve_soc_2 = 20  # TOU Reserve (15040) - using positive value
+        self._reserve_soc = 20  # Self-Consumption Reserve (15508)
+        self._reserve_soc_2 = 20  # TOU Reserve (15509) - using positive value
         
         # Simulated power values
         self._power_w = -1250  # Negative = discharging, positive = charging
@@ -249,6 +249,15 @@ class MockFranklinWHModbusClient:
             apparent_power_va=round(abs(self._power_w) / self._power_factor, 1),
             reactive_power_var=round(random.gauss(0, 50), 1),
             power_factor=round(self._power_factor + random.gauss(0, 0.01), 2),
+            # New Model 701 fields
+            ambient_temperature_c=round(25 + random.gauss(0, 2), 1),
+            cabinet_temperature_c=round(35 + random.gauss(0, 3), 1),
+            inverter_state=4,  # MPPT
+            inverter_state_text="MPPT",
+            grid_connection_state=1,  # Connected
+            grid_connection_state_text="Connected",
+            total_energy_injected_wh=12500000 + random.randint(0, 1000),
+            total_energy_absorbed_wh=9800000 + random.randint(0, 1000),
         )
         await self._notify_callbacks("inverter_ac", metrics)
         return metrics
