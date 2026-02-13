@@ -11,7 +11,36 @@
 
 There is a **critical mismatch** between the FranklinWH modbus extension addresses documented as source of truth and the addresses currently used in the code implementation.
 
-### Source of Truth: `franklinwh_modbus_extensions.md`
+### Discovery Context
+
+Analysis using `modbus_sunspec2_reader.py` utility revealed **TWO address ranges** for FranklinWH extensions:
+
+1. **Undocumented Range:** 15000-15040 (partial, ~13 active registers)
+2. **Documented Range:** 15500-15513 (source of truth in `franklinwh_modbus_extensions.md`)
+
+**⚠️ IMPORTANT:** The `modbus_sunspec2_reader.py --match` option performs SunSpec2 value cross-checking but produces **misleading false positives** (e.g., claims 15507 matches `701.InvSt` when it's actually `OnGridMode`). Use with caution.
+
+### Undocumented Range: 15000-15040 (Discovered)
+
+**Evidence:** `python modbus_sunspec2_reader.py -i 192.168.0.110 --raw 15000:514 --match`
+
+| Address | Hex Value | UInt16 | Potential Purpose | Notes |
+|---------|-----------|--------|-------------------|-------|
+| 15003 | 0578 | 1400 | PV Output Power? | Matches documented 15502 |
+| 15011 | 021A | 538 | SOC Raw (53.8%)? | Value makes sense for SOC |
+| 15016 | 0002 | 2 | Operating Mode (legacy?) | **Conflicts with 15507** |
+| 15017 | 0014 | 20 | Reserve SOC (legacy?) | **Conflicts with 15508** |
+| 15020 | 3520 | 13600 | Battery Rated Wh | Matches SunSpec 713.WHRtg |
+| 15036 | 03C2 | 962 | SOH (96.2%) | Matches SunSpec 713.SoH |
+| 15040 | 05C5 | 1477 | Unknown | Consistently non-zero |
+
+**⚠️ Critical Finding:** Addresses 15016/15017 appear to be **legacy aliases** for 15507/15508 (operating mode and reserve SOC). This explains the confusion in code comments.
+
+**Recommendation:** These undocumented registers should NOT be used. Stick to documented 15500+ range as source of truth.
+
+---
+
+### Source of Truth: `franklinwh_modbus_extensions.md` (15500-15513)
 
 | Address | Register | Access | Description |
 |---------|----------|--------|-------------|
