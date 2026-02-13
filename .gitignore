@@ -54,3 +54,6 @@ htmlcov/
 # Misc
 *.bak
 *.backup
+*.csv
+data/*.db
+data/*.json.bak
