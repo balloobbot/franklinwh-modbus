@@ -272,8 +272,15 @@ class FranklinWHModbusClient:
             self._connected = False  # Mark as disconnected for reconnect task
             return None
         except Exception as e:
-            self._logger.error(f"{operation_name} unexpected error: {e}")
-            return None
+            # Check if it's a socket/connection error wrapped by pymodbus
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ['broken pipe', 'socket', 'connection', 'errno 32']):
+                self._logger.error(f"{operation_name} connection error: {e}")
+                self._connected = False  # Mark as disconnected for reconnect task
+                return None
+            else:
+                self._logger.error(f"{operation_name} unexpected error: {e}")
+                return None
     
     async def connect(self) -> bool:
         """Establish connection to Modbus device."""
