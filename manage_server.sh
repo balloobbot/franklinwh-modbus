@@ -137,12 +137,15 @@ start_server() {
     echo -e "${BLUE}Starting FranklinWH Battery Manager...${NC}"
     echo
     
+    # Create logs directory
+    mkdir -p "${SCRIPT_DIR}/data/logs"
+    
     if [ -f "${SCRIPT_DIR}/run.sh" ]; then
         echo "Using run.sh script..."
-        cd "$SCRIPT_DIR" && ./run.sh &
+        cd "$SCRIPT_DIR" && ./run.sh > data/logs/franklinwh.log 2>&1 &
     elif [ -d "${SCRIPT_DIR}/venv" ]; then
         echo "Starting with venv Python..."
-        cd "$SCRIPT_DIR" && ./venv/bin/python3 -m src.main > /tmp/franklinwh.log 2>&1 &
+        cd "$SCRIPT_DIR" && ./venv/bin/python3 -m src.main > data/logs/franklinwh.log 2>&1 &
     else
         echo -e "${RED}✗ Cannot find run.sh or venv${NC}"
         return 1
@@ -150,8 +153,9 @@ start_server() {
     
     echo
     echo -e "${GREEN}✓ Server starting in background${NC}"
-    echo "  Log file: /tmp/franklinwh.log"
+    echo "  Log file: data/logs/franklinwh.log"
     echo "  Wait a few seconds, then check status with: $0 status"
+    echo "  Watch logs with: tail -f data/logs/franklinwh.log"
 }
 
 # Function to restart server

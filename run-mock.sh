@@ -17,8 +17,12 @@ fi
 export MOCK_MODE=true
 export LOG_LEVEL=INFO
 
+# Create logs directory if it doesn't exist
+mkdir -p data/logs
+
 echo "🎭 Starting FranklinWH Battery Manager in MOCK MODE..."
 echo "   Web UI: http://localhost:8080"
+echo "   Logs: data/logs/franklinwh-mock.log"
 echo ""
 
-python -m src.main
+python -m src.main 2>&1 | tee -a data/logs/franklinwh-mock.log

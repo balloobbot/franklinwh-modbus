@@ -25,10 +25,14 @@ export MQTT_PORT="${MQTT_PORT:-1883}"
 # Note: MQTT_ENABLED is NOT set here - it uses the value from config.json
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
-# Run the application
+# Create logs directory if it doesn't exist
+mkdir -p data/logs
+
+# Run the application with logging to both terminal and file
 echo "Starting FranklinWH Battery Manager..."
 echo "  Modbus: $MODBUS_HOST:$MODBUS_PORT (Unit $MODBUS_UNIT)"
 echo "  MQTT: $MQTT_HOST:$MQTT_PORT"
 echo "  Web UI: http://localhost:8080"
+echo "  Logs: data/logs/franklinwh.log"
 echo ""
-python -m src.main "$@"
+python -m src.main "$@" 2>&1 | tee -a data/logs/franklinwh.log
