@@ -342,9 +342,15 @@ class FranklinWHModbusClient:
             
             if self._sunspec_client:
                 try:
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, self._sunspec_client.close
+                    # Timeout disconnect to avoid hanging on broken socket
+                    await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None, self._sunspec_client.close
+                        ),
+                        timeout=2.0  # 2 second timeout for close
                     )
+                except asyncio.TimeoutError:
+                    self._logger.warning("SunSpec client close timed out")
                 except Exception as e:
                     self._logger.debug(f"Error closing SunSpec client: {e}")
                 finally:
@@ -352,10 +358,15 @@ class FranklinWHModbusClient:
             
             if self._client:
                 try:
-                    # Force close the socket
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, self._client.close
+                    # Timeout disconnect to avoid hanging on broken socket
+                    await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None, self._client.close
+                        ),
+                        timeout=2.0  # 2 second timeout for close
                     )
+                except asyncio.TimeoutError:
+                    self._logger.warning("Modbus client close timed out")
                 except Exception as e:
                     self._logger.debug(f"Error closing Modbus client: {e}")
                 finally:
