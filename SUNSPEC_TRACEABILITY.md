@@ -73,16 +73,18 @@ These are non-SunSpec registers specific to FranklinWH hardware:
 
 | Register | Type | API Field | UI Display | Description |
 |----------|------|-----------|------------|-------------|
-| 15011 | uint16 | `extensions.soc_raw` | - | Raw SOC value (before scaling) |
-| 15016 | uint16 | `extensions.operatingMode` | Dashboard Mode card | Operating mode (0-4) |
-| 15017 | uint16 | `extensions.reserveSoc` | Reserve Settings | Self-Consumption reserve % |
-| 15036 | uint16 | `extensions.soh_raw` | - | Raw SOH value |
-| 15040 | int16 | `extensions.reserveSoc2` | Reserve Settings | TOU reserve % (-128 to 127) |
+| **15507** | **uint16** | `extensions.operatingMode` | Dashboard Mode card | **Operating mode (1-3): 1=Backup, 2=Self-Consumption, 3=TOU** |
+| **15508** | **uint16** | `extensions.reserveSoc` | Reserve Settings | **Self-Consumption reserve %** |
+| **15509** | **uint16** | `extensions.reserveSoc2` | Reserve Settings | **Time-of-Use reserve %** |
 | 15502 | uint16 | `home_loads.pv_output_w` | Home Loads | PV output power (W) |
 | 15503 | uint16 | `home_loads.pv_proximal_w` | Home Loads | Proximal PV power (W) |
 | 15506 | uint16 | `home_loads.home_loads_w` | Home Loads | Home consumption (W) |
+| 15510-15511 | uint32 | `home_loads.pv_output_wh` | Solar PV | PV Energy in Wh (32-bit) |
+| 15512-15513 | uint32 | `home_loads.pv_proximal_wh` | Solar PV | Proximal PV Energy in Wh (32-bit) |
 
-### Operating Mode Values (Register 15016)
+> **⚠️ Note:** Legacy addresses 15016/15017/15040 were corrected to 15507/15508/15509 per TODO_MODBUS_ADDRESS_MISMATCH.md (resolved 2026-02-14)
+
+### Operating Mode Values (Register 15507)
 
 | Value | Mode | UI Text |
 |-------|------|---------|
@@ -125,9 +127,9 @@ Dedicated endpoint for FranklinWH extension registers:
   "reserve_soc_self_consumption": 20,
   "reserve_soc_tou": 16,
   "_meta": {
-    "operating_mode_register": 15016,
-    "reserve_soc_register": 15017,
-    "reserve_soc_2_register": 15040
+    "operating_mode_register": 15507,
+    "reserve_soc_register": 15508,
+    "reserve_soc_2_register": 15509
   }
 }
 ```
