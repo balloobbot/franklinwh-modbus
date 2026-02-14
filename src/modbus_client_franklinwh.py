@@ -148,9 +148,9 @@ class FranklinWHRegisterMap:
                 return await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: raw_client.read_holding_registers(
-                        start_addr,  # address (positional)
-                        count,       # count (positional)  
-                        self.client.unit_id  # unit/device_id (positional)
+                        address=start_addr,
+                        count=count,
+                        device_id=self.client.unit_id
                     )
                 )
             
