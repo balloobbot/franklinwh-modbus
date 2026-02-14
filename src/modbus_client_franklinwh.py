@@ -150,7 +150,7 @@ class FranklinWHRegisterMap:
                     lambda: raw_client.read_holding_registers(
                         address=start_addr,
                         count=count,
-                        slave=self.client.unit_id
+                        unit=self.client.unit_id
                     )
                 )
             
