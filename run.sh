@@ -5,6 +5,13 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Parse arguments
+QUIET=false
+if [[ "$1" == "-q" ]] || [[ "$1" == "--quiet" ]]; then
+    QUIET=true
+    shift
+fi
+
 # Activate virtual environment
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
@@ -28,11 +35,17 @@ export LOG_LEVEL="${LOG_LEVEL:-INFO}"
 # Create logs directory if it doesn't exist
 mkdir -p data/logs
 
-# Run the application with logging to both terminal and file
-echo "Starting FranklinWH Battery Manager..."
-echo "  Modbus: $MODBUS_HOST:$MODBUS_PORT (Unit $MODBUS_UNIT)"
-echo "  MQTT: $MQTT_HOST:$MQTT_PORT"
-echo "  Web UI: http://localhost:8080"
-echo "  Logs: data/logs/franklinwh.log"
-echo ""
-python -m src.main "$@" 2>&1 | tee -a data/logs/franklinwh.log
+# Run the application with logging
+if [ "$QUIET" = true ]; then
+    # Quiet mode: log to file only
+    python -m src.main "$@" >> data/logs/franklinwh.log 2>&1
+else
+    # Verbose mode: log to both terminal and file
+    echo "Starting FranklinWH Battery Manager..."
+    echo "  Modbus: $MODBUS_HOST:$MODBUS_PORT (Unit $MODBUS_UNIT)"
+    echo "  MQTT: $MQTT_HOST:$MQTT_PORT"
+    echo "  Web UI: http://localhost:8080"
+    echo "  Logs: data/logs/franklinwh.log"
+    echo ""
+    python -m src.main "$@" 2>&1 | tee -a data/logs/franklinwh.log
+fi

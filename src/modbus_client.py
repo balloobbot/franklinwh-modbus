@@ -325,9 +325,14 @@ class FranklinWHModbusClient:
                 return False
     
     async def disconnect(self) -> None:
-        """Close connection."""
+        """Close connection and clear all cached state."""
         async with self._lock:
             self._connected = False
+            
+            # Clear model cache to force fresh reads after reconnect
+            self._model_cache.clear()
+            self._last_read.clear()
+            
             if self._sunspec_client:
                 try:
                     await asyncio.get_event_loop().run_in_executor(
@@ -340,6 +345,7 @@ class FranklinWHModbusClient:
             
             if self._client:
                 try:
+                    # Force close the socket
                     await asyncio.get_event_loop().run_in_executor(
                         None, self._client.close
                     )
@@ -347,6 +353,8 @@ class FranklinWHModbusClient:
                     self._logger.debug(f"Error closing Modbus client: {e}")
                 finally:
                     self._client = None
+            
+            self._logger.info("Disconnected and cleared connection state")
                     
     def close(self) -> None:
         """Sync wrapper to close connection."""

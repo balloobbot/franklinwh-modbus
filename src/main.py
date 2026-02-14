@@ -26,6 +26,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Add SQLite handler for web UI logs (initialized after config is loaded)
+def init_sqlite_logging(config):
+    """Initialize SQLite logging with config settings."""
+    try:
+        from src.log_manager import get_log_manager, SQLiteLogHandler
+        
+        # Get log manager with config retention days
+        lm = get_log_manager(config)
+        
+        # Create handler
+        sqlite_handler = SQLiteLogHandler(lm)
+        sqlite_handler.setLevel(logging.INFO)
+        logging.getLogger().addHandler(sqlite_handler)
+        
+        logger.info(f"SQLite logging enabled (retention: {config.log_retention_days} days)")
+        return lm
+    except Exception as e:
+        logger.warning(f"SQLite logging not available: {e}")
+        return None
+
 # Import components
 # Import models first (no dependencies)
 from src.models import BatteryMode
@@ -81,6 +101,9 @@ class FranklinWHApplication:
         # Load configuration
         await config_manager.load()
         config = config_manager.get()
+        
+        # Initialize SQLite logging with config
+        init_sqlite_logging(config)
         
         # Initialize Connection Manager
         self.connection_manager = ConnectionManager()
@@ -160,7 +183,13 @@ class FranklinWHApplication:
              except Exception as e:
                  logger.warning(f"Could not store device info: {e}")
 
-        # Initialize MQTT bridge (using primary client)
+        # Determine site_id from primary device
+        site_id = "default"
+        if config.devices:
+            primary_device = next(iter(config.devices.values()))
+            site_id = primary_device.site_id
+        
+        # Initialize MQTT bridge (using primary client and site)
         self.mqtt = HomeAssistantMQTTBridge(
             modbus_client=primary_client,
             broker_host=config.mqtt.host,
@@ -170,6 +199,7 @@ class FranklinWHApplication:
             client_id=config.mqtt.client_id,
             discovery_prefix=config.mqtt.discovery_prefix,
             state_prefix=config.mqtt.state_prefix,
+            site_id=site_id,
             enabled=config.mqtt.enabled,
         )
         
@@ -186,6 +216,30 @@ class FranklinWHApplication:
         await self.mqtt.start()
         logger.info(f"MQTT bridge started (status: {self.mqtt.status.value})")
         
+        # Initialize network health monitor
+        from src.network_health import NetworkHealthMonitor
+        self.network_monitor = NetworkHealthMonitor(host=config.modbus.host)
+        logger.info(f"Network health monitor initialized for {config.modbus.host}")
+        
+        # Run initial ping check (non-blocking)
+        try:
+            stats = await asyncio.wait_for(
+                self.network_monitor.ping_check(count=5),
+                timeout=10
+            )
+            if stats:
+                logger.info(
+                    f"Initial network check: {stats.quality.value} "
+                    f"({stats.packet_loss:.1f}% loss, {stats.avg_ms:.1f}ms avg)"
+                )
+                # TODO: Show warning modal if quality is CRITICAL
+            else:
+                logger.warning("Initial network check failed - host may be unreachable")
+        except asyncio.TimeoutError:
+            logger.warning("Initial network check timed out")
+        except Exception as e:
+            logger.warning(f"Initial network check error: {e}")
+        
         # Create web application
         self.web_app = create_app(
             connection_manager=self.connection_manager,
@@ -193,6 +247,9 @@ class FranklinWHApplication:
             config_manager=config_manager,
             mock_mode=config.mock_mode,
         )
+        
+        # Attach network monitor to web app state
+        self.web_app.state.network_monitor = self.network_monitor
         
         logger.info("Application initialization complete")
         return True
@@ -284,11 +341,17 @@ class FranklinWHApplication:
                             await self.mqtt.publish_inverter_metrics(results["inverter_ac"])
                         if results.get("capacity"):
                             await self.mqtt.publish_capacity(results["capacity"])
+                        if results.get("solar_pv"):
+                            await self.mqtt.publish_solar_metrics(results["solar_pv"])
+                        if results.get("home_loads"):
+                            await self.mqtt.publish_home_loads(results["home_loads"])
                         
                         await self.mqtt.publish_connection_status(True)
+                        await self.mqtt.publish_control_states(inverter_connected=True)  # PoC select entity
                     else:
                          if self.mqtt.is_connected:
                              await self.mqtt.publish_connection_status(False)
+                             await self.mqtt.publish_control_states(inverter_connected=False)  # PoC select entity
                     
                 await asyncio.sleep(30)  # Publish every 30 seconds
                 
@@ -308,13 +371,19 @@ class FranklinWHApplication:
                     
                     for device_id, client in clients.items():
                         if not client._connected:
-                            # We only log here, actual reconnection might require more logic
-                            # For now, simplistic retry:
-                             logger.info(f"Attempting to reconnect device {device_id}...")
-                             if await client.connect():
-                                 logger.info(f"Reconnected device {device_id}")
-                             else:
-                                 logger.debug(f"Reconnect failed for {device_id}")
+                            logger.info(f"Attempting to reconnect device {device_id}...")
+                            
+                            # Force disconnect to clear stale connection objects
+                            try:
+                                await client.disconnect()
+                            except Exception as e:
+                                logger.debug(f"Error during forced disconnect: {e}")
+                            
+                            # Now try fresh connection
+                            if await client.connect():
+                                logger.info(f"✓ Reconnected device {device_id}")
+                            else:
+                                logger.debug(f"Reconnect failed for {device_id}, will retry in 10s")
                 
                 await asyncio.sleep(10)  # Check every 10 seconds
                     
