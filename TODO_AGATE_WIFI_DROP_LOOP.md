@@ -1,9 +1,30 @@
 # TODO: FranklinWH aGate WiFi Drop Infinite Loop
 
 ## Status
-**Priority:** 🔴 **CRITICAL** - Causes complete application hang, requires restart  
-**Discovered:** 2026-02-14  
+**Priority:** ✅ **RESOLVED** (2026-02-14)  
 **User Reported:** Yes (Defect #2)
+
+---
+
+## ✅ RESOLUTION SUMMARY
+
+**Fixed via timeout wrappers and enhanced reconnection logic:**
+
+### Test Results (2026-02-14 11:54)
+- ✅ Connection errors properly detected 
+- ✅ Reconnect task triggered automatically
+- ✅ Dashboard data restored (99% SOC, 500W discharge, full metrics)
+- ✅ **No server hang** - application remained responsive
+
+### Changes Implemented
+1. **`src/modbus_client.py`:** `_safe_operation()` wrapper with timeout, enhanced `disconnect()` with 2s timeout
+2. **`src/modbus_client_franklinwh.py`:** Timeout protection for `read_raw_block()`
+3. **`src/main.py`:** Enhanced reconnect logic with forced disconnect
+4. **Startup scripts:** File logging + quiet mode
+
+---
+
+## Original Problem
 
 ---
 
