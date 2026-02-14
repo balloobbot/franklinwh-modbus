@@ -1,7 +1,7 @@
-# TODO: MQTT Home Assistant Discovery - Value Precision Issue
+# TODO: MQTT Home Assistant Discovery - Value Precision Review
 
 **Status:** OPEN  
-**Priority:** MEDIUM  
+**Priority:** LOW (most values are fine, review for edge cases)  
 **Component:** MQTT Integration  
 **File:** `src/mqtt_handler.py`
 
@@ -9,12 +9,15 @@
 
 ## Problem
 
-Values published via MQTT Home Assistant Discovery have excessive floating-point precision, causing:
-- Display issues in Home Assistant UI
-- Values appearing outside normal ranges
-- Poor user experience
+**Most values are already correct**, but some edge cases show excessive floating-point precision:
+- Occasional display issues in Home Assistant UI (e.g., `96.2000000000002`)
+- Need to review and ensure consistency across all MQTT entities
 
-### Example
+### Task
+
+Review all MQTT-published values and ensure appropriate precision for each metric type.
+
+### Example Edge Case
 
 **Current:** `96.2000000000002` (State of Health)  
 **Expected:** `96.2`
