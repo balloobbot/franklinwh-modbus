@@ -97,7 +97,8 @@ class BatteryMetrics:
     status_text: str = "Unknown"
     temperature_c: Optional[float] = None
     cycle_count: Optional[int] = None
-    # Model 714 additions - DC lifetime energy
+    # Model 714 additions - DC power and energy
+    dc_power_w: Optional[float] = None  # Model 714.DCW - instantaneous DC power (+ = discharge, - = charge)
     dc_energy_injected_wh: Optional[float] = None  # Total discharged from battery
     dc_energy_absorbed_wh: Optional[float] = None  # Total charged to battery
 
@@ -124,13 +125,36 @@ class HomeLoadMetrics:
 @dataclass
 class InverterACMetrics:
     """AC inverter metrics from Model 701."""
-    power_w: Optional[float] = None
-    voltage_v: Optional[float] = None
-    current_a: Optional[float] = None
-    frequency_hz: Optional[float] = None
-    apparent_power_va: Optional[float] = None
-    reactive_power_var: Optional[float] = None
-    power_factor: Optional[float] = None
+    # Power measurements
+    power_w: Optional[float] = None           # W - Active Power
+    voltage_v: Optional[float] = None         # PhV/LNV/VL1 - Phase Voltage
+    current_a: Optional[float] = None         # A - Total AC Current
+    frequency_hz: Optional[float] = None      # Hz - Frequency
+    apparent_power_va: Optional[float] = None # VA - Apparent Power
+    reactive_power_var: Optional[float] = None # VAR - Reactive Power
+    power_factor: Optional[float] = None      # PF - Power Factor
+    
+    # Status and wiring (from Model 701)
+    ac_type: Optional[int] = None             # ACType - AC Wiring Type (enum16)
+    ac_type_text: Optional[str] = None        # Human-readable AC type
+    operating_state: Optional[int] = None     # St - Operating State (enum16)
+    operating_state_text: Optional[str] = None
+    inverter_state: Optional[int] = None      # InvSt - Inverter State (enum16)
+    inverter_state_text: Optional[str] = None
+    grid_connection_state: Optional[int] = None  # ConnSt - Grid Connection State (enum16)
+    grid_connection_state_text: Optional[str] = None
+    alarm: Optional[int] = None               # Alrm - Alarm Bitfield (bitfield32)
+    alarm_text: Optional[str] = None          # Human-readable alarm summary
+    der_mode: Optional[int] = None            # DERMode - DER Operational Characteristics (bitfield32)
+    der_mode_text: Optional[str] = None       # Human-readable DER mode
+    
+    # Temperatures
+    ambient_temperature_c: Optional[float] = None  # TmpAmb
+    cabinet_temperature_c: Optional[float] = None  # TmpCab
+    
+    # Lifetime energy
+    total_energy_injected_wh: Optional[float] = None  # TotWhInj
+    total_energy_absorbed_wh: Optional[float] = None  # TotWhAbs
 
 
 @dataclass
@@ -217,6 +241,39 @@ class FranklinWHModbusClient:
                     callback(data_type, data)
             except Exception as e:
                 self._logger.error(f"Callback error: {e}")
+    
+    async def _safe_operation(self, operation, operation_name: str, timeout: float = None):
+        """Execute Modbus operation with timeout and error handling.
+        
+        Prevents infinite loops on WiFi drops by:
+        - Adding timeout protection
+        - Catching broken pipe and connection errors
+        - Marking connection as failed for auto-recovery
+        
+        Args:
+            operation: Async callable to execute
+            operation_name: Name for logging
+            timeout: Operation timeout (defaults to self.timeout)
+        
+        Returns:
+            Operation result or None on timeout/error
+        """
+        if timeout is None:
+            timeout = self.timeout
+        
+        try:
+            return await asyncio.wait_for(operation(), timeout=timeout)
+        except asyncio.TimeoutError:
+            self._logger.error(f"{operation_name} timed out after {timeout}s")
+            self._connected = False  # Mark as disconnected for reconnect task
+            return None
+        except (BrokenPipeError, ConnectionError, OSError) as e:
+            self._logger.error(f"{operation_name} connection error: {e}")
+            self._connected = False  # Mark as disconnected for reconnect task
+            return None
+        except Exception as e:
+            self._logger.error(f"{operation_name} unexpected error: {e}")
+            return None
     
     async def connect(self) -> bool:
         """Establish connection to Modbus device."""
@@ -326,7 +383,7 @@ class FranklinWHModbusClient:
 
     async def read_model(self, model_id: int, force: bool = False) -> Optional[Any]:
         """
-        Read a SunSpec model.
+        Read a SunSpec model with timeout protection.
         
         Args:
             model_id: SunSpec model ID
@@ -346,7 +403,8 @@ class FranklinWHModbusClient:
                 if not await self.connect():
                     return None
             
-            try:
+            # Define the read operation
+            async def _do_read():
                 if self._sunspec_client:
                     # SunSpec2 read
                     model = self._sunspec_client.models.get(model_id)
@@ -365,20 +423,24 @@ class FranklinWHModbusClient:
                     
                     # Read model data
                     await asyncio.get_event_loop().run_in_executor(None, model.read)
-                    
-                    self._model_cache[model_id] = model
-                    self._last_read[model_id] = now
-                    
                     return model
-                
                 else:
                     # Raw Modbus read - would need manual register mapping
                     self._logger.warning("Raw Modbus model reading not implemented")
                     return None
-                    
-            except Exception as e:
-                self._logger.error(f"Error reading model {model_id}: {e}")
-                return None
+            
+            # Use safe wrapper with 2x timeout for model reads
+            model = await self._safe_operation(
+                _do_read,
+                f"read_model({model_id})",
+                timeout=self.timeout * 2
+            )
+            
+            if model is not None:
+                self._model_cache[model_id] = model
+                self._last_read[model_id] = now
+            
+            return model
     
     async def get_device_info(self) -> Optional[DeviceInfo]:
         """Read device information from Model 1."""
@@ -414,18 +476,42 @@ class FranklinWHModbusClient:
         
         # Model 713: Storage Capacity
         model713 = await self.read_model(self.MODEL_DER_STORAGE_CAPACITY)
+        
+        # Model 714: Storage Status (if available)
+        model714 = await self.read_model(self.MODEL_DER_STORAGE_STATUS)
+        
+        # Initialize scale factors
+        wh_sf = 0
+        pct_sf = 0
+        dcw_sf = 0
+        dcwh_sf = 0
+        tmp_sf = 0
+
+        # Get scale factors from Model 713 first
         if model713:
             try:
-                # Get scale factors first
-                wh_sf = 0
-                pct_sf = 0
-                
                 if hasattr(model713, 'WH_SF'):
                     wh_sf = getattr(model713.WH_SF, 'value', 0) or 0
                 if hasattr(model713, 'Pct_SF'):
                     pct_sf = getattr(model713.Pct_SF, 'value', 0) or 0
-                
-                # Read values with scaling
+            except Exception as e:
+                self._logger.error(f"Error parsing scale factors from model 713: {e}")
+
+        # Get scale factors from Model 714 (can override/supplement 713)
+        if model714:
+            try:
+                if hasattr(model714, 'DCW_SF'):
+                    dcw_sf = getattr(model714.DCW_SF, 'value', 0) or 0
+                if hasattr(model714, 'DCWH_SF'):
+                    dcwh_sf = getattr(model714.DCWH_SF, 'value', 0) or 0
+                if hasattr(model714, 'Tmp_SF'):
+                    tmp_sf = getattr(model714.Tmp_SF, 'value', 0) or 0
+            except Exception as e:
+                self._logger.error(f"Error parsing scale factors from model 714: {e}")
+
+        if model713:
+            try:
+                # Read values with scaling from Model 713
                 if hasattr(model713, 'WHRtg'):
                     val = getattr(model713.WHRtg, 'value', None)
                     if val is not None:
@@ -446,7 +532,8 @@ class FranklinWHModbusClient:
                     if val is not None:
                         metrics.state_of_health_percent = val * (10 ** pct_sf)
                 
-                if hasattr(model713, 'Sta'):
+                # Status from Model 713 (fallback if not in 714)
+                if hasattr(model713, 'Sta') and metrics.status is None:
                     status = getattr(model713.Sta, 'value', None)
                     if status is not None:
                         metrics.status = status
@@ -473,10 +560,26 @@ class FranklinWHModbusClient:
                 if hasattr(model714, 'Tmp_SF'):
                     tmp_sf = getattr(model714.Tmp_SF, 'value', 0) or 0
                 
+                # Try different temperature field names (Tmp, TmpBat)
+                temp_val = None
                 if hasattr(model714, 'Tmp'):
-                    val = getattr(model714.Tmp, 'value', None)
+                    temp_val = getattr(model714.Tmp, 'value', None)
+                elif hasattr(model714, 'TmpBat'):
+                    temp_val = getattr(model714.TmpBat, 'value', None)
+                
+                if temp_val is not None:
+                    temp = temp_val * (10 ** tmp_sf)
+                    # If temperature is unrealistically high (>150°C), assume it's in tenths of degrees
+                    if temp > 150:
+                        temp = temp_val / 10.0
+                    metrics.temperature_c = temp
+                
+                # DC Power - instantaneous (Model 714.DCW)
+                # Positive = discharging, Negative = charging
+                if hasattr(model714, 'DCW'):
+                    val = getattr(model714.DCW, 'value', None)
                     if val is not None:
-                        metrics.temperature_c = val * (10 ** tmp_sf)
+                        metrics.dc_power_w = val * (10 ** dcw_sf)
                 
                 if hasattr(model714, 'CyC'):
                     metrics.cycle_count = getattr(model714.CyC, 'value', None)
@@ -557,8 +660,9 @@ class FranklinWHModbusClient:
                 if val is not None:
                     metrics.apparent_power_va = val * (10 ** va_sf)
             
-            if hasattr(model, 'VAR'):
-                val = getattr(model.VAR, 'value', None)
+            # Note: SunSpec uses 'Var' not 'VAR'
+            if hasattr(model, 'Var'):
+                val = getattr(model.Var, 'value', None)
                 if val is not None:
                     metrics.reactive_power_var = val * (10 ** var_sf)
             
@@ -566,6 +670,150 @@ class FranklinWHModbusClient:
                 val = getattr(model.PF, 'value', None)
                 if val is not None:
                     metrics.power_factor = val * (10 ** pf_sf)
+            
+            # Temperatures (Model 701) - check for Tmp_SF, fallback to /10 if values are suspiciously high
+            tmp_sf = 0
+            if hasattr(model, 'Tmp_SF'): 
+                tmp_sf = getattr(model.Tmp_SF, 'value', 0) or 0
+            
+            if hasattr(model, 'TmpAmb'):
+                val = getattr(model.TmpAmb, 'value', None)
+                if val is not None:
+                    temp = val * (10 ** tmp_sf)
+                    # If temperature is unrealistically high (>150°C), assume it's in tenths of degrees
+                    if temp > 150:
+                        temp = val / 10.0
+                    metrics.ambient_temperature_c = temp
+            
+            if hasattr(model, 'TmpCab'):
+                val = getattr(model.TmpCab, 'value', None)
+                if val is not None:
+                    temp = val * (10 ** tmp_sf)
+                    # If temperature is unrealistically high (>150°C), assume it's in tenths of degrees
+                    if temp > 150:
+                        temp = val / 10.0
+                    metrics.cabinet_temperature_c = temp
+            
+            # AC Wiring Type (Model 701)
+            # Default to Single Phase for residential systems when Unknown
+            AC_TYPE_MAP = {
+                0: "Single Phase",  # Default from "Unknown" for residential
+                1: "Single Phase (1P)", 2: "Split Phase (1PN)", 
+                3: "Three Phase (3P)", 4: "Three Phase with Neutral (3PN)",
+                5: "Three Phase with Split Neutral (3PS)", 6: "Three Phase Corner Grounded (3PG)",
+                7: "Two Phase (2P)", 8: "Two Phase with Neutral (2PN)",
+                9: "Direct Current (DC)", 10: "Single Phase with Neutral (1PNS)"
+            }
+            if hasattr(model, 'ACType'):
+                val = getattr(model.ACType, 'value', None)
+                if val is not None:
+                    metrics.ac_type = val
+                    # Default 0 (Unknown) to Single Phase for residential
+                    display_val = val if val in AC_TYPE_MAP else 0
+                    metrics.ac_type_text = AC_TYPE_MAP.get(display_val, f"Unknown ({val})")
+                else:
+                    # No value present - assume single phase residential
+                    metrics.ac_type = 1
+                    metrics.ac_type_text = "Single Phase"
+            else:
+                # Field not present - assume single phase residential
+                metrics.ac_type = 1
+                metrics.ac_type_text = "Single Phase"
+            
+            # Operating State (Model 701)
+            OP_STATE_MAP = {
+                0: "Unknown", 1: "Off", 2: "Sleeping", 3: "Starting", 
+                4: "Running/MPPT", 5: "Throttled", 6: "Shutting Down", 
+                7: "Fault", 8: "Standby"
+            }
+            if hasattr(model, 'St'):
+                val = getattr(model.St, 'value', None)
+                if val is not None:
+                    metrics.operating_state = val
+                    metrics.operating_state_text = OP_STATE_MAP.get(val, f"Unknown ({val})")
+            
+            # Status enums (Model 701)
+            INV_STATE_MAP = {
+                1: "Off", 2: "Sleeping", 3: "Starting", 4: "MPPT", 5: "Throttled",
+                6: "Shutting Down", 7: "Fault", 8: "Standby", 9: "Remote Shutdown"
+            }
+            if hasattr(model, 'InvSt'):
+                val = getattr(model.InvSt, 'value', None)
+                if val is not None:
+                    metrics.inverter_state = val
+                    metrics.inverter_state_text = INV_STATE_MAP.get(val, f"Unknown ({val})")
+            
+            CONN_STATE_MAP = {
+                0: "Disconnected", 1: "Connected"
+            }
+            if hasattr(model, 'ConnSt'):
+                val = getattr(model.ConnSt, 'value', None)
+                if val is not None:
+                    metrics.grid_connection_state = val
+                    metrics.grid_connection_state_text = CONN_STATE_MAP.get(val, f"Unknown ({val})")
+            
+            # Alarm Bitfield (Model 701) - bitfield32
+            # Bit meanings per SunSpec:
+            # 0: Ground fault, 1: DC over voltage, 2: AC disconnect open, 3: DC disconnect open
+            # 4: Grid disconnect, 5: Cabinet open, 6: Manual shutdown, 7: Over temperature
+            # 8: Over frequency, 9: Under frequency, 10: AC over voltage, 11: AC under voltage
+            # 12: Blown string fuse, 13: Under temperature, 14: Memory loss, 15: HW test failure
+            if hasattr(model, 'Alrm'):
+                val = getattr(model.Alrm, 'value', None)
+                if val is not None:
+                    metrics.alarm = val
+                    # Decode active alarms
+                    alarm_bits = []
+                    if val & 0x0001: alarm_bits.append("Ground Fault")
+                    if val & 0x0002: alarm_bits.append("DC Over Voltage")
+                    if val & 0x0004: alarm_bits.append("AC Disconnect")
+                    if val & 0x0008: alarm_bits.append("DC Disconnect")
+                    if val & 0x0010: alarm_bits.append("Grid Disconnect")
+                    if val & 0x0020: alarm_bits.append("Cabinet Open")
+                    if val & 0x0040: alarm_bits.append("Manual Shutdown")
+                    if val & 0x0080: alarm_bits.append("Over Temperature")
+                    if val & 0x0100: alarm_bits.append("Over Frequency")
+                    if val & 0x0200: alarm_bits.append("Under Frequency")
+                    if val & 0x0400: alarm_bits.append("AC Over Voltage")
+                    if val & 0x0800: alarm_bits.append("AC Under Voltage")
+                    if val & 0x1000: alarm_bits.append("String Fuse")
+                    if val & 0x2000: alarm_bits.append("Under Temperature")
+                    if val & 0x4000: alarm_bits.append("Memory Loss")
+                    if val & 0x8000: alarm_bits.append("HW Test Failure")
+                    metrics.alarm_text = ", ".join(alarm_bits) if alarm_bits else "None"
+            
+            # DER Mode (Model 701) - bitfield32
+            # Bit meanings per SunSpec:
+            # 0: PV connected, 1: Energy storage connected, 2: Reserved
+            # 3: ECP connected, 4: IT islanding, 5: Reserved
+            # 6: Intentional islanding (ECS), 7: Unintentional islanding
+            if hasattr(model, 'DERMode'):
+                val = getattr(model.DERMode, 'value', None)
+                if val is not None:
+                    metrics.der_mode = val
+                    mode_bits = []
+                    if val & 0x0001: mode_bits.append("PV")
+                    if val & 0x0002: mode_bits.append("Storage")
+                    if val & 0x0008: mode_bits.append("ECP")
+                    if val & 0x0010: mode_bits.append("IT Islanding")
+                    if val & 0x0040: mode_bits.append("ECS Islanding")
+                    if val & 0x0080: mode_bits.append("Unint. Islanding")
+                    metrics.der_mode_text = ", ".join(mode_bits) if mode_bits else "None"
+            
+            # Lifetime energy (Model 701) - scale factor needed
+            wh_sf = 0
+            if hasattr(model, 'TotWh_SF'): 
+                wh_sf = getattr(model.TotWh_SF, 'value', 0) or 0
+            
+            if hasattr(model, 'TotWhInj'):
+                val = getattr(model.TotWhInj, 'value', None)
+                if val is not None:
+                    metrics.total_energy_injected_wh = val * (10 ** wh_sf)
+            
+            if hasattr(model, 'TotWhAbs'):
+                val = getattr(model.TotWhAbs, 'value', None)
+                if val is not None:
+                    metrics.total_energy_absorbed_wh = val * (10 ** wh_sf)
             
             await self._notify_callbacks("inverter_ac", metrics)
             return metrics
@@ -704,11 +952,11 @@ class FranklinWHModbusClient:
             # 15512-15513: Proximal PV Output Wh (uint64)
             
             if len(regs) >= 7:
-                metrics.pv_output_w = regs[2] if regs[2] != 0 else None
-                metrics.pv_proximal_w = regs[3] if regs[3] != 0 else None
-                metrics.remote1_pv_w = regs[4] if regs[4] != 0 else None
-                metrics.remote2_pv_w = regs[5] if regs[5] != 0 else None
-                metrics.home_loads_w = regs[6] if regs[6] != 0 else None
+                metrics.pv_output_w = regs[2]
+                metrics.pv_proximal_w = regs[3]
+                metrics.remote1_pv_w = regs[4]
+                metrics.remote2_pv_w = regs[5]
+                metrics.home_loads_w = regs[6]
             
             if len(regs) >= 12:
                 # Combine two uint16 into uint64 for energy
@@ -870,6 +1118,7 @@ class FranklinWHModbusClient:
         if models is None:
             models = [
                 self.MODEL_COMMON,
+                self.MODEL_SOLAR_PV,
                 self.MODEL_DER_MEASURE_AC,
                 self.MODEL_DER_CAPACITY,
                 self.MODEL_DER_STORAGE_CAPACITY,
@@ -910,3 +1159,105 @@ class FranklinWHModbusClient:
         results["home_loads"] = await self.get_home_load_metrics()
         
         return results
+    
+    async def read_sunspec_model_detailed(self, model_id: int) -> Optional[Dict]:
+        """
+        Read a SunSpec model and return detailed point information.
+        
+        Args:
+            model_id: SunSpec model ID (e.g., 701)
+        
+        Returns:
+            Dictionary with model info and list of points with names, values, units, etc.
+        """
+        model = await self.read_model(model_id)
+        if model is None:
+            return None
+        
+        points = []
+        try:
+            # Get model address
+            base_addr = getattr(model, 'addr', 0)
+            
+            # Iterate through model points (OrderedDict)
+            for point_name, point in model.points.items():
+                try:
+                    point_addr = getattr(point, 'addr', None)
+                    
+                    # Get value
+                    raw_val = getattr(point, 'value', None)
+                    
+                    # Get scale factor if present
+                    sf_val = None
+                    sf_name = getattr(point, 'sf', None)
+                    if sf_name and sf_name in model.points:
+                        sf_point = model.points[sf_name]
+                        sf_val = getattr(sf_point, 'value', None)
+                    
+                    # Get units
+                    units = getattr(point, 'units', '') or ''
+                    
+                    # Get data type from pdef
+                    type_str = 'unknown'
+                    pdef = getattr(point, 'pdef', {})
+                    if isinstance(pdef, dict):
+                        type_str = pdef.get('type', 'unknown')
+                    
+                    # Get access mode (RW) - check if point is writable
+                    access_str = 'R'
+                    if isinstance(pdef, dict):
+                        # Check if type indicates writability or if there's an access field
+                        access = pdef.get('access', 'R')
+                        access_str = 'RW' if 'W' in str(access) else 'R'
+                    
+                    # Calculate scaled value
+                    scaled_val = raw_val
+                    if raw_val is not None and sf_val is not None:
+                        try:
+                            scaled_val = raw_val * (10 ** sf_val)
+                        except:
+                            scaled_val = raw_val
+                    
+                    # Get label/description from pdef
+                    label = point_name
+                    if isinstance(pdef, dict):
+                        label = pdef.get('label', pdef.get('desc', point_name))
+                    
+                    points.append({
+                        'addr': point_addr,
+                        'name': point_name,
+                        'label': label,
+                        'value': scaled_val,
+                        'raw_value': raw_val,
+                        'units': units,
+                        'scale_factor': sf_val,
+                        'access': access_str,
+                        'type': type_str
+                    })
+                except Exception as e:
+                    self._logger.debug(f"Error parsing point {point_name}: {e}")
+                    continue
+            
+            # Get model name safely
+            model_name = f'Model {model_id}'
+            if hasattr(model, 'model'):
+                try:
+                    model_val = model.model
+                    if isinstance(model_val, str):
+                        model_name = model_val
+                    elif hasattr(model_val, 'value'):
+                        model_name = str(model_val.value)
+                except:
+                    pass
+            
+            return {
+                'model_id': model_id,
+                'model_name': model_name,
+                'base_addr': base_addr,
+                'length': getattr(model, 'len', 0),
+                'points': points
+            }
+            
+        except Exception as e:
+            self._logger.error(f"Error reading model {model_id} details: {e}")
+            return None

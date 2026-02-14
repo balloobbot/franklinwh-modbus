@@ -143,17 +143,29 @@ class FranklinWHRegisterMap:
             return {}
         
         try:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: raw_client.read_holding_registers(
-                    address=start_addr,
-                    count=count,
-                    device_id=self.client.unit_id
+            # Wrap register read with timeout protection
+            async def _do_read():
+                return await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: raw_client.read_holding_registers(
+                        address=start_addr,
+                        count=count,
+                        unit=self.client.unit_id
+                    )
                 )
-            )
+            
+            # Use timeout protection (2x timeout for safety)
+            try:
+                result = await asyncio.wait_for(_do_read(), timeout=self.client.timeout * 2)
+            except asyncio.TimeoutError:
+                self._logger.error(f"Timeout reading registers {start_addr}:{count}")
+                return {}
+            except (BrokenPipeError, ConnectionError, OSError) as e:
+                self._logger.error(f"Error reading registers {start_addr}:{count}: {e}")
+                return {}
             
             if result.isError():
-                self._logger.debug(f"Modbus error reading {start_addr}:{count}")
+                self._logger.error(f"Modbus error reading {start_addr}:{count}: {result}")
                 return {}
             
             # Update cache
