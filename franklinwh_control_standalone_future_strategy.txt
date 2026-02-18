@@ -1,0 +1,35 @@
+
+## Threading and Concurrency
+
+| Aspect | Design |
+|--------|--------|
+| Threading model | Single-threaded with `tick()` polling |
+| Control interval | 5 seconds (`tick_interval`) |
+| Sleep strategy | `time.sleep(0.1)` between ticks to prevent busy-wait |
+| Signal handling | Synchronous (signal handlers set flags) |
+| Modbus access | Synchronous blocking I/O |
+
+## Error Handling Strategy
+
+| Error Type | Handling | Log Level |
+|------------|----------|-----------|
+| Connection timeout | Retry once, then abort | ERROR |
+| Modbus exception | Log, skip tick, continue | WARNING |
+| Write verification fail | Log, skip tick, continue | ERROR |
+| Safety limit triggered | Clamp value, log reason | INFO |
+| Zombie state | Require explicit reset | WARNING |
+
+## Future Extensions
+
+| Feature | Status | Integration Point |
+|---------|--------|-------------------|
+| Cloud API | Planned v2.0 | `FranklinWHCloudClient` class |
+| SPAN write access | Conditional | `_detect_span_capability()` |
+| Async/await | Under consideration | Replace `tick()` with `async def` |
+| Configuration file | Planned | YAML/JSON mode definitions |
+
+## References
+
+- SunSpec Alliance: [DER Information Model 802](https://sunspec.org/)
+- FranklinWH aGate: V10R01B04D00 (detected firmware)
+- Modbus TCP: Port 502, Unit ID 2 (default)

@@ -51,44 +51,6 @@
                     </div>
                 </div>
 
-                <!-- MQTT Settings -->
-                <div class="mb-8">
-                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
-                        MQTT Broker
-                    </h3>
-                    <div class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <label class="font-medium text-sm">Enable MQTT Bridge</label>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" x-model="config.mqtt.enabled" class="sr-only peer">
-                                <div
-                                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary">
-                                </div>
-                            </label>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Host</label>
-                            <input type="text" x-model="config.mqtt.host"
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Port</label>
-                            <input type="number" x-model.number="config.mqtt.port"
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Username</label>
-                            <input type="text" x-model="config.mqtt.username"
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1">Password</label>
-                            <input type="password" x-model="config.mqtt.password"
-                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Dashboard Widgets -->
                 <div class="mb-8">
                     <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
@@ -140,6 +102,68 @@
                                             }`" :style="`background-color: ${color}`"></button>
                                 </template>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Refresh Settings -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        Data Refresh
+                    </h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <label class="block text-sm font-medium">Auto Refresh</label>
+                                <p class="text-xs text-gray-500">Automatically poll aGate for updates</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" x-model="config.auto_refresh" class="sr-only peer">
+                                <div
+                                    class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary">
+                                </div>
+                            </label>
+                        </div>
+                        <div x-show="config.auto_refresh">
+                            <label class="block text-sm font-medium mb-1">Refresh Interval (seconds)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" x-model.number="config.refresh_interval" min="5" max="300" step="5"
+                                    class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                                <span class="w-16 text-center font-mono text-sm" x-text="config.refresh_interval + 's'"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">
+                                <span x-show="config.refresh_interval < 10">⚠️ Fast polling may impact aGate performance</span>
+                                <span x-show="config.refresh_interval >= 10 && config.refresh_interval <= 30">✓ Recommended for real-time monitoring</span>
+                                <span x-show="config.refresh_interval > 30">Good for long-term monitoring</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Settings -->
+                <div class="mb-8">
+                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
+                        System Settings
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Log Retention (days)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" x-model.number="config.log_retention_days" min="1" max="90" step="1"
+                                    class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                <span class="w-12 text-center font-mono text-sm" x-text="config.log_retention_days"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Logs older than this will be automatically deleted</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">Log Level</label>
+                            <select x-model="config.log_level"
+                                class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
+                                <option value="DEBUG">DEBUG (Verbose)</option>
+                                <option value="INFO">INFO (Normal)</option>
+                                <option value="WARNING">WARNING</option>
+                                <option value="ERROR">ERROR (Quiet)</option>
+                            </select>
                         </div>
                     </div>
                 </div>

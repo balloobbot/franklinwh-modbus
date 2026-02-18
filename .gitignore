@@ -57,3 +57,13 @@ htmlcov/
 *.csv
 data/*.db
 data/*.json.bak
+
+# Test results & generated files
+*_test_results*.json
+register_test_*.json
+rw_register_baseline.json
+structure*.txt
+
+# Agent artifacts
+.agent/
+in_flight_work.md

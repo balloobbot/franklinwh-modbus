@@ -12,6 +12,7 @@ Features:
 import asyncio
 import json
 import logging
+import time
 from typing import Dict, Optional, Any, Callable
 from dataclasses import asdict
 from enum import Enum
@@ -148,6 +149,7 @@ class HomeAssistantMQTTBridge:
         client_id: str = "franklinwh_bridge",
         discovery_prefix: str = "homeassistant",
         state_prefix: str = "franklinwh",
+        site_id: str = "default",  # Site ID for multi-site support
         enabled: bool = True,  # Can be disabled on startup
     ):
         self.modbus = modbus_client
@@ -158,10 +160,17 @@ class HomeAssistantMQTTBridge:
         self.client_id = client_id
         self.discovery_prefix = discovery_prefix
         self.state_prefix = state_prefix
+        self.site_id = site_id
+        # Full state prefix includes site: franklinwh/{site_id}
+        self._state_topic_base = f"{state_prefix}/{site_id}"
         
         self._client: Optional[AsyncMQTTClient] = None
         self._status = MQTTStatus.DISABLED if not enabled else MQTTStatus.OFFLINE
         self._logger = logging.getLogger(__name__)
+        
+        # Stats tracking
+        self._publish_count = 0
+        self._last_publish_time: Optional[float] = None
         
         # Background tasks
         self._enabled = enabled
@@ -546,7 +555,7 @@ class HomeAssistantMQTTBridge:
             entities.extend([
                 {"type": "sensor", "name": f"{unique_base}_soc", "config": {
                     "name": "State of Charge",
-                    "state_topic": f"{self.state_prefix}/battery/soc",
+                    "state_topic": f"{self._state_topic_base}/battery/soc",
                     "unit_of_measurement": "%",
                     "device_class": "battery",
                     "state_class": "measurement",
@@ -555,33 +564,46 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_soh", "config": {
                     "name": "State of Health",
-                    "state_topic": f"{self.state_prefix}/battery/soh",
+                    "state_topic": f"{self._state_topic_base}/battery/soh",
                     "unit_of_measurement": "%",
                     "state_class": "measurement",
                     "value_template": "{{ value | float | round(1) }}",
                     "icon": "mdi:heart-pulse",
                 }},
+                # NEW: Battery Power (Model 714.DCW - DC charge/discharge power)
+                {"type": "sensor", "name": f"{unique_base}_battery_power", "config": {
+                    "name": "Battery Power",
+                    "state_topic": f"{self._state_topic_base}/battery/power",
+                    "unit_of_measurement": "W",
+                    "device_class": "power",
+                    "state_class": "measurement",
+                    "icon": "mdi:battery-charging",
+                }},
+                # Diagnostic sensors - hardware may not provide these
                 {"type": "sensor", "name": f"{unique_base}_temperature", "config": {
                     "name": "Battery Temperature",
-                    "state_topic": f"{self.state_prefix}/battery/temperature",
+                    "state_topic": f"{self._state_topic_base}/battery/temperature",
                     "unit_of_measurement": "°C",
                     "device_class": "temperature",
                     "state_class": "measurement",
+                    "entity_category": "diagnostic",  # Hide from main UI
                     "icon": "mdi:thermometer",
                 }},
                 {"type": "sensor", "name": f"{unique_base}_cycles", "config": {
                     "name": "Cycle Count",
-                    "state_topic": f"{self.state_prefix}/battery/cycles",
+                    "state_topic": f"{self._state_topic_base}/battery/cycles",
                     "state_class": "total_increasing",
+                    "entity_category": "diagnostic",  # Hide from main UI
                     "icon": "mdi:counter",
                 }},
             ])
         
         if publish_inverter:
             entities.extend([
+                # Grid Power (Model 701.W - AC grid import/export)
                 {"type": "sensor", "name": f"{unique_base}_power", "config": {
-                    "name": "Power",
-                    "state_topic": f"{self.state_prefix}/inverter/power",
+                    "name": "Power",  # Keep name for backward compatibility
+                    "state_topic": f"{self._state_topic_base}/inverter/power",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "state_class": "measurement",
@@ -589,7 +611,7 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_voltage", "config": {
                     "name": "Voltage",
-                    "state_topic": f"{self.state_prefix}/inverter/voltage",
+                    "state_topic": f"{self._state_topic_base}/inverter/voltage",
                     "unit_of_measurement": "V",
                     "device_class": "voltage",
                     "state_class": "measurement",
@@ -597,7 +619,7 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_current", "config": {
                     "name": "Current",
-                    "state_topic": f"{self.state_prefix}/inverter/current",
+                    "state_topic": f"{self._state_topic_base}/inverter/current",
                     "unit_of_measurement": "A",
                     "device_class": "current",
                     "state_class": "measurement",
@@ -605,7 +627,7 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_frequency", "config": {
                     "name": "Frequency",
-                    "state_topic": f"{self.state_prefix}/inverter/frequency",
+                    "state_topic": f"{self._state_topic_base}/inverter/frequency",
                     "unit_of_measurement": "Hz",
                     "device_class": "frequency",
                     "state_class": "measurement",
@@ -617,7 +639,7 @@ class HomeAssistantMQTTBridge:
             entities.extend([
                 {"type": "sensor", "name": f"{unique_base}_solar_power", "config": {
                     "name": "Solar Power",
-                    "state_topic": f"{self.state_prefix}/solar/output_power",
+                    "state_topic": f"{self._state_topic_base}/solar/output_power",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "state_class": "measurement",
@@ -625,7 +647,7 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_solar_energy", "config": {
                     "name": "Solar Energy",
-                    "state_topic": f"{self.state_prefix}/solar/output_energy",
+                    "state_topic": f"{self._state_topic_base}/solar/output_energy",
                     "unit_of_measurement": "Wh",
                     "device_class": "energy",
                     "state_class": "total_increasing",
@@ -637,7 +659,7 @@ class HomeAssistantMQTTBridge:
             entities.extend([
                 {"type": "sensor", "name": f"{unique_base}_home_loads", "config": {
                     "name": "Home Loads",
-                    "state_topic": f"{self.state_prefix}/home_loads/home_loads_w",
+                    "state_topic": f"{self._state_topic_base}/home_loads/home_loads_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "state_class": "measurement",
@@ -645,7 +667,7 @@ class HomeAssistantMQTTBridge:
                 }},
                 {"type": "sensor", "name": f"{unique_base}_pv_output", "config": {
                     "name": "PV Output",
-                    "state_topic": f"{self.state_prefix}/home_loads/pv_output_w",
+                    "state_topic": f"{self._state_topic_base}/home_loads/pv_output_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
                     "state_class": "measurement",
@@ -655,19 +677,37 @@ class HomeAssistantMQTTBridge:
         
         if publish_capacity:
             entities.extend([
+                # Diagnostic sensors - Model 703 may not be populated
                 {"type": "sensor", "name": f"{unique_base}_max_charge", "config": {
                     "name": "Max Charge Power",
-                    "state_topic": f"{self.state_prefix}/capacity/max_charge_w",
+                    "state_topic": f"{self._state_topic_base}/capacity/max_charge_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
+                    "entity_category": "diagnostic",  # Hide from main UI
                     "icon": "mdi:arrow-down-bold",
                 }},
                 {"type": "sensor", "name": f"{unique_base}_max_discharge", "config": {
                     "name": "Max Discharge Power",
-                    "state_topic": f"{self.state_prefix}/capacity/max_discharge_w",
+                    "state_topic": f"{self._state_topic_base}/capacity/max_discharge_w",
                     "unit_of_measurement": "W",
                     "device_class": "power",
+                    "entity_category": "diagnostic",  # Hide from main UI
                     "icon": "mdi:arrow-up-bold",
+                }},
+            ])
+        
+        # Control entities (PoC - read-only demonstration)
+        if publish_controls:
+            entities.extend([
+                # Connection State Select (Read-Only PoC using Model 704 data)
+                {"type": "select", "name": f"{unique_base}_connection_state", "config": {
+                    "name": "Connection State",
+                    "icon": "mdi:connection",
+                    "options": ["Disconnected", "Connected", "Available"],
+                    "state_topic": f"{self._state_topic_base}/control/connection_state",
+                    "command_topic": f"{self._state_topic_base}/control/connection_state/set",  # Required by HA
+                    "entity_category": "diagnostic",  # Read-only, so diagnostic
+                    "enabled_by_default": True,
                 }},
             ])
         
@@ -675,14 +715,14 @@ class HomeAssistantMQTTBridge:
         entities.extend([
             {"type": "binary_sensor", "name": f"{unique_base}_connected", "config": {
                 "name": "Connected",
-                "state_topic": f"{self.state_prefix}/status/connected",
+                "state_topic": f"{self._state_topic_base}/status/connected",
                 "payload_on": "true",
                 "payload_off": "false",
                 "device_class": "connectivity",
             }},
             {"type": "sensor", "name": f"{unique_base}_mqtt_status", "config": {
                 "name": "MQTT Status",
-                "state_topic": f"{self.state_prefix}/status/mqtt",
+                "state_topic": f"{self._state_topic_base}/status/mqtt",
                 "icon": "mdi:network-outline",
             }},
         ])
@@ -704,7 +744,7 @@ class HomeAssistantMQTTBridge:
         }
         
         if entity_type == "sensor" and "state_class" in config:
-            payload["availability_topic"] = f"{self.state_prefix}/status/connected"
+            payload["availability_topic"] = f"{self._state_topic_base}/status/connected"
             payload["payload_available"] = "true"
             payload["payload_not_available"] = "false"
         
@@ -717,7 +757,7 @@ class HomeAssistantMQTTBridge:
             return
         
         try:
-            mode_topic = f"{self.state_prefix}/mode/set"
+            mode_topic = f"{self._state_topic_base}/mode/set"
             await self._client.subscribe(mode_topic)
             self._logger.debug(f"Subscribed to {mode_topic}")
         except Exception as e:
@@ -738,7 +778,7 @@ class HomeAssistantMQTTBridge:
         if not self.is_connected:
             return
         
-        topic = f"{self.state_prefix}/{subtopic}"
+        topic = f"{self._state_topic_base}/{subtopic}"
         if isinstance(value, (dict, list)):
             payload = json.dumps(value)
         else:
@@ -750,8 +790,19 @@ class HomeAssistantMQTTBridge:
         if self._client and self.is_connected:
             try:
                 await self._client.publish(topic, payload, retain=retain)
+                self._publish_count += 1
+                self._last_publish_time = time.time()
             except Exception as e:
                 self._logger.debug(f"Publish error: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get MQTT publishing statistics."""
+        return {
+            "connected": self.is_connected,
+            "status": self._status.value,
+            "messages_published": self._publish_count,
+            "last_publish_seconds_ago": int(time.time() - self._last_publish_time) if self._last_publish_time else None
+        }
     
     async def publish_battery_metrics(self, metrics: BatteryMetrics) -> None:
         """Publish battery metrics."""
@@ -762,6 +813,10 @@ class HomeAssistantMQTTBridge:
             await self.publish_state("battery/soc", metrics.state_of_charge_percent)
         if metrics.state_of_health_percent is not None:
             await self.publish_state("battery/soh", metrics.state_of_health_percent)
+        # NEW: Battery DC Power (Model 714.DCW)
+        if metrics.dc_power_w is not None:
+            await self.publish_state("battery/power", metrics.dc_power_w)
+        # Diagnostic sensors - may be null if hardware doesn't provide
         if metrics.temperature_c is not None:
             await self.publish_state("battery/temperature", metrics.temperature_c)
         if metrics.cycle_count is not None:
@@ -800,6 +855,40 @@ class HomeAssistantMQTTBridge:
             await self.publish_state("capacity/max_charge", capacity.max_charge_w)
         if capacity.max_discharge_w is not None:
             await self.publish_state("capacity/max_discharge", capacity.max_discharge_w)
+    
+    async def publish_solar_metrics(self, solar: Any) -> None:
+        """Publish solar PV metrics."""
+        if not self.is_connected:
+            return
+        
+        if hasattr(solar, 'output_power_w') and solar.output_power_w is not None:
+            await self.publish_state("solar/output_power", solar.output_power_w)
+        if hasattr(solar, 'output_energy_wh') and solar.output_energy_wh is not None:
+            await self.publish_state("solar/output_energy", solar.output_energy_wh)
+    
+    async def publish_home_loads(self, home_loads: Any) -> None:
+        """Publish home loads metrics."""
+        if not self.is_connected:
+            return
+        
+        if hasattr(home_loads, 'home_loads_w') and home_loads.home_loads_w is not None:
+            await self.publish_state("home_loads/home_loads_w", home_loads.home_loads_w)
+        if hasattr(home_loads, 'pv_output_w') and home_loads.pv_output_w is not None:
+            await self.publish_state("home_loads/pv_output_w", home_loads.pv_output_w)
+    
+    async def publish_control_states(self, inverter_connected: bool = False) -> None:
+        """Publish control entity states (PoC - read-only demonstration)."""
+        if not self.is_connected:
+            return
+        
+        # Map connection state for select entity (Model 704 - DERCtlAC)
+        # This is a demonstration only - values based on simple inverter connectivity
+        if inverter_connected:
+            connection_state = "Connected"
+        else:
+            connection_state = "Disconnected"
+        
+        await self.publish_state("control/connection_state", connection_state)
     
     async def publish_connection_status(self, connected: bool) -> None:
         """Publish connection status."""

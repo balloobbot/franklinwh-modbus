@@ -184,7 +184,7 @@ class AppConfig:
     refresh_interval: int = 5
     auto_refresh: bool = True
     log_level: str = "INFO"
-    log_retention_days: int = 7
+    log_retention_days: int = 30  # Keep logs for 30 days by default
     mock_mode: bool = False
     widgets: Dict[str, WidgetConfig] = field(default_factory=lambda: {
         "soc": WidgetConfig(title="State of Charge", icon="fa-battery-full", color="#3b82f6", position=0),

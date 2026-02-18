@@ -38,7 +38,8 @@ class BatteryMetrics:
     status_text: str = "Unknown"
     temperature_c: Optional[float] = None
     cycle_count: Optional[int] = None
-    # Model 714 additions - DC lifetime energy
+    # Model 714 additions - DC power and energy
+    dc_power_w: Optional[float] = None  # Model 714.DCW - instantaneous DC power (+ = discharge, - = charge)
     dc_energy_injected_wh: Optional[float] = None  # Total discharged from battery
     dc_energy_absorbed_wh: Optional[float] = None  # Total charged to battery
 
@@ -72,6 +73,17 @@ class InverterACMetrics:
     apparent_power_va: Optional[float] = None
     reactive_power_var: Optional[float] = None
     power_factor: Optional[float] = None
+    # Temperatures from Model 701
+    ambient_temperature_c: Optional[float] = None  # TmpAmb
+    cabinet_temperature_c: Optional[float] = None  # TmpCab
+    # Status enums from Model 701
+    inverter_state: Optional[int] = None  # InvSt
+    inverter_state_text: str = "Unknown"
+    grid_connection_state: Optional[int] = None  # ConnSt
+    grid_connection_state_text: str = "Unknown"
+    # Lifetime energy from Model 701
+    total_energy_injected_wh: Optional[float] = None  # TotWhInj (exported to grid)
+    total_energy_absorbed_wh: Optional[float] = None  # TotWhAbs (imported from grid)
 
 
 @dataclass

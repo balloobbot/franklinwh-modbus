@@ -248,6 +248,16 @@ class FranklinWHApplication:
             mock_mode=config.mock_mode,
         )
         
+        # Log startup configuration snapshot
+        logger.info("=" * 60)
+        logger.info("STARTUP CONFIGURATION SNAPSHOT")
+        logger.info("=" * 60)
+        try:
+            await self._log_startup_snapshot(primary_client)
+        except Exception as e:
+            logger.warning(f"Failed to capture startup snapshot: {e}")
+        logger.info("=" * 60)
+        
         # Attach network monitor to web app state
         self.web_app.state.network_monitor = self.network_monitor
         
@@ -390,6 +400,140 @@ class FranklinWHApplication:
             except Exception as e:
                 logger.error(f"Modbus keepalive error: {e}")
                 await asyncio.sleep(reconnect_delay)
+    
+    async def _log_startup_snapshot(self, client):
+        """Log all critical settings at startup for audit trail."""
+        
+        def safe_value(val, name="value"):
+            """Safely convert potentially corrupt values to string."""
+            try:
+                # Check if value is absurdly large (WiFi corruption)
+                if isinstance(val, int) and abs(val) > 1e9:  # > 1 billion
+                    return f"<CORRUPT: {name}>"
+                return val
+            except:
+                return f"<ERROR: {name}>"
+        
+        logger.info("Device Information:")
+        try:
+            device_info = await client.get_device_info()
+            if device_info:
+                logger.info(f"  Manufacturer: {device_info.manufacturer}")
+                logger.info(f"  Model: {device_info.model}")
+                logger.info(f"  Serial: {device_info.serial_number}")
+                logger.info(f"  Firmware: {device_info.version}")
+        except Exception as e:
+            logger.warning(f"  Failed to read device info: {e}")
+        
+        # Power Control Limits (Model 702 - DC controls)
+        logger.info("Power Control Limits (Model 702 - DC):")
+        try:
+            model_702 = await client.read_model(702)
+            if model_702:
+                charge = safe_value(model_702.WChaRteMax, "WChaRteMax")
+                discharge = safe_value(model_702.WDisChaRteMax, "WDisChaRteMax")
+                logger.info(f"  WChaRteMax (Charge): {charge} W")
+                logger.info(f"  WDisChaRteMax (Discharge): {discharge} W")
+            else:
+                logger.info("  Model 702 not available")
+        except Exception as e:
+            logger.warning(f"  Failed to read Model 702: {e}")
+        
+        # Power Control Limits (Model 704 - Service controls)
+        logger.info("Power Control Limits (Model 704 - Enter Service):")
+        try:
+            model_704 = await client.read_model(704)
+            if model_704:
+                if hasattr(model_704, 'WChaRteMaxPct'):
+                    pct = safe_value(model_704.WChaRteMaxPct, "WChaRteMaxPct")
+                    logger.info(f"  WChaRteMaxPct (Charge %): {pct}%")
+                if hasattr(model_704, 'WDisChaRteMaxPct'):
+                    pct = safe_value(model_704.WDisChaRteMaxPct, "WDisChaRteMaxPct")
+                    logger.info(f"  WDisChaRteMaxPct (Discharge %): {pct}%")
+            else:
+                logger.info("  Model 704 not available")
+        except Exception as e:
+            logger.warning(f"  Failed to read Model 704: {e}")
+        
+        # FranklinWH Extensions (Operating Mode)
+        # TODO: Re-enable when read_holding_registers is implemented
+        # logger.info("FranklinWH Operating Mode (Register 15507):")
+        # try:
+        #     mode_data = await client.read_holding_registers(15507, count=1)
+        #     if mode_data:
+        #         mode_map = {
+        #             0: "Self-Consumption",
+        #             1: "Time-of-Use",
+        #             2: "Backup",
+        #             3: "Grid Export",
+        #             4: "VPP Mode"
+        #         }
+        #         mode_val = mode_data[0] if mode_data else -1
+        #         mode_val = safe_value(mode_val, "mode")
+        #         mode_text = mode_map.get(mode_val, f"Unknown ({mode_val})")
+        #         logger.info(f"  Mode: {mode_text}")
+        # except Exception as e:
+        #     logger.warning(f"  Failed to read operating mode: {e}")
+        
+        # Energy Lifetime Values (Model 701 - AC metrics)
+        logger.info("Lifetime Energy (Model 701 - AC Grid):")
+        try:
+            model_701 = await client.read_model(701)
+            if model_701:
+                if hasattr(model_701, 'TotWhExp'):
+                    wh_exp = safe_value(model_701.TotWhExp, "TotWhExp")
+                    if isinstance(wh_exp, int):
+                        logger.info(f"  Total Energy Exported: {wh_exp:,} Wh ({wh_exp/1000:.1f} kWh)")
+                    else:
+                        logger.info(f"  Total Energy Exported: {wh_exp}")
+                if hasattr(model_701, 'TotWhImp'):
+                    wh_imp = safe_value(model_701.TotWhImp, "TotWhImp")
+                    if isinstance(wh_imp, int):
+                        logger.info(f"  Total Energy Imported: {wh_imp:,} Wh ({wh_imp/1000:.1f} kWh)")
+                    else:
+                        logger.info(f"  Total Energy Imported: {wh_imp}")
+            else:
+                logger.info("  Model 701 not available")
+        except Exception as e:
+            logger.warning(f"  Failed to read Model 701: {e}")
+        
+        # Solar Energy (Model 502)
+        logger.info("Lifetime Solar Energy (Model 502):")
+        try:
+            model_502 = await client.read_model(502)
+            if model_502:
+                if hasattr(model_502, 'DCW'):
+                    dcw = safe_value(model_502.DCW, "DCW")
+                    logger.info(f"  Current Output: {dcw} W")
+                if hasattr(model_502, 'DCWH'):
+                    wh_total = safe_value(model_502.DCWH, "DCWH")
+                    if isinstance(wh_total, int):
+                        logger.info(f"  Total Generated: {wh_total:,} Wh ({wh_total/1000:.1f} kWh)")
+                    else:
+                        logger.info(f"  Total Generated: {wh_total}")
+            else:
+                logger.info("  Model 502 (Solar PV) not available")
+        except Exception as e:
+            logger.warning(f"  Failed to read Model 502: {e}")
+        
+        # Battery Storage Status (Model 714)
+        logger.info("Battery Storage Status (Model 714):")
+        try:
+            model_714 = await client.read_model(714)
+            if model_714:
+                if hasattr(model_714, 'WChaMax'):
+                    val = safe_value(model_714.WChaMax, "WChaMax")
+                    logger.info(f"  Max Charge Rate: {val} W")
+                if hasattr(model_714, 'WDisChaMax'):
+                    val = safe_value(model_714.WDisChaMax, "WDisChaMax")
+                    logger.info(f"  Max Discharge Rate: {val} W")
+                if hasattr(model_714, 'StorAval'):
+                    val = safe_value(model_714.StorAval, "StorAval")
+                    logger.info(f"  Available Energy: {val} Wh")
+            else:
+                logger.info("  Model 714 not available")
+        except Exception as e:
+            logger.warning(f"  Failed to read Model 714: {e}")
 
 
 async def main():

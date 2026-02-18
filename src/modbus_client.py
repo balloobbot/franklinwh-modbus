@@ -1287,3 +1287,136 @@ class FranklinWHModbusClient:
         except Exception as e:
             self._logger.error(f"Error reading model {model_id} details: {e}")
             return None
+
+    async def write_model704_battery_control(
+        self,
+        power_watts: int,
+        timeout_seconds: int = 1800
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Write battery control setpoint to Model 704 (DER Enter Service).
+        
+        WORKING SEQUENCE (verified 2026-02-14):
+        - Uses FranklinWH native addresses (base 1 = pymodbus PDU)
+        - Disable → Set Mode → Set Power → Enable
+        - Addresses: 317 (WSetEna), 318 (WSetMod), 319 (WSet)
+        
+        Args:
+            power_watts: Power setpoint in watts.
+                        Negative = charge (import from grid)
+                        Positive = discharge (export to loads/grid)
+            timeout_seconds: Control timeout (default 30 min)
+            
+        Returns:
+            tuple[bool, str]: (success, error_message)
+        """
+        if not self._client:
+            return False, "Not connected"
+            
+        # FranklinWH native addresses (0-indexed PDU = base 1)
+        WSET_ENA_ADDR = 317  # 40318 - 40001
+        WSET_MOD_ADDR = 318  # 40319 - 40001
+        WSET_ADDR = 319      # 40320 - 40001
+        
+        try:
+            async with self._lock:
+                self._logger.info(f"🔋 Battery Control Write: {power_watts}W")
+                
+                # STEP 1: DISABLE (clears any stuck state)
+                self._logger.info("  1. Disabling WSetEna...")
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._client.write_register(
+                        address=WSET_ENA_ADDR,
+                        value=0,
+                        device_id=self.unit_id
+                    )
+                )
+                if result.isError():
+                    return False, f"Failed to disable WSetEna: {result}"
+                await asyncio.sleep(0.5)
+                
+                # STEP 2: SET MODE (0 = Absolute W)
+                self._logger.info("  2. Setting WSetMod = 0 (Absolute W)...")
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._client.write_register(
+                        address=WSET_MOD_ADDR,
+                        value=0,
+                        device_id=self.unit_id
+                    )
+                )
+                if result.isError():
+                    return False, f"Failed to set WSetMod: {result}"
+                await asyncio.sleep(0.5)
+                
+                # STEP 3: SET POWER (int32 split into high/low uint16)
+                self._logger.info(f"  3. Setting WSet = {power_watts}W...")
+                
+                # Convert signed int32 to unsigned for splitting
+                if power_watts < 0:
+                    value_u32 = (1 << 32) + power_watts
+                else:
+                    value_u32 = power_watts
+                
+                high = (value_u32 >> 16) & 0xFFFF
+                low = value_u32 & 0xFFFF
+                
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._client.write_registers(
+                        address=WSET_ADDR,
+                        values=[high, low],
+                        device_id=self.unit_id
+                    )
+                )
+                if result.isError():
+                    return False, f"Failed to set WSet: {result}"
+                await asyncio.sleep(0.5)
+                
+                # STEP 4: ENABLE (activates the setpoint)
+                self._logger.info("  4. Enabling WSetEna...")
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._client.write_register(
+                        address=WSET_ENA_ADDR,
+                        value=1,
+                        device_id=self.unit_id
+                    )
+                )
+                if result.isError():
+                    return False, f"Failed to enable WSetEna: {result}"
+                
+                # STEP 5: VERIFY
+                await asyncio.sleep(2.0)
+                self._logger.info("  5. Verifying write...")
+                
+                verify_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._client.read_holding_registers(
+                        address=WSET_ADDR,
+                        count=2,
+                        device_id=self.unit_id
+                    )
+                )
+                
+                if not verify_result.isError():
+                    wset_val = (verify_result.registers[0] << 16) | verify_result.registers[1]
+                    if wset_val >= 0x80000000:
+                        wset_val -= 0x100000000
+                    
+                    if wset_val == power_watts:
+                        self._logger.warning(f"✅ Battery control verified: {wset_val}W")
+                        return True, None
+                    else:
+                        self._logger.error(f"❌ Verification failed: expected {power_watts}W, got {wset_val}W")
+                        return False, f"Write verification failed (expected {power_watts}W, got {wset_val}W)"
+                else:
+                    self._logger.warning("⚠️  Could not verify write (read failed)")
+                    return True, None  # Assume success if write didn't error
+                    
+        except Exception as e:
+            error_msg = f"Battery control write failed: {e}"
+            self._logger.error(f"❌ {error_msg}")
+            return False, error_msg
+

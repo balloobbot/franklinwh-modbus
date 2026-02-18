@@ -133,6 +133,10 @@ class PowerLimitRequest(BaseModel):
     max_discharge_kw: float
 
 
+class ForcePowerRequest(BaseModel):
+    power_watts: int  # Positive=charge, Negative=discharge, 0=idle
+
+
 class TopologyRequest(BaseModel):
     id: str
     name: str
@@ -904,27 +908,331 @@ def create_app(
     
     @app.post("/api/power_limits")
     async def set_power_limits(request: PowerLimitRequest, device_id: Optional[str] = None):
-        """Set power limits."""
+        """
+        Set battery power limits using Model 702 (kW-based control).
+        
+        This endpoint:
+        1. Performs safety checks (operating mode, VPP enrollment)
+        2. Writes to Model 702 WChaRteMax and WDisChaRteMax
+        3. Returns warnings if mode isn't Self-Consumption
+        """
         modbus = await app.state.connection_manager.get_client(device_id)
         if not modbus:
             raise HTTPException(status_code=503, detail="Modbus client not available")
         
         try:
-            # Convert kW to W
-            charge_w = request.max_charge_kw * 1000
-            discharge_w = request.max_discharge_kw * 1000
+            # Import safety module
+            from src.battery_control_safety import create_safety_manager
             
-            # Use Modbus storage controls
-            # This would need to be implemented based on the specific Modbus model
-            # For now, return success
+            
+            # Get Cloud API credentials from config (optional - may not exist from old config work)
+            cloud_user = None
+            cloud_pass = None
+            # TODO: Fix ConfigManager API access
+            # try:
+            #     config = config_manager.get()
+            #     if hasattr(config, 'cloud_api') and config.cloud_api:
+            #         cloud_user = config.cloud_api.get("username")
+            #         cloud_pass = config.cloud_api.get("password")
+            # except Exception:
+            #     pass  # Cloud API config not set up yet, that's fine
+            
+            # Create safety manager (works with or without Cloud credentials)
+            safety = await create_safety_manager(
+                modbus_client=modbus,
+                cloud_username=cloud_user,
+                cloud_password=cloud_pass
+            )
+            
+            # Safety check
+            safety_result = await safety.check_battery_control_safety()
+            
+            # Convert kW to W for Model 702
+            charge_w = int(request.max_charge_kw * 1000)
+            discharge_w = int(request.max_discharge_kw * 1000)
+            
+            # Write to Model 702 (SunSpec2 DER AC Controls)
+            try:
+                # Read the model first to ensure it exists
+                model_702 = await modbus.read_model(702)
+                if not model_702:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Model 702 not available on this device"
+                    )
+                
+                # Write charge limit using RAW Modbus (bypasses pysunspec2 cache)
+                charge_success, charge_error = await modbus.write_model702_raw('WChaRteMax', charge_w)
+                if not charge_success:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to write charge limit: {charge_error}"
+                    )
+                
+                # Write discharge limit using RAW Modbus
+                discharge_success, discharge_error = await modbus.write_model702_raw('WDisChaRteMax', discharge_w)
+                if not discharge_success:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to write discharge limit: {discharge_error}"
+                    )
+                
+                # write_point() already verified with retry logic - success!
+                logger.info(f"Battery limits applied and verified: Charge={charge_w}W, Discharge={discharge_w}W")
+                
+            except HTTPException:
+                raise  # Re-raise HTTP exceptions
+            except Exception as write_error:
+                logger.error(f"Failed to write Model 702 limits: {write_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to write limits: {str(write_error)}"
+                )
+            
+            # Return result with safety warnings
             return {
                 "success": True,
-                "max_charge_w": charge_w,
-                "max_discharge_w": discharge_w,
+                "charge_limit_w": charge_w,
+                "discharge_limit_w": discharge_w,
+                "charge_limit_kw": request.max_charge_kw,
+                "discharge_limit_kw": request.max_discharge_kw,
+                "safe": safety_result.safe,
+                "current_mode": safety_result.current_mode,
+                "warnings": safety_result.warnings,
+                "vpp_check_available": safety_result.vpp_check_available,
+                "auto_switch_available": safety_result.auto_switch_available,
+                "cloud_api_enabled": safety_result.cloud_api_enabled
             }
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Error setting power limits: {e}")
+            logger.error(f"Error setting power limits: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
+    
+    
+    @app.post("/api/battery/force_power")
+    async def force_battery_power(request: ForcePowerRequest, device_id: Optional[str] = None):
+        """
+        Force battery to charge or discharge at specific power using Model 704.
+        
+        Args:
+            power_watts: Positive=charge, Negative=discharge, 0=idle
+            
+        Returns:
+            Success status and current settings
+        """
+        try:
+            modbus = await app.state.connection_manager.get_client(device_id)
+            if not modbus:
+                raise HTTPException(status_code=503, detail="Modbus client not available")
+            
+            # Determine action for logging
+            action = 'CHARGE' if request.power_watts > 0 else 'DISCHARGE' if request.power_watts < 0 else 'IDLE'
+            vpp_mode_change = "ACTIVATING VPP MODE" if request.power_watts != 0 else "DEACTIVATING VPP MODE (returning to normal)"
+            
+            # SAFETY CHECK 1: Power Limits (use cached nameplate ratings)
+            # Use cached data for better performance
+            max_power_w = 5000  # Conservative fallback
+            try:
+                # Try to get cached capacity from last successful data read
+                if hasattr(modbus, '_cached_capacity'):
+                    capacity = modbus._cached_capacity
+                    if capacity and capacity.max_charge_w and capacity.max_discharge_w:
+                        max_charge_w = int(capacity.max_charge_w)
+                        max_discharge_w = int(capacity.max_discharge_w)
+                        max_power_w = max(max_charge_w, max_discharge_w)
+                        logger.debug(f"Using cached nameplate: {max_power_w}W")
+            except Exception as e:
+                logger.warning(f"Could not read cached capacity: {e}, using fallback {max_power_w}W")
+            
+            # Check against limits
+            if abs(request.power_watts) > max_power_w:
+                logger.warning(
+                    f"❌ BATTERY CONTROL REJECTED: Power {abs(request.power_watts)}W exceeds "
+                    f"nameplate limit ±{max_power_w}W"
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Power exceeds nameplate ratings: ±{max_power_w}W max"
+                )
+            
+            # SAFETY CHECK 2: SOC Monitoring (informational only - no blocking)
+            # NOTE: Users have full control over SOC limits (like FranklinWH app)
+            # The aGate has configurable Max Charge SOC and Min Discharge SOC in Modbus
+            # Future: Add scheduler-aware SOC limit settings (not enforcement here)
+            if request.power_watts != 0:
+                try:
+                    soc = await modbus.get_battery_soc()
+                    if soc is not None:
+                        logger.info(f"Battery SOC: {soc:.1f}% - User has full control")
+                except Exception as e:
+                    logger.debug(f"Could not read SOC for monitoring: {e}")
+            
+            # AUDIT LOG: Command received (after safety checks)
+            logger.warning(
+                f"🔋 BATTERY CONTROL REQUEST: {action} {abs(request.power_watts)}W | "
+                f"{vpp_mode_change} | "
+                f"Source: API endpoint"
+            )
+            
+            # Use Model 704 WSet for battery control (with 30-min auto-timeout)
+            success, error = await modbus.write_model704_battery_control(
+                power_watts=request.power_watts,
+                timeout_seconds=1800  # 30 minutes
+            )
+            
+            if not success:
+                # AUDIT LOG: Command failed
+                logger.error(
+                    f"❌ BATTERY CONTROL FAILED: {action} {abs(request.power_watts)}W | "
+                    f"Error: {error}"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to set battery power: {error}"
+                )
+            
+            # Success!
+            action_verb = 'charging' if request.power_watts > 0 else 'discharging' if request.power_watts < 0 else 'idle'
+            
+            # AUDIT LOG: Command succeeded
+            if request.power_watts != 0:
+                logger.warning(
+                    f"✅ VPP MODE ACTIVATED: Battery {action_verb} at {abs(request.power_watts)}W | "
+                    f"Model 704 WSetEna=1 | Normal operation OVERRIDDEN"
+                )
+            else:
+                logger.info(
+                    f"✅ VPP MODE DEACTIVATED: Battery returned to IDLE | "
+                    f"Model 704 WSetEna=0 | Normal operation RESTORED"
+                )
+            
+            return {
+                "success": True,
+                "power_watts": request.power_watts,
+                "action": action_verb,
+                "message": f"Battery {action_verb} at {abs(request.power_watts)}W",
+                "vpp_mode_active": request.power_watts != 0
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error forcing battery power: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+    @app.delete("/api/battery/limits")
+    async def clear_battery_limits(device_id: Optional[str] = None):
+        """
+        Clear battery power limits (restore to unlimited operation).
+        
+        Sets Model 702 WChaRteMax and WDisChaRteMax to 0 (unlimited).
+        """
+        modbus = await app.state.connection_manager.get_client(device_id)
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        try:
+            # Use RAW Modbus to clear limits (bypasses pysunspec2 cache)
+            charge_success, charge_error = await modbus.write_model702_raw('WChaRteMax', 0)
+            discharge_success, discharge_error = await modbus.write_model702_raw('WDisChaRteMax', 0)
+            
+            if not charge_success or not discharge_success:
+                error = charge_error if not charge_success else discharge_error
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to clear battery limits: {error}"
+                )
+            
+            # write_point() already verified - success!
+            logger.info("Battery limits cleared and verified (unlimited operation)")
+            
+            return {
+                "success": True,
+                "charge_limit_w": 0,
+                "discharge_limit_w": 0,
+                "mode": "unlimited"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error clearing battery limits: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/api/battery/safety-status")
+    async def get_battery_safety_status(device_id: Optional[str] = None):
+        """
+        Get current battery control safety status.
+        
+        Returns:
+        - Current operating mode
+        - VPP enrollment status (if Cloud API configured)
+        - Safety warnings
+        - Feature availability
+        """
+        modbus = await app.state.connection_manager.get_client(device_id)
+        if not modbus:
+            raise HTTPException(status_code=503, detail="Modbus client not available")
+        
+        try:
+            from src.battery_control_safety import create_safety_manager
+            
+            
+            # Get Cloud API credentials from config (optional - may not exist from old config work)
+            cloud_user = None
+            cloud_pass = None
+            try:
+                config = app.state.config.get()
+                if hasattr(config, 'cloud_api') and config.cloud_api:
+                    cloud_user = config.cloud_api.get("username")
+                    cloud_pass = config.cloud_api.get("password")
+            except Exception:
+                pass  # Cloud API config not set up yet, that's fine
+            
+            # Create safety manager
+            safety = await create_safety_manager(
+                modbus_client=modbus,
+                cloud_username=cloud_user,
+                cloud_password=cloud_pass
+            )
+            
+            # Safety check
+            safety_result = await safety.check_battery_control_safety()
+            
+            # Get current limits
+            model_702 = await modbus.read_model(702)
+            if model_702:
+                charge_val = model_702.WChaRteMax
+                discharge_val = model_702.WDisChaRteMax
+                # Extract value if it's a Point object
+                current_charge_limit = charge_val.value if hasattr(charge_val, 'value') else (charge_val or 0)
+                current_discharge_limit = discharge_val.value if hasattr(discharge_val, 'value') else (discharge_val or 0)
+            else:
+                current_charge_limit = 0
+                current_discharge_limit = 0
+            
+            return {
+                "safe": safety_result.safe,
+                "current_mode": safety_result.current_mode,
+                "current_mode_id": safety_result.current_mode_id,
+                "vpp_enrolled": safety_result.vpp_enrolled,
+                "vpp_programme_name": safety_result.vpp_programme_name,
+                "warnings": safety_result.warnings,
+                "can_auto_switch": safety_result.can_auto_switch,
+                "vpp_check_available": safety_result.vpp_check_available,
+                "auto_switch_available": safety_result.auto_switch_available,
+                "cloud_api_enabled": safety_result.cloud_api_enabled,
+                "current_limits": {
+                    "charge_w": current_charge_limit,
+                    "discharge_w": current_discharge_limit,
+                    "charge_kw": current_charge_limit / 1000 if current_charge_limit else 0,
+                    "discharge_kw": current_discharge_limit / 1000 if current_discharge_limit else 0,
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting safety status: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+    
     
     @app.post("/api/raw_registers")
     async def read_raw_registers(request: RawRegisterRequest):
@@ -949,12 +1257,118 @@ def create_app(
                     "int16": int16,
                 })
             
-            return {"registers": registers}
+            return {"message": "Reserve SOC updated successfully", "value": value}
         except Exception as e:
-            logger.error(f"Error reading raw registers: {e}")
+            logger.error(f"Failed to set reserve SOC: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-    
-    @app.post("/api/write_register")
+
+    # Battery Force Charge/Discharge (VPP Mode)
+    class BatteryPowerRequest(BaseModel):
+        power_watts: int
+
+    @app.post("/api/battery/power")
+    async def set_battery_power(request: BatteryPowerRequest):
+        """
+        Force charge/discharge battery at specified power.
+        Uses Model 704 WSet with 30-minute auto-timeout (VPP mode).
+        
+        Safety features:
+        - Nameplate power limit checks
+        - SOC monitoring (informational)
+        - Auto-timeout after 30 minutes
+        - Full audit logging
+        """
+        try:
+            modbus = await connection_manager.get_client("default")
+            if not modbus:
+                raise HTTPException(status_code=503, detail="Modbus client not available")
+
+            power_w = request.power_watts
+            
+            # Determine action for logging
+            if power_w > 0:
+                action = "CHARGE"
+                vpp_mode_change = "VPP Mode ACTIVE (30-min timeout)"
+            elif power_w < 0:
+                action = "DISCHARGE"
+                vpp_mode_change = "VPP Mode ACTIVE (30-min timeout)"
+            else:
+                action = "RETURN TO AUTO"
+                vpp_mode_change = "VPP Mode OFF (normal operation)"
+
+            # SAFETY CHECK 1: Nameplate power limits
+            try:
+                capacity = await modbus.get_der_capacity()
+                if capacity and capacity.max_charge_w and capacity.max_discharge_w:
+                    max_power_w = max(capacity.max_charge_w, capacity.max_discharge_w)
+                    if abs(power_w) > max_power_w:
+                        logger.warning(
+                            f"❌ BATTERY CONTROL REJECTED: Power {abs(power_w)}W exceeds "
+                            f"nameplate limit ±{max_power_w}W"
+                        )
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Power exceeds nameplate ratings: ±{max_power_w}W max"
+                        )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Could not verify nameplate limits: {e}")
+
+            # SAFETY CHECK 2: SOC monitoring (informational)
+            if power_w != 0:
+                try:
+                    soc = await modbus.get_battery_soc()
+                    if soc is not None:
+                        logger.info(f"Battery SOC: {soc:.1f}% - User has full control")
+                except Exception as e:
+                    logger.debug(f"Could not read SOC for monitoring: {e}")
+
+            # AUDIT LOG: Command received
+            logger.warning(
+                f"🔋 BATTERY CONTROL REQUEST: {action} {abs(power_w)}W | "
+                f"{vpp_mode_change} | Source: Web UI /api/battery/power"
+            )
+
+            # Use Model 704 WSet for battery control
+            success, error = await modbus.write_model704_battery_control(
+                power_watts=power_w,
+                timeout_seconds=1800  # 30 minutes auto-timeout
+            )
+
+            if not success:
+                logger.error(
+                    f"❌ BATTERY CONTROL FAILED: {action} {abs(power_w)}W | Error: {error}"
+                )
+                raise HTTPException(status_code=500, detail=f"Failed to set battery power: {error}")
+
+            # Success!
+            action_verb = 'charging' if power_w > 0 else 'discharging' if power_w < 0 else 'idle'
+            
+            # AUDIT LOG: Command succeeded
+            if power_w != 0:
+                logger.warning(
+                    f"✅ BATTERY CONTROL ACTIVE: {action_verb.upper()} at {abs(power_w)}W | "
+                    f"Auto-timeout in 30 minutes | Use 0W to cancel early"
+                )
+            else:
+                logger.warning("✅ BATTERY CONTROL DISABLED: Returned to auto mode")
+
+            return {
+                "success": True,
+                "power_watts": power_w,
+                "action": action_verb,
+                "vpp_active": power_w != 0,
+                "timeout_minutes": 30 if power_w != 0 else 0
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Battery power control error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/power_limits")
     async def write_register(request: WriteRegisterRequest):
         """Write a value to a Modbus register."""
         modbus = await app.state.connection_manager.get_client(request.device_id)

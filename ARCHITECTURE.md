@@ -1,5 +1,75 @@
 # FranklinWH Battery Manager - Architecture Notes
 
+---
+
+## Development History — The Fork in the Road
+
+### Phase 1: Combined Project (Jan–early Feb 2026)
+
+This project started as a **single codebase** combining:
+- **Modbus library** — direct aGate communication via SunSpec2/Modbus TCP
+- **Web dashboard** — FastAPI + Alpine.js UI for monitoring and control
+- **MQTT bridge** — Home Assistant auto-discovery integration
+
+All three concerns were developed simultaneously in the same files.
+
+### The Problem
+
+As the project grew, bugs became impossible to isolate:
+- Was a display error caused by the **UI** (Alpine.js template), the **web server** (FastAPI route), the **Modbus layer** (register addressing), or the **orchestration** (mode switching logic)?
+- UI work kept stalling Modbus development and vice versa
+- Different agent sessions conflicted — one fixing UI while another fixing register writes
+- A separate cloud API project (`fhp_demo`) added further confusion with overlapping features
+
+### The Decision (Feb 2026)
+
+**Stop UI work. Focus on building a stable, standalone Modbus library.**
+
+The core insight: everything depends on the library being correct. If register reads return wrong values, no amount of UI polish matters. If battery control writes fail silently, safety checks in the web server are useless.
+
+### Phase 2: Library-First (Current — Feb 2026)
+
+**Priority**: `franklinwh_control_standalone.py` — the standalone battery control library.
+
+**Goal**: A single importable Modbus library that:
+1. Works **standalone** (CLI, scripts, debugging)
+2. Can be **imported** by the web app (`src/web_server.py`)
+3. Can be **forked independently** of the web app
+4. Has **correct register addressing** verified against real hardware
+5. Has **reliable write sequences** with verification
+6. Handles **connection recovery** (WiFi drops, aGate reboots)
+
+**Web UI work is parked** — the 20+ TODO files for dashboard improvements remain valid but are deliberately deprioritised until the library is stable.
+
+### Architecture Going Forward
+
+```
+franklinwh_control_standalone.py    ← THE LIBRARY (Phase 2 focus)
+    │
+    ├── Used standalone (CLI)
+    │
+    ├── Importable by src/web_server.py (when ready)
+    │
+    └── Importable by other apps (HA integration, scripts, etc.)
+
+src/web_server.py                   ← THE WEB APP (Phase 3, later)
+    ├── FastAPI REST API
+    ├── Templates (Alpine.js dashboard)
+    ├── MQTT bridge
+    └── Depends on the library ↑
+```
+
+### Phase 3: Independent Library (Future)
+
+The library becomes its own **independent repo and PyPI package** (`franklinwh-modbus` or similar):
+- Published to PyPI, installable via `pip install franklinwh-modbus`
+- The web app becomes a **consumer** of the library, not a co-located project
+- Other projects (HA integrations, CLI tools, automation scripts) can depend on the published package
+- Mirrors the path taken with `richo/franklinwh-python` (cloud API library)
+- **Full circle**: `fhp_demo` (the cloud API dashboard) can then `pip install` this library for local Modbus operations alongside its existing cloud API — two independent access paths, one web app
+
+---
+
 ## Multi-Site & Multi-aGate Architecture
 
 ### Overview

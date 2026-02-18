@@ -97,7 +97,7 @@ class VirtualMode(Enum):
 @dataclass
 class BatteryCommand:
     """Battery control command."""
-    power_watts: float  # Positive=charge, negative=discharge, 0=idle
+    power_watts: float  # Positive=discharge, negative=charge, 0=idle
     mode: ControlMode = ControlMode.LIMIT_ABS
 
 
@@ -147,7 +147,7 @@ class FranklinWHController:
     EXT_BASE = 15500
     EXT_PV_TOTAL = 15502
     EXT_HOME_LOAD = 15506
-    EXT_ONGRID_MODE = 15507      # 0=Backup, 1=Self, 2=TOU, 3=Manual
+    EXT_ONGRID_MODE = 15507      # 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual
     EXT_SELF_RESERVE = 15508     # Percentage
     EXT_TOU_RESERVE = 15509      # Percentage
     
@@ -196,6 +196,7 @@ class FranklinWHController:
             if missing:
                 logger.warning(f"Missing recommended models: {missing}")
             
+            self.discover_ratings()  # Read actual device capabilities
             return True
             
         except Exception as e:
@@ -461,15 +462,9 @@ class FranklinWHController:
         # Fallback: assume not available for safety
         try:
             # Note: sunspec2 doesn't expose raw register access easily
-            # This is a placeholder for future pymodbus integration
-            # For now, report as unavailable but detectable
-            
-            # If we had pymodbus raw client:
-            # raw = ModbusTcpClient(self.ip_address, port=self.port, timeout=5)
-            # r = raw.read_holding_registers(self.EXT_ONGRID_MODE, 1, slave=self.unit_id)
-            
-            result['readable'] = False  # Placeholder: requires raw Modbus
-            result['note'] = 'SPAN detection requires raw Modbus (pymodbus) - see SPAN_INTEGRATION.md'
+            # Now handled by read_native_mode() using raw Modbus TCP
+            result['readable'] = False
+            result['note'] = 'Use read_native_mode() for native register access'
             
         except Exception as e:
             result['error'] = str(e)
@@ -478,6 +473,41 @@ class FranklinWHController:
         self._span_writable = result['writable']
         
         return result
+
+    def read_native_mode(self) -> dict:
+        """Read FranklinWH native operating mode via raw Modbus TCP.
+        
+        Registers 15507-15509 are outside the SunSpec address space and
+        require a raw Modbus read (the sunspec2 API doesn't expose them).
+        
+        Returns dict with mode, reserves, or empty dict on failure.
+        """
+        FRANKLIN_MODES = {0: 'Emergency Backup', 1: 'Time of Use',
+                          2: 'Self-Consumption', 3: 'Manual'}
+        try:
+            import struct
+            client = self.dev.client
+            # sunspec2 disconnects between operations — reconnect for raw access
+            client.connect()
+            sock = client.socket
+            if not sock:
+                return {}
+            # Raw Modbus TCP: transaction=0, protocol=0, length=6,
+            # unit_id, function=3 (read holding), start=15507, count=3
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, 15507, 3)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            if len(resp) >= 15:
+                vals = struct.unpack('>HHH', resp[9:15])
+                return {
+                    'mode_raw': vals[0],
+                    'mode_name': FRANKLIN_MODES.get(vals[0], f'Unknown({vals[0]})'),
+                    'self_reserve_pct': vals[1],
+                    'tou_reserve_pct': vals[2],
+                }
+        except Exception as e:
+            logger.debug(f"Native mode read failed: {e}")
+        return {}
     
     def reset_control_state(self) -> bool:
         """
@@ -485,8 +515,11 @@ class FranklinWHController:
         
         Clears:
         - WSetEna (disable control)
-        - WSet (zero setpoint)
-        - WSetRvrtTms (clear revert timer)
+        - WSetPct (zero percentage setpoint — the real control)
+        - WSet (zero watt setpoint)
+        
+        NOTE: M715 registers (OpCtl, ControllerHb) reject writes on current firmware.
+        NOTE: WSetRvrtTms is unimplemented per PICS SM-000028.
         
         Returns:
             True if successfully reset
@@ -501,32 +534,24 @@ class FranklinWHController:
         try:
             # Read current state
             m704.read()
-            logger.info(f"Before reset: WSetEna={m704.WSetEna.value}, WSet={m704.WSet.value}")
+            logger.info(f"Before reset: WSetEna={m704.WSetEna.value}, WSetPct={m704.WSetPct.value}, WSet={m704.WSet.value}")
             
-            # Disable control
+            # Disable control — only M704 registers are writable
             m704.WSetEna.value = 0
-            m704.OpCtl.value = 0
+            m704.WSetPct.value = 0   # Primary control register
             m704.WSet.value = 0
-            m704.WSetRvrtTms.value = 0  # Clear revert timer
-
-            m715 = self.get_model(715)
-            if m715:
-                m715.read()
-                m715.OpCtl.value = 0  # Disable external control, return to auto
-                m715.write()
-                logger.debug("OpCtl set to 0 (auto mode)")
             
             m704.write()
             time.sleep(0.5)
             
             # Verify
             m704.read()
-            success = (m704.WSetEna.value == 0 and m704.WSet.value == 0)
+            success = (m704.WSetEna.value == 0 and m704.WSetPct.value == 0)
             
             if success:
-                logger.info(f"✓ Reset successful: WSetEna={m704.WSetEna.value}, WSet={m704.WSet.value}")
+                logger.info(f"✓ Reset successful: WSetEna={m704.WSetEna.value}, WSetPct={m704.WSetPct.value}")
             else:
-                logger.warning(f"Reset verification failed: WSetEna={m704.WSetEna.value}, WSet={m704.WSet.value}")
+                logger.warning(f"Reset verification failed: WSetEna={m704.WSetEna.value}, WSetPct={m704.WSetPct.value}")
             
             return success
             
@@ -534,79 +559,122 @@ class FranklinWHController:
             logger.error(f"Reset failed: {e}")
             return False
     
+    # Default fallback — overridden by discover_ratings() on connect
+    RATED_MAX_W = 5000
+    RATED_MAX_CHARGE_W = 5000
+    RATED_MAX_DISCHARGE_W = 5000
+
+    def discover_ratings(self):
+        """Read M702 nameplate ratings to replace hardcoded limits.
+
+        Reads READ-ONLY rating registers (not RW settings which return None):
+        - WMaxRtg (40227): Active Power Max Rating
+        - WChaRteMaxRtg (40235): Charge Rate Max Rating
+        - WDisChaRteMaxRtg (40236): Discharge Rate Max Rating
+
+        Different FranklinWH models may have asymmetric charge/discharge ratings.
+        """
+        m702 = self.get_model(702)
+        if not m702:
+            logger.warning("Model 702 not found; using default 5000W ratings")
+            return
+        try:
+            m702.read()
+            sf = self._get_scale_factor(m702, 'W_SF')
+
+            def read_rating(attr, default):
+                pt = getattr(m702, attr, None)
+                if pt is None or pt.value is None or pt.value == 0:
+                    return default
+                return int(pt.value * (10 ** sf))
+
+            w_max = read_rating('WMaxRtg', 5000)
+            w_cha = read_rating('WChaRteMaxRtg', w_max)
+            w_dis = read_rating('WDisChaRteMaxRtg', w_max)
+
+            self.RATED_MAX_W = w_max
+            self.RATED_MAX_CHARGE_W = w_cha
+            self.RATED_MAX_DISCHARGE_W = w_dis
+
+            logger.info(f"Device ratings: Max={w_max}W, Charge={w_cha}W, Discharge={w_dis}W")
+        except Exception as e:
+            logger.warning(f"Failed to read M702 ratings: {e}; using defaults")
+
+    def _validate_power(self, power_watts: float) -> float:
+        """Safety clamp: ensure requested power doesn't exceed device ratings."""
+        is_charge = power_watts < 0
+        limit = self.RATED_MAX_CHARGE_W if is_charge else self.RATED_MAX_DISCHARGE_W
+        if abs(power_watts) > limit:
+            clamped = limit if power_watts > 0 else -limit
+            logger.warning(f"SAFETY CLAMP: {power_watts}W exceeds {'charge' if is_charge else 'discharge'} "
+                          f"limit {limit}W — clamped to {clamped}W")
+            return clamped
+        return power_watts
+
     def send_command(
         self,
         command: BatteryCommand,
         revert_time_s: int = 0,
+        heartbeat_interval: float = 5.0,
         dry_run: bool = False
     ) -> Tuple[bool, str]:
         """
         Send battery control command.
-        
-        Args:
-            command: BatteryCommand with power and mode
-            revert_time_s: Auto-revert time (0 = no reversion)
-            dry_run: Validate only, don't write
-            
-        Returns:
-            (success, message)
+
+        FranklinWH Systematic Test Results (2026-02-18):
+        - WSetPct is the ONLY working control register (WSet accepted but ignored)
+        - Positive WSetPct = discharge, Negative = charge
+        - Scale factor WSetPct_SF = -1, so raw 300 = 30.0% of 5kW = 1500W
+        - M715 registers (ControllerHb, OpCtl) reject all writes (LocRemCtl=LOCAL)
+        - M702 rate limits (WChaRteMax etc.) unimplemented (return None)
+        - WSetRvrtTms unimplemented per PICS SM-000028 — no auto-timeout
+        - WMaxLimPctEna/WMaxLimPct PICS says supported, firmware rejects writes
         """
         m704 = self.get_model(704)
+        m715 = self.get_model(715)
         if not m704:
             return False, "Model 704 not available"
-        
-        # Safety checks
-        if not dry_run:
-            status = self.read_battery_status()
-            if status.get('soc', 0) > 95 and command.power_watts > 0:
-                return False, f"SoC too high for charging: {status['soc']:.1f}%"
-            if status.get('soc', 100) < 10 and command.power_watts < 0:
-                return False, f"SoC too low for discharging: {status['soc']:.1f}%"
-        
-        # Read current state
-        m704.read()
-        
-        old_wset = m704.WSet.value
-        old_ena = m704.WSetEna.value
-        
-        logger.info(f"Current: WSetEna={old_ena}, WSet={old_wset}")
-        logger.info(f"Command: power={command.power_watts}W, mode={command.mode.name}, revert={revert_time_s}s")
-        
-        if dry_run:
-            return True, f"Dry run: Would set WSet={command.power_watts}, WSetEna=1"
 
-        m715 = self.get_model(715)
-        if m715:
-            m715.read()
-            m715.OpCtl.value = 1  # Enable external control
-            m715.write()
-            logger.debug("OpCtl set to 1 (external control enabled)")
-        
-        # Set values
-        m704.WSet.value = int(command.power_watts)
-        m704.WSetMod.value = command.mode.value
-        m704.WSetEna.value = 1  # Enable power setpoint control
-        
-        if revert_time_s > 0:
-            m704.WSetRvrtTms.value = revert_time_s
-        
-        try:
-            m704.write()
-            logger.info("Write successful")
-            
-            # Verify
-            time.sleep(0.2)
-            m704.read()
-            new_wset = m704.WSet.value
-            new_ena = m704.WSetEna.value
-            
-            if new_ena != 1:
-                return False, f"WSetEna not enabled after write: {new_ena}"
-            
-            return True, f"WSet changed: {old_wset} -> {new_wset}"
-            
-        except Exception as e:
-            return False, f"Write failed: {e}"
+        # Safety clamp against device ratings
+        safe_watts = self._validate_power(command.power_watts)
+
+        # Calculate WSetPct: percentage of rated max
+        pct_sf = self._get_scale_factor(m704, 'WSetPct_SF')
+        pct_raw = int((safe_watts / self.RATED_MAX_W) * 100 / (10 ** pct_sf))
+
+        if dry_run:
+            return True, f"Dry Run: WSetPct={pct_raw} ({command.power_watts}W)"
+
+        # 1. STOP & CLEAR (Pre-flight reset)
+        m704.read()
+        m704.WSetEna.value = 0
+        m704.write()
+        time.sleep(0.3)
+
+        # 2. CONFIGURE — WSetPct is the primary control for FranklinWH
+        m704.read()
+        m704.WSetMod.value = 0  # Absolute W mode
+        m704.WSetPct.value = pct_raw
+        # Also set WSet for readback/logging (aGate ignores it for power control)
+        wset_sf = self._get_scale_factor(m704, 'WSet_SF')
+        m704.WSet.value = int(command.power_watts / (10 ** wset_sf))
+        # NOTE: WSetRvrtTms is unimplemented per PICS SM-000028.
+        # Commands persist until explicitly disabled with WSetEna=0.
+        m704.write()
+        time.sleep(0.3)
+
+        # 3. ENABLE
+        m704.read()
+        m704.WSetEna.value = 1
+        m704.write()
+        time.sleep(0.5)
+
+        # 4. VERIFY
+        m704.read()
+        actual_pct = m704.WSetPct.value * (10 ** pct_sf) if m704.WSetPct.value else 0
+        logger.info(f"Command sent: WSetPct={actual_pct}% (raw={m704.WSetPct.value}), "
+                   f"WSet={m704.WSet.value}, WSetEna={m704.WSetEna.value}")
+        return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {self.RATED_MAX_W}W)"
 
 
 # ============================================================
@@ -654,14 +722,18 @@ class VirtualModeController:
         atexit.register(self._emergency_idle)
     
     def _emergency_idle(self):
-        """Ensure battery goes idle on unexpected exit."""
-        if hasattr(self.ctrl, 'send_command'):
+        """Ensure battery control is fully released on unexpected exit.
+        
+        CRITICAL: Must set WSetEna=0 (not just WSetPct=0) so the aGate
+        resumes its configured operating mode (e.g. Self-Consumption).
+        WSetEna=1 + WSetPct=0 = 'actively commanding standby' = VPP mode.
+        """
+        if hasattr(self.ctrl, 'reset_control_state'):
             try:
-                logger.warning("Emergency idle on shutdown")
-                cmd = BatteryCommand(power_watts=0)
-                self.ctrl.send_command(cmd)
+                logger.warning("Emergency shutdown: releasing Modbus control (WSetEna=0)")
+                self.ctrl.reset_control_state()
             except Exception as e:
-                logger.error(f"Emergency idle failed: {e}")
+                logger.error(f"Emergency reset failed: {e}")
     
     def set_mode(self, mode: VirtualMode, **kwargs):
         """
@@ -998,14 +1070,59 @@ class VirtualModeController:
         except Exception as e:
             logger.error(f"Runtime error: {e}")
         finally:
-            # Safe shutdown - set to idle
-            logger.info("Setting idle before exit")
+            # Safe shutdown — MUST set WSetEna=0 to release Modbus control.
+            # Without this, aGate stays in VPP standby instead of resuming
+            # its configured mode (e.g. Self-Consumption).
+            logger.info("Releasing Modbus control (WSetEna=0)")
             try:
-                cmd = BatteryCommand(power_watts=0)
-                self.ctrl.send_command(cmd)
+                self.ctrl.reset_control_state()
             except Exception as e:
-                logger.error(f"Idle command failed: {e}")
+                logger.error(f"Shutdown reset failed: {e}")
 
+    def read_all_alarms(client):
+        """Read all alarm sources from FranklinWH aGate"""
+        alarms = {
+            'system': client.read_holding_registers(40076, 2),      # Model 701 Alrm
+            'solar': client.read_holding_registers(41104, 2),       # Model 502 Evt
+            'dc_port': client.read_holding_registers(41044, 2),     # Model 714 PrtAlrms
+            'battery_status': client.read_holding_registers(41039, 1),  # Model 713 Sta
+            'vendor_info': client.read_string(40193, 16),           # Model 701 MnAlrmInfo
+        }
+        return alarms
+
+    def check_critical_alarms(alarms):
+        """Determine if safe to operate"""
+        system_alrm = (alarms['system'][1] << 16) | alarms['system'][0]
+        dc_alrm = (alarms['dc_port'][1] << 16) | alarms['dc_port'][0]
+        battery_sta = alarms['battery_status'][0]
+        
+        # Critical faults that block operation
+        CRITICAL_BITS = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 13) | (1 << 14)  # GROUND, CABINET_OPEN, MANUAL_SHUTDOWN, STRING_FAULT, ARC_FAULT
+        
+        if system_alrm & CRITICAL_BITS:
+            return False, f"Critical system alarm: 0x{system_alrm:08X}"
+        
+        if dc_alrm & 0x3F:  # Any DC port electrical fault
+            return False, f"DC port alarm: 0x{dc_alrm:08X}"
+        
+        if battery_sta == 6:  # FAULT
+            return False, "Battery status: FAULT"
+        
+        return True, "System healthy"
+
+    def reset_alarms_if_cleared(client):
+        """Write to Model 715 AlarmReset after fault conditions resolved"""
+        # First verify no active alarms
+        alarms = read_all_alarms(client)
+        safe, msg = check_critical_alarms(alarms)
+        
+        if safe:
+            client.write_register(41094, 1)  # Write 1 to AlarmReset
+            time.sleep(0.5)
+            client.write_register(41094, 0)  # Clear reset bit
+            return True
+        else:
+            return False, f"Cannot reset: {msg}"
 
 # ============================================================
 # COMMAND LINE INTERFACE
@@ -1020,6 +1137,9 @@ def create_parser() -> argparse.ArgumentParser:
 Examples:
   # Health check (recommended first step)
   %(prog)s -i 192.168.0.110 --healthcheck
+  
+  # Quick stop — release Modbus control, resume Self-Consumption
+  %(prog)s -i 192.168.0.110 --stop
   
   # Direct control (original functionality)
   %(prog)s -i 192.168.0.110 --power 3000
@@ -1059,6 +1179,9 @@ Examples:
                        help='Power in watts (+charge, -discharge)')
     parser.add_argument('--idle', action='store_true',
                        help='Set to idle (0W)')
+    parser.add_argument('--stop', action='store_true',
+                       help='Release Modbus control (WSetEna=0) and exit. '
+                            'Use this to resume normal aGate operation (e.g. Self-Consumption)')
     parser.add_argument('--revert', type=int, default=0,
                        help='Auto-revert time in seconds')
     
@@ -1163,6 +1286,183 @@ def print_health_report(health: HealthStatus):
     print("=" * 70)
 
 
+def print_system_status(ctrl):
+    """Print comprehensive system status with clear operational state."""
+
+    # SunSpec enum lookups
+    OPERATING_STATE = {0: 'Off', 1: 'Operating', 2: 'Standby', 3: 'Fault',
+                       4: 'Shutting Down', 5: 'Starting', 6: 'Maintenance'}
+    INVERTER_STATE = {0: 'Off', 1: 'Sleeping', 2: 'Starting', 3: 'Running',
+                      4: 'Throttled', 5: 'Shutting Down', 6: 'Fault',
+                      7: 'Standby', 8: 'Test', 9: 'Manufacturing'}
+    CONN_STATE = {0: 'Disconnected', 1: 'Connected'}
+    DER_MODE = {0: 'Grid Following', 1: 'Grid Forming', 2: 'Momentary Cessation'}
+    LOC_REM = {0: 'Remote', 1: 'Local'}
+
+    print("\n" + "=" * 60)
+    print("  FranklinWH aGate System Status")
+    print("=" * 60)
+
+    # --- Read all models ---
+    m701 = ctrl.get_model(701)
+    m704 = ctrl.get_model(704)
+    m713 = ctrl.get_model(713)
+    m714 = ctrl.get_model(714)
+    m715 = ctrl.get_model(715)
+
+    if m701: m701.read()
+    if m704: m704.read()
+    if m713: m713.read()
+    if m714: m714.read()
+    if m715: m715.read()
+
+    # --- FranklinWH Operating Mode (native registers) ---
+    native = ctrl.read_native_mode()
+    if native:
+        print(f"\n  FranklinWH Operating Mode")
+        print(f"  {'─' * 40}")
+        print(f"  Mode:              {native['mode_name']}")
+        print(f"  Self Reserve:      {native['self_reserve_pct']}%")
+        print(f"  TOU Reserve:       {native['tou_reserve_pct']}%")
+
+    # --- Inverter & Grid ---
+    if m701:
+        sf_w = ctrl._get_scale_factor(m701, 'W_SF')
+        sf_v = ctrl._get_scale_factor(m701, 'V_SF')
+        sf_hz = ctrl._get_scale_factor(m701, 'Hz_SF')
+        sf_tmp = ctrl._get_scale_factor(m701, 'Tmp_SF')
+
+        st = m701.St.value if m701.St.value is not None else -1
+        inv_st = m701.InvSt.value if m701.InvSt.value is not None else -1
+        conn_st = m701.ConnSt.value if m701.ConnSt.value is not None else -1
+        der_mode = m701.DERMode.value if m701.DERMode.value is not None else -1
+        ac_power_w = m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0
+        voltage = m701.LNV.value * (10 ** sf_v) if m701.LNV.value is not None else 0
+        freq = m701.Hz.value * (10 ** sf_hz) if m701.Hz.value is not None else 0
+        alrm = m701.Alrm.value if m701.Alrm.value is not None else 0
+        tmp_cab = m701.TmpCab.value * (10 ** sf_tmp) if m701.TmpCab.value is not None else None
+        tmp_amb = m701.TmpAmb.value * (10 ** sf_tmp) if m701.TmpAmb.value is not None else None
+
+        print(f"\n  Inverter & Grid")
+        print(f"  {'─' * 40}")
+        print(f"  Operating State:   {OPERATING_STATE.get(st, f'Unknown({st})')}")
+        print(f"  Inverter State:    {INVERTER_STATE.get(inv_st, f'Unknown({inv_st})')}")
+        print(f"  Grid Connection:   {CONN_STATE.get(conn_st, f'Unknown({conn_st})')}")
+        print(f"  DER Mode:          {DER_MODE.get(der_mode, f'Unknown({der_mode})')}")
+        print(f"  Grid Voltage:      {voltage:.1f} V")
+        print(f"  Grid Frequency:    {freq:.2f} Hz")
+        if tmp_cab:
+            print(f"  Cabinet Temp:      {tmp_cab:.1f} °C")
+        if tmp_amb:
+            print(f"  Ambient Temp:      {tmp_amb:.1f} °C")
+        if alrm:
+            # Decode alarm bitfield
+            ALARM_BITS = {
+                0: 'GROUND_FAULT', 2: 'DC_OVER_VOLTAGE', 3: 'AC_DISCONNECT',
+                5: 'GRID_DISCONNECT', 7: 'MANUAL_SHUTDOWN', 8: 'OVER_TEMP',
+                9: 'VOLT_OUT_OF_RANGE', 10: 'FREQ_OUT_OF_RANGE',
+                12: 'HW_FAILURE', 13: 'MANUFACTURER_ALARM'
+            }
+            active = [name for bit, name in ALARM_BITS.items() if alrm & (1 << bit)]
+            print(f"  ⚠ Alarms:          0x{alrm:08X}")
+            for a in active:
+                print(f"                     → {a}")
+        else:
+            print(f"  Alarms:            None ✓")
+
+    # --- Battery ---
+    if m713:
+        sf_pct = ctrl._get_scale_factor(m713, 'Pct_SF')
+        sf_wh = ctrl._get_scale_factor(m713, 'WH_SF')
+        soc = m713.SoC.value * (10 ** sf_pct) if m713.SoC.value is not None else 0
+        soh = m713.SoH.value * (10 ** sf_pct) if m713.SoH.value is not None else 0
+        wh_rtg = m713.WHRtg.value * (10 ** sf_wh) if m713.WHRtg.value is not None else 0
+        wh_avail = m713.WHAvail.value * (10 ** sf_wh) if m713.WHAvail.value is not None else 0
+
+        # Derive actual state from DC power (M713.Sta always reports IDLE)
+        dc_w = 0
+        if m714 and m714.DCW.value is not None:
+            sf_dcw = ctrl._get_scale_factor(m714, 'DCW_SF')
+            dc_w = m714.DCW.value * (10 ** sf_dcw)
+
+        if dc_w < -50:
+            bat_state = f"⚡ Charging ({abs(dc_w):.0f}W)"
+            bat_icon = "↓"
+        elif dc_w > 50:
+            bat_state = f"🔋 Discharging ({dc_w:.0f}W)"
+            bat_icon = "↑"
+        else:
+            bat_state = "💤 Idle"
+            bat_icon = "─"
+
+        # SOC bar
+        bar_len = 20
+        filled = int(soc / 100 * bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+
+        print(f"\n  Battery")
+        print(f"  {'─' * 40}")
+        print(f"  State:             {bat_state}")
+        print(f"  SoC:               {soc:.1f}%  [{bar}]")
+        print(f"  SoH:               {soh:.1f}%")
+        print(f"  Energy Available:  {wh_avail/1000:.1f} / {wh_rtg/1000:.1f} kWh")
+        print(f"  DC Power:          {dc_w:.0f} W  {bat_icon}")
+        print(f"  Note:              M713.Sta always reports IDLE (firmware bug)")
+
+    # --- Power Flow ---
+    if m701 and m714:
+        grid_w = m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0
+
+        print(f"\n  Power Flow")
+        print(f"  {'─' * 40}")
+        print(f"  AC Power (total):  {ac_power_w:.0f} W")
+        if grid_w > 50:
+            print(f"  Grid:              ↓ Importing {grid_w:.0f} W")
+        elif grid_w < -50:
+            print(f"  Grid:              ↑ Exporting {abs(grid_w):.0f} W")
+        else:
+            print(f"  Grid:              ─ Balanced ({grid_w:.0f} W)")
+        print(f"  Battery (DC):      {dc_w:.0f} W {'(charging)' if dc_w < 0 else '(discharging)' if dc_w > 0 else '(idle)'}")
+
+    # --- Control State ---
+    if m704:
+        wset_ena = m704.WSetEna.value if m704.WSetEna.value is not None else 0
+        wset_pct = m704.WSetPct.value if m704.WSetPct.value is not None else 0
+        sf_pct704 = ctrl._get_scale_factor(m704, 'WSetPct_SF')
+        pct_real = wset_pct * (10 ** sf_pct704) if wset_pct else 0
+
+        print(f"\n  Modbus Control (M704)")
+        print(f"  {'─' * 40}")
+        if wset_ena == 0:
+            print(f"  Status:            ✅ Released (aGate in self-control)")
+        elif wset_pct == 0:
+            print(f"  Status:            ⚠️  Active at 0% (VPP Standby!)")
+        else:
+            direction = "Discharge" if pct_real > 0 else "Charge"
+            pct_w = abs(pct_real / 100 * ctrl.RATED_MAX_W)
+            print(f"  Status:            🔌 Active: {direction} {abs(pct_real):.1f}% ({pct_w:.0f}W)")
+        print(f"  WSetEna:           {wset_ena}")
+        print(f"  WSetPct:           {pct_real:.1f}% (raw={wset_pct})")
+
+    # --- DER Control (M715) ---
+    if m715:
+        loc_rem = m715.LocRemCtl.value if m715.LocRemCtl.value is not None else -1
+        print(f"\n  DER Control (M715)")
+        print(f"  {'─' * 40}")
+        print(f"  Control Mode:      {LOC_REM.get(loc_rem, f'Unknown({loc_rem})')}")
+        if loc_rem == 1:
+            print(f"  Note:              Local mode — advanced registers locked")
+
+    # --- Device Ratings ---
+    print(f"\n  Device Ratings (M702)")
+    print(f"  {'─' * 40}")
+    print(f"  Max Power:         {ctrl.RATED_MAX_W} W")
+    print(f"  Max Charge:        {ctrl.RATED_MAX_CHARGE_W} W")
+    print(f"  Max Discharge:     {ctrl.RATED_MAX_DISCHARGE_W} W")
+
+    print("\n" + "=" * 60)
+
+
 def main():
     """Main entry point."""
     parser = create_parser()
@@ -1214,28 +1514,19 @@ def main():
                 logger.error("Failed to reset control state")
                 sys.exit(1)
         
+        # Quick stop mode — release control and exit
+        if args.stop:
+            print("Releasing Modbus control (WSetEna=0)...")
+            if ctrl.reset_control_state():
+                print("✓ Control released — aGate will resume configured mode")
+                sys.exit(0)
+            else:
+                print("✗ Failed to release control")
+                sys.exit(1)
+        
         # Status-only mode
         if args.status:
-            print("\n=== Battery Status (Model 713) ===")
-            bat = ctrl.read_battery_status()
-            for k, v in bat.items():
-                print(f"  {k}: {v}")
-            
-            print("\n=== Grid Status (Model 701) ===")
-            grid = ctrl.read_grid_status()
-            for k, v in grid.items():
-                print(f"  {k}: {v}")
-            
-            print("\n=== Solar Status (Model 714) ===")
-            solar = ctrl.read_solar_status()
-            for k, v in solar.items():
-                print(f"  {k}: {v}")
-            
-            print("\n=== Control Status (Model 704) ===")
-            ctl = ctrl.read_control_status()
-            for k, v in ctl.items():
-                print(f"  {k}: {v}")
-            
+            print_system_status(ctrl)
             return
         
         # Virtual mode operation
@@ -1298,17 +1589,12 @@ def main():
         logger.error(f"Runtime error: {e}")
         raise
     finally:
-        # Ensure idle before disconnect
+        # Ensure control is released before disconnect
         try:
-            m704 = ctrl.get_model(704)
-            if m704:
-                m704.read()
-                m704.WSetEna.value = 0  # Disable external control
-                m704.WSet.value = 0
-                m704.write()
-                logger.info("Control disabled (WSetEna=0)")
+            ctrl.reset_control_state()
+            logger.info("Control released (WSetEna=0)")
         except Exception as e:
-            logger.warning(f"Could not disable control: {e}")
+            logger.warning(f"Could not release control: {e}")
         ctrl.disconnect()
 
 
