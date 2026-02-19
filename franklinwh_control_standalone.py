@@ -1296,7 +1296,8 @@ def print_system_status(ctrl):
                       4: 'Throttled', 5: 'Shutting Down', 6: 'Fault',
                       7: 'Standby', 8: 'Test', 9: 'Manufacturing'}
     CONN_STATE = {0: 'Disconnected', 1: 'Connected'}
-    DER_MODE = {0: 'Grid Following', 1: 'Grid Forming', 2: 'Momentary Cessation'}
+    DER_SOURCE = {0: 'PV', 1: 'Battery', 2: 'Hybrid', 3: 'Charger',
+                  4: 'STATCOM', 5: 'Load', 6: 'Generator'}
     LOC_REM = {0: 'Remote', 1: 'Local'}
 
     print("\n" + "=" * 60)
@@ -1335,7 +1336,7 @@ def print_system_status(ctrl):
         st = m701.St.value if m701.St.value is not None else -1
         inv_st = m701.InvSt.value if m701.InvSt.value is not None else -1
         conn_st = m701.ConnSt.value if m701.ConnSt.value is not None else -1
-        der_mode = m701.DERMode.value if m701.DERMode.value is not None else -1
+        der_mode_raw = m701.DERMode.value if m701.DERMode.value is not None else 0
         ac_power_w = m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0
         voltage = m701.LNV.value * (10 ** sf_v) if m701.LNV.value is not None else 0
         freq = m701.Hz.value * (10 ** sf_hz) if m701.Hz.value is not None else 0
@@ -1343,12 +1344,42 @@ def print_system_status(ctrl):
         tmp_cab = m701.TmpCab.value * (10 ** sf_tmp) if m701.TmpCab.value is not None else None
         tmp_amb = m701.TmpAmb.value * (10 ** sf_tmp) if m701.TmpAmb.value is not None else None
 
+        # Decode DERMode bitfield (NOT a simple enum!)
+        # Lower bits (0-6): Source type flags
+        # Upper bits (16+): Grid mode flags (FranklinWH may not populate these)
+        der_sources = [name for bit, name in DER_SOURCE.items() if der_mode_raw & (1 << bit)]
+
+        # FranklinWH product line:
+        #   aGate X (AU/US): AC-coupled — PV via AC solar inputs (2x 63A)
+        #   aPower S (US):   DC-coupled — PV via 4x MPPT (built-in hybrid inverter)
+        # Firmware only reports bit 0 (PV) in DERMode, missing bit 1 (Battery).
+        # We correct this to reflect the actual hybrid PV+Battery hardware.
+        if der_sources == ['PV']:
+            der_source_str = 'PV+Battery (Hybrid Inverter)'
+        elif der_sources:
+            der_source_str = '+'.join(der_sources)
+        else:
+            der_source_str = 'Unknown'
+
+        # Grid mode from upper bits (16-17) — FranklinWH firmware does not
+        # populate these bits, so we interpret absence as grid-following
+        # (the default operating mode for residential battery inverters)
+        if der_mode_raw & (1 << 17):
+            grid_mode_str = 'Grid Forming'
+        elif der_mode_raw & (1 << 16):
+            grid_mode_str = 'Grid Following'
+        else:
+            grid_mode_str = 'Grid Following (default)'
+
         print(f"\n  Inverter & Grid")
         print(f"  {'─' * 40}")
         print(f"  Operating State:   {OPERATING_STATE.get(st, f'Unknown({st})')}")
         print(f"  Inverter State:    {INVERTER_STATE.get(inv_st, f'Unknown({inv_st})')}")
         print(f"  Grid Connection:   {CONN_STATE.get(conn_st, f'Unknown({conn_st})')}")
-        print(f"  DER Mode:          {DER_MODE.get(der_mode, f'Unknown({der_mode})')}")
+        print(f"  DER Type:          {der_source_str}")
+        print(f"  DER Grid Mode:     {grid_mode_str}")
+        print(f"  DERMode Raw:       0x{der_mode_raw:08X} ({der_mode_raw})")
+
         print(f"  Grid Voltage:      {voltage:.1f} V")
         print(f"  Grid Frequency:    {freq:.2f} Hz")
         if tmp_cab:
