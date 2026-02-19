@@ -374,19 +374,49 @@ class FranklinWHController:
                 f"WARNING: SoC {checks['soc']}% outside safe range (5-99%)"
             )
         
-        # 5. Grid safety
+        # 5. Grid safety — use Model 703 enter-service limits when available
         grid = self.read_grid_status()
         checks['grid_voltage'] = grid.get('voltage_v', 0)
         checks['grid_frequency'] = grid.get('frequency_hz', 0)
+
+        # Read Model 703 (DER Enter Service) for configured grid limits
+        m703 = self.get_model(703)
+        if m703:
+            try:
+                m703.read()
+                sf_v = self._get_scale_factor(m703, 'V_SF')
+                sf_hz = self._get_scale_factor(m703, 'Hz_SF')
+                # Voltage limits are in % of nominal (e.g. 253% → 253V on 230V grid)
+                # but register holds the actual threshold voltage
+                v_hi = m703.ESVHi.value * (10 ** sf_v) if m703.ESVHi.value is not None else 260
+                v_lo = m703.ESVLo.value * (10 ** sf_v) if m703.ESVLo.value is not None else 220
+                hz_hi = m703.ESHzHi.value * (10 ** sf_hz) if m703.ESHzHi.value is not None else 53
+                hz_lo = m703.ESHzLo.value * (10 ** sf_hz) if m703.ESHzLo.value is not None else 47
+                checks['enter_service'] = {
+                    'available': True,
+                    'permit': m703.ES.value if m703.ES.value is not None else None,
+                    'v_hi': v_hi, 'v_lo': v_lo,
+                    'hz_hi': hz_hi, 'hz_lo': hz_lo,
+                }
+            except Exception as e:
+                logger.warning(f"Failed to read Model 703: {e}")
+                v_hi, v_lo, hz_hi, hz_lo = 260, 220, 53, 47
+                checks['enter_service'] = {'available': False}
+        else:
+            # Fallback: hardcoded defaults for systems without M703
+            v_hi, v_lo, hz_hi, hz_lo = 260, 220, 53, 47
+            checks['enter_service'] = {'available': False}
+
         checks['grid_safe'] = (
-            220 < checks['grid_voltage'] < 260 and
-            47 < checks['grid_frequency'] < 53
+            v_lo < checks['grid_voltage'] < v_hi and
+            hz_lo < checks['grid_frequency'] < hz_hi
         )
         
         if not checks['grid_safe']:
             recommendations.append(
                 f"WARNING: Grid {checks['grid_voltage']:.1f}V / "
-                f"{checks['grid_frequency']:.2f}Hz outside nominal"
+                f"{checks['grid_frequency']:.2f}Hz outside limits "
+                f"(V: {v_lo}-{v_hi}, Hz: {hz_lo}-{hz_hi})"
             )
         
         # 6. SPAN extension detection
@@ -1306,12 +1336,14 @@ def print_system_status(ctrl):
 
     # --- Read all models ---
     m701 = ctrl.get_model(701)
+    m703 = ctrl.get_model(703)
     m704 = ctrl.get_model(704)
     m713 = ctrl.get_model(713)
     m714 = ctrl.get_model(714)
     m715 = ctrl.get_model(715)
 
     if m701: m701.read()
+    if m703: m703.read()
     if m704: m704.read()
     if m713: m713.read()
     if m714: m714.read()
@@ -1483,6 +1515,31 @@ def print_system_status(ctrl):
         print(f"  Control Mode:      {LOC_REM.get(loc_rem, f'Unknown({loc_rem})')}")
         if loc_rem == 1:
             print(f"  Note:              Local mode — advanced registers locked")
+
+    # --- Enter Service (M703) ---
+    if m703:
+        ES_STATUS = {0: 'Disabled', 1: 'Enabled'}
+        sf_v703 = ctrl._get_scale_factor(m703, 'V_SF')
+        sf_hz703 = ctrl._get_scale_factor(m703, 'Hz_SF')
+        es_permit = m703.ES.value if m703.ES.value is not None else -1
+        v_hi = m703.ESVHi.value * (10 ** sf_v703) if m703.ESVHi.value is not None else None
+        v_lo = m703.ESVLo.value * (10 ** sf_v703) if m703.ESVLo.value is not None else None
+        hz_hi = m703.ESHzHi.value * (10 ** sf_hz703) if m703.ESHzHi.value is not None else None
+        hz_lo = m703.ESHzLo.value * (10 ** sf_hz703) if m703.ESHzLo.value is not None else None
+        dly_tms = m703.ESDlyTms.value if hasattr(m703, 'ESDlyTms') and m703.ESDlyTms.value is not None else None
+        rmp_tms = m703.ESRmpTms.value if hasattr(m703, 'ESRmpTms') and m703.ESRmpTms.value is not None else None
+
+        print(f"\n  Enter Service (M703)")
+        print(f"  {'─' * 40}")
+        print(f"  Permit:            {ES_STATUS.get(es_permit, f'Unknown({es_permit})')}")
+        if v_lo is not None and v_hi is not None:
+            print(f"  Voltage Range:     {v_lo:.1f} – {v_hi:.1f} %Vnom")
+        if hz_lo is not None and hz_hi is not None:
+            print(f"  Frequency Range:   {hz_lo:.2f} – {hz_hi:.2f} Hz")
+        if dly_tms is not None:
+            print(f"  Connect Delay:     {dly_tms} s")
+        if rmp_tms is not None:
+            print(f"  Ramp Time:         {rmp_tms} s")
 
     # --- Device Ratings ---
     print(f"\n  Device Ratings (M702)")
