@@ -1077,6 +1077,75 @@ class VirtualModeController:
         
         return status
     
+    def _check_inverter_safety(self, status: Dict, proposed_power: float) -> Tuple[bool, str, float]:
+        """
+        Check if proposed battery operation is safe for inverter.
+        
+        Returns:
+            (is_safe, reason, safe_power)
+            is_safe: True if operation is safe
+            reason: Description of safety check result
+            safe_power: Adjusted power if needed (0 for emergency stop)
+        """
+        solar = status['solar'].get('dc_power_w', 0)
+        home = status['derived'].get('home_load_w', 0)
+        grid = status['grid'].get('grid_power_w', 0)
+        
+        # Get inverter ratings
+        # Total DC power = solar DC + battery DC (charging is positive DC)
+        # For discharge, battery DC is negative
+        # Inverter must handle total DC conversion to AC
+        max_dc_power = self.ctrl.RATED_MAX_W  # Max inverter DC handling
+        
+        # Calculate total DC load if we apply proposed power
+        # Battery power: positive = charging (DC in), negative = discharging (DC out)
+        # Solar is always DC in
+        if proposed_power > 0:  # Charging
+            total_dc_in = solar + proposed_power
+            total_dc_out = 0
+        else:  # Discharging or idle
+            total_dc_in = solar
+            total_dc_out = abs(proposed_power)
+        
+        # Check 1: DC input limit (solar + charging cannot exceed inverter max)
+        if total_dc_in > max_dc_power * 1.05:  # 5% tolerance
+            excess = total_dc_in - max_dc_power
+            safe_charge = max(0, proposed_power - excess)
+            logger.error(f"INVERTER SAFETY: DC input {total_dc_in:.0f}W exceeds max {max_dc_power}W. "
+                        f"Solar: {solar:.0f}W + Battery charge: {proposed_power:.0f}W. "
+                        f"EMERGENCY: Reducing charge to {safe_charge:.0f}W")
+            return False, f"DC input limit exceeded: {total_dc_in:.0f}W > {max_dc_power}W", safe_charge
+        
+        # Check 2: DC output limit (discharge cannot exceed inverter max)
+        # During discharge: inverter converts battery DC to AC for home/grid
+        # Plus must handle any solar DC going to home/grid
+        if total_dc_out > max_dc_power * 1.05:
+            excess = total_dc_out - max_dc_power
+            safe_discharge = max(0, abs(proposed_power) - excess)
+            logger.error(f"INVERTER SAFETY: DC discharge {total_dc_out:.0f}W exceeds max {max_dc_power}W. "
+                        f"EMERGENCY: Reducing discharge to {safe_discharge:.0f}W")
+            return False, f"DC discharge limit exceeded: {total_dc_out:.0f}W > {max_dc_power}W", -safe_discharge
+        
+        # Check 3: Warning at 90% of limit
+        if total_dc_in > max_dc_power * 0.9:
+            logger.warning(f"INVERTER WARNING: DC input at {total_dc_in/max_dc_power*100:.0f}% of max "
+                          f"({total_dc_in:.0f}W / {max_dc_power}W)")
+        
+        # Check 4: Grid stability for high power operations
+        grid_status = status.get('grid', {})
+        voltage = grid_status.get('voltage_v', 230)
+        freq = grid_status.get('frequency_hz', 50)
+        
+        # If grid is unstable, limit high power operations
+        if voltage < 210 or voltage > 250 or freq < 48 or freq > 52:
+            if abs(proposed_power) > max_dc_power * 0.5:
+                reduced_power = proposed_power * 0.5
+                logger.warning(f"GRID UNSTABLE: V={voltage:.1f}V, F={freq:.2f}Hz. "
+                              f"Limiting power from {proposed_power:.0f}W to {reduced_power:.0f}W")
+                return True, f"Grid unstable - power limited to 50%", reduced_power
+        
+        return True, "Inverter safety check passed", proposed_power
+    
     def calculate_power(self) -> float:
         """
         Calculate desired battery power based on current mode.
@@ -1094,8 +1163,17 @@ class VirtualModeController:
         calculator = self._get_calculator()
         power = calculator(solar, home, grid, soc)
         
-        # Safety limits
+        # Safety limits (SoC)
         power = self._apply_safety_limits(power, soc)
+        
+        # Inverter safety check (DC limits, grid stability)
+        is_safe, reason, safe_power = self._check_inverter_safety(status, power)
+        if not is_safe:
+            logger.error(f"SAFETY VIOLATION: {reason}. Using safe power: {safe_power:.0f}W")
+            power = safe_power
+        elif power != safe_power:
+            logger.info(f"Safety adjustment: {power:.0f}W -> {safe_power:.0f}W ({reason})")
+            power = safe_power
         
         return power
     
@@ -1380,11 +1458,58 @@ class VirtualModeController:
         
         return power
     
+    def _check_emergency_shutdown(self, status: Dict) -> Tuple[bool, str]:
+        """
+        Check if emergency shutdown is required due to dangerous conditions.
+        
+        Returns:
+            (should_shutdown, reason)
+        """
+        grid = status.get('grid', {})
+        battery = status.get('battery', {})
+        
+        voltage = grid.get('voltage_v', 230)
+        freq = grid.get('frequency_hz', 50)
+        temp = battery.get('temperature_c', 25)
+        
+        # Critical voltage limits (EMERGENCY SHUTDOWN)
+        if voltage < 180 or voltage > 270:
+            return True, f"EMERGENCY: Grid voltage {voltage:.1f}V outside safe range (180-270V)"
+        
+        # Critical frequency limits (EMERGENCY SHUTDOWN)
+        if freq < 45 or freq > 55:
+            return True, f"EMERGENCY: Grid frequency {freq:.2f}Hz outside safe range (45-55Hz)"
+        
+        # Critical battery temperature
+        if temp and temp > 60:
+            return True, f"EMERGENCY: Battery temperature {temp:.1f}°C exceeds 60°C limit"
+        
+        # Battery temperature too low (charging unsafe)
+        if temp and temp < 0 and battery.get('dc_power_w', 0) < 0:
+            return True, f"EMERGENCY: Battery temperature {temp:.1f}°C - charging prohibited"
+        
+        return False, ""
+    
     def execute_once(self) -> float:
         """
         Calculate and send single command.
         Returns actual power sent.
         """
+        # Read status for emergency check
+        status = self.read_status()
+        
+        # Check for emergency shutdown conditions
+        should_shutdown, reason = self._check_emergency_shutdown(status)
+        if should_shutdown:
+            logger.critical(reason)
+            logger.critical("EMERGENCY SHUTDOWN: Releasing control and setting idle")
+            try:
+                self.ctrl.reset_control_state()
+            except Exception as e:
+                logger.error(f"Emergency reset failed: {e}")
+            self._shutdown_requested = True
+            return 0
+        
         power = self.calculate_power()
         
         # Send via hardware controller
@@ -1539,6 +1664,32 @@ class VirtualModeController:
         
         print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W){limit_status}")
         print(f"  LIMITS: Discharge≥{self.min_discharge_soc}% Charge≤{self.max_charge_soc}% (window:{self.soc_ramp_window}%)")
+        
+        # Inverter load check
+        max_dc = self.ctrl.RATED_MAX_W
+        total_dc_load = abs(solar_power) + abs(dc_power)
+        load_pct = (total_dc_load / max_dc * 100) if max_dc > 0 else 0
+        
+        if load_pct > 95:
+            print(f"  ⚠️  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W) - CRITICAL!")
+        elif load_pct > 80:
+            print(f"  ⚠️  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W) - HIGH")
+        else:
+            print(f"  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W)")
+        
+        # Grid stability check
+        voltage = grid.get('voltage_v', 230)
+        freq = grid.get('frequency_hz', 50)
+        
+        grid_warning = ""
+        if voltage < 210 or voltage > 250:
+            grid_warning += f" ⚠️ VOLTAGE {voltage:.1f}V"
+        if freq < 48 or freq > 52:
+            grid_warning += f" ⚠️ FREQUENCY {freq:.2f}Hz"
+        
+        if grid_warning:
+            print(f"  🚨 GRID ALERT:{grid_warning}")
+        
         print("=" * 70)
 
     def run_continuous(self, duration_seconds: Optional[float] = None):
