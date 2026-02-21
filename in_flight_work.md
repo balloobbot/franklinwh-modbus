@@ -51,6 +51,27 @@ _No blockers._
 
 ## Session Log
 
+### 2026-02-21 23:25 AEDT — Fixed: Use Actual M702 Nameplate Ratings
+- User question: Does script read nameplate ratings for charge/discharge limits?
+- **Found bug**: VirtualModeController using hardcoded 5000W instead of actual ratings
+- Fixed all virtual mode calculations:
+  - _calc_self_consumption: Uses RATED_MAX_CHARGE_W / RATED_MAX_DISCHARGE_W
+  - _calc_emergency_backup: Uses actual ratings
+  - _calc_time_of_use: Uses actual ratings
+  - _calc_grid_zero: Uses actual ratings
+  - _calc_peak_shave: Uses actual ratings
+- Added new solar_priority strategy:
+  - Charges battery from solar first, even if home needs grid
+  - Matches Cloud API mode for pre-peak charging
+  - Useful for storing solar before expensive peak period
+- Script now reads Model 702 registers:
+  - WMaxRtg (40227): Max active power
+  - WChaRteMaxRtg (40235): Max charge rate
+  - WDisChaRteMaxRtg (40236): Max discharge rate
+- Handles asymmetric ratings (e.g., 3500W charge / 5000W discharge)
+- Updated CLI_OPTIONS.md with new strategy and ratings documentation
+- Commits: `8f3e563`, `8837242`
+
 ### 2026-02-21 23:10 AEDT — Cloud API Coordination & Conflict Detection
 - User request: Show OnGridMode, reserve SOC, detect Cloud API conflicts
 - Implemented telemetry enhancements:
