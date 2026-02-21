@@ -51,6 +51,27 @@ _No blockers._
 
 ## Session Log
 
+### 2026-02-21 23:55 AEDT — Fixed: AC-Coupled Solar Safety Monitoring
+- User clarification: aGate X is AC-coupled (solar on AC inputs, not DC)
+- Previous safety check incorrectly combined solar + battery DC
+- Fixed _check_inverter_safety for AC-coupled systems:
+  - Monitor battery DC power independently
+  - Calculate off-grid capacity: Battery max + Solar generation
+  - Compare to home load for shutdown risk
+  - Warn when home load > 80% of available supply
+  - Critical warning when > 95% (system shutdown imminent)
+- Updated telemetry:
+  - Show Battery Inverter load percentage
+  - Show CAPACITY used percentage
+  - OFF-GRID RISK warning with available supply breakdown
+  - Color-coded warnings (⚠️ HIGH, 🚨 CRITICAL)
+- Added documentation:
+  - AC-coupled vs DC-coupled architecture
+  - Off-grid capacity monitoring explanation
+  - Supported aGate models table
+  - Safety considerations for each architecture
+- Commits: `b16be3d`, `02ca2be`
+
 ### 2026-02-21 23:40 AEDT — Critical Safety: Inverter Limits & Emergency Shutdown
 - User request: Add grid status checks and inverter limit enforcement
 - **CRITICAL SAFETY FEATURES ADDED**:
