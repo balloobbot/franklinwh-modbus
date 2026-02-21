@@ -51,6 +51,24 @@ _No blockers._
 
 ## Session Log
 
+### 2026-02-21 22:45 AEDT — SoC Limits with Ramping Implemented
+- Implemented comprehensive SoC limit system as requested:
+  - --max-charge-soc: Maximum SoC for charging (default 100%)
+  - --min-discharge-soc: Minimum SoC for discharging (auto-reads aGate reserve)
+  - --soc-ramp-window: Ramping zone before hard limit (default 10%)
+  - --force: Emergency override (logged warning)
+- Features implemented:
+  - Auto-reads aGate reserve SOC from native mode registers (15508/15509)
+  - Validates min-discharge >= aGate reserve (enforced floor)
+  - Linear ramping: 100% power -> reduced -> 0% over ramp window
+  - Hard stop at limit with 🔒 indicator in telemetry
+  - Ramping status shows percentage in telemetry
+  - All events logged (ramping, hard stops, overrides)
+- Updated telemetry display to show limit status and ramping info
+- Created CLI_OPTIONS.md - comprehensive documentation of all CLI options
+- Comprehensive logging: startup, runtime events, shutdown
+- Commit: `0e8332e` - "feat: add SoC limits with ramping and comprehensive logging"
+
 ### 2026-02-21 22:25 AEDT — TOU Schedule File Support Added
 - Implemented TOU schedule file support per user request
 - Added TOUSchedule.from_file() for JSON schedule loading
