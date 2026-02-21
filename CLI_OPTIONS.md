@@ -711,3 +711,129 @@ These ratings are:
 
 The script handles this automatically.
 
+
+---
+
+## Safety Features
+
+### Automatic Safety Checks
+
+The script performs multiple safety checks every control cycle:
+
+#### 1. Inverter DC Load Limits
+
+**What it does**: Prevents total DC power (solar + battery) from exceeding inverter rating
+
+```
+Total DC In = Solar DC + Battery Charging DC
+Total DC Out = Battery Discharge DC
+
+If Total DC In > Max Rating → Reduce charging
+If Total DC Out > Max Rating → Reduce discharging
+```
+
+**Example scenario**:
+- Solar: 4000W
+- User requests: Charge at 3000W
+- Inverter max: 5000W
+- **Result**: Charge limited to 1000W (4000 + 1000 = 5000W)
+
+**Logged**: ERROR level with "INVERTER SAFETY" prefix
+
+#### 2. Grid Stability Monitoring
+
+**Grid voltage limits**:
+- Normal: 210-250V
+- Warning: 200-210V or 250-260V
+- **Emergency stop**: <180V or >270V
+
+**Grid frequency limits**:
+- Normal: 48-52Hz  
+- Warning: 47-48Hz or 52-53Hz
+- **Emergency stop**: <45Hz or >55Hz
+
+**Behavior**:
+- Warning: Power limited to 50%
+- Emergency: Immediate shutdown, control released
+
+#### 3. Battery Temperature Protection
+
+**Overheating**:
+- >60°C: Emergency stop
+- Prevents thermal damage
+
+**Freezing**:
+- <0°C + charging: Emergency stop
+- Lithium plating protection
+
+#### 4. SoC Limits with Ramping
+
+See [--max-charge-soc](#--max-charge-soc) and [--min-discharge-soc](#--min-discharge-soc)
+
+### Emergency Shutdown Behavior
+
+When emergency conditions detected:
+
+1. **Log CRITICAL message** with full details
+2. **Release Modbus control** (WSetEna=0)
+3. **Set battery idle** (0W)
+4. **Set shutdown flag** (stops run_continuous)
+5. **Exit with error code** (if possible)
+
+**Recovery**:
+- Check and resolve grid/battery issues
+- Restart script manually
+- Review logs for root cause
+
+### Telemetry Safety Display
+
+```
+⚠️  INVERTER LOAD: 95% (4750W / 5000W) - CRITICAL!
+```
+
+Inverter load colors:
+- **Normal** (<80%): No warning
+- **⚠️ HIGH** (80-95%): Yellow warning
+- **⚠️ CRITICAL** (>95%): Red warning, may trigger limiting
+
+```
+🚨 GRID ALERT: ⚠️ VOLTAGE 195.5V ⚠️ FREQUENCY 47.2Hz
+```
+
+Grid alert appears when:
+- Voltage outside 210-250V
+- Frequency outside 48-52Hz
+
+### Safety Hierarchy
+
+```
+1. ABSOLUTE EMERGENCY (immediate stop)
+   ├── Grid voltage <180V or >270V
+   ├── Grid frequency <45Hz or >55Hz
+   ├── Battery temperature >60°C
+   └── Battery <0°C + charging attempted
+
+2. INVERTER PROTECTION (power limiting)
+   ├── DC input > rated max
+   ├── DC output > rated max
+   └── Grid unstable (reduce power 50%)
+
+3. SoC PROTECTION (ramping + limits)
+   ├── Max charge SoC reached
+   ├── Min discharge SoC reached
+   └── Reserve SoC enforcement
+
+4. USER LIMITS (clamp to requested)
+   ├── --power value
+   └── Mode calculations
+```
+
+### Best Practices for Safe Operation
+
+1. **Monitor telemetry** for warnings
+2. **Don't ignore** ⚠️ and 🚨 symbols
+3. **Check logs** after any safety event
+4. **Use --status first** to verify grid health
+5. **Start conservative** with power limits
+6. **Have --stop ready** for quick shutdown
+

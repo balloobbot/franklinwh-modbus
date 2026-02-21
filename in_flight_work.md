@@ -51,6 +51,41 @@ _No blockers._
 
 ## Session Log
 
+### 2026-02-21 23:40 AEDT — Critical Safety: Inverter Limits & Emergency Shutdown
+- User request: Add grid status checks and inverter limit enforcement
+- **CRITICAL SAFETY FEATURES ADDED**:
+
+1. Inverter Safety Checks (_check_inverter_safety):
+   - Calculate total DC load: Solar DC + Battery DC
+   - Prevent DC input > inverter max rating
+   - Prevent DC discharge > inverter max rating  
+   - Warning at 90% capacity, error at >100%
+   - Grid instability detection (voltage/frequency out of range)
+   - Auto-reduces power to 50% when grid unstable
+
+2. Emergency Shutdown (_check_emergency_shutdown):
+   - Critical voltage: <180V or >270V = EMERGENCY STOP
+   - Critical frequency: <45Hz or >55Hz = EMERGENCY STOP
+   - Battery overtemp: >60°C = EMERGENCY STOP
+   - Battery undertemp + charging: <0°C = EMERGENCY STOP
+   - Emergency releases control (WSetEna=0) and sets idle
+   - CRITICAL level logging for all emergencies
+
+3. Telemetry Enhancements:
+   - Display inverter load percentage
+   - Show CRITICAL (>95%), HIGH (80-95%), NORMAL (<80%) status
+   - Grid voltage/frequency alerts with 🚨 symbol
+   - Full safety context in every telemetry update
+
+4. Safety Enforcement:
+   - All safety checks run every execute_once() cycle
+   - Cannot override emergency shutdown (hard limits)
+   - Detailed logging of all violations with recommendations
+   - Automatic power limiting before hard stops
+
+- Updated CLI_OPTIONS.md with comprehensive safety documentation
+- Commits: `adfc42d`, safety docs
+
 ### 2026-02-21 23:25 AEDT — Fixed: Use Actual M702 Nameplate Ratings
 - User question: Does script read nameplate ratings for charge/discharge limits?
 - **Found bug**: VirtualModeController using hardcoded 5000W instead of actual ratings
