@@ -1120,25 +1120,31 @@ class VirtualModeController:
         - Charge battery with excess solar
         - Discharge to cover home load when solar insufficient
         - Maintain reserve for nighttime
+        
+        Uses actual device ratings from M702 nameplate.
         """
+        # Get actual device ratings (not hardcoded)
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        
         excess_solar = solar - home
         
         # High SOC - prioritize using battery
         if soc > (100 - self.self_reserve_pct):
             if excess_solar > 0:
                 # Still charging but gently
-                return min(excess_solar * 0.5, 1000)
+                return min(excess_solar * 0.5, max_charge * 0.2)  # 20% of max
             else:
                 # Discharge to cover deficit
-                return max(home - solar, -5000)
+                return max(home - solar, -max_discharge)
         
         # Low SOC - aggressive charging if excess solar
         if excess_solar > 0:
-            return min(excess_solar, 5000)  # Charge up to 5kW
+            return min(excess_solar, max_charge)  # Up to rated max
         
         # No excess solar, discharge if needed
         if home > solar and soc > 10:
-            return max(solar - home, -5000)
+            return max(solar - home, -max_discharge)
         
         return 0
     
@@ -1151,18 +1157,25 @@ class VirtualModeController:
         - Charge from any available source (solar + grid)
         - Only discharge if absolutely necessary
         - Target 95% SOC
+        
+        Uses actual device ratings from M702 nameplate.
         """
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        
         if soc >= self.backup_target_soc:
             # Full enough, minimal activity
             if home > solar:
-                # Small discharge to help
-                return max(solar - home, -500)
+                # Small discharge to help (10% of max)
+                return max(solar - home, -max_discharge * 0.1)
             return 0
         
         # Need to charge
-        charge_needed = (self.backup_target_soc - soc) / 100 * 13600  # Wh to full
+        # Estimate energy needed (rough calc using rated capacity)
+        rated_wh = self.ctrl.RATED_MAX_W * 2.72  # ~13.6kWh for 5kW rated
+        charge_needed = (self.backup_target_soc - soc) / 100 * rated_wh
         hours_to_charge = 2  # Target 2 hours to full
-        target_watts = min(charge_needed / hours_to_charge, 5000)
+        target_watts = min(charge_needed / hours_to_charge, max_charge)
         
         # Use solar first, then grid if needed
         if solar > home:
@@ -1170,7 +1183,7 @@ class VirtualModeController:
             return min(solar - home, target_watts)
         else:
             # Charge from grid + solar
-            return min(target_watts, 5000)
+            return min(target_watts, max_charge)
     
     def _calc_time_of_use(self, solar: float, home: float,
                           grid: float, soc: float) -> float:
@@ -1186,7 +1199,13 @@ class VirtualModeController:
         - self_consumption: Normal solar self-use (shoulder)
         - grid_zero: Minimize grid import/export
         - standby: Let aGate manage itself
+        
+        Uses actual device ratings from M702 nameplate.
         """
+        # Get actual device ratings
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        
         # Get strategy from schedule (file-based or legacy)
         strategy = self.tou.get_strategy()
         min_soc = self.tou.get_min_soc()
@@ -1197,21 +1216,33 @@ class VirtualModeController:
             if soc < max_soc - 5:  # 5% buffer
                 # Use excess solar first, then grid
                 if solar > home:
-                    return min(solar - home + 3000, 5000)  # Some grid charging
+                    # Charge excess solar + some from grid (60% of max)
+                    return min(solar - home + max_charge * 0.6, max_charge)
                 else:
-                    return 5000  # Max charge from grid
+                    return max_charge  # Max charge from grid
             return 0
             
         elif strategy == "discharge":
             # Expensive power - discharge to cover load
             if soc > min_soc + 5:  # 5% buffer
                 # Cover home load from battery
-                return max(min(home - solar, 5000), -5000)
+                return max(min(home - solar, max_discharge), -max_discharge)
             return 0
             
         elif strategy == "grid_zero":
             # Minimize grid interaction
             return self._calc_grid_zero(solar, home, grid, soc)
+            
+        elif strategy == "solar_priority":
+            # Priority: Charge battery from solar first, home loads from grid
+            # This is useful when you want to maximize battery storage
+            # for later use (e.g., before peak pricing period)
+            if soc < max_soc - 5:  # If not near full
+                if solar > 0:
+                    # Use all solar for charging, home takes from grid
+                    return min(solar, max_charge)
+            # Otherwise normal self-consumption
+            return self._calc_self_consumption(solar, home, grid, soc)
             
         elif strategy == "standby":
             # Let aGate manage itself
@@ -1229,7 +1260,12 @@ class VirtualModeController:
         Strategy:
         - Target zero grid import/export
         - Battery buffers all imbalances
+        
+        Uses actual device ratings from M702 nameplate.
         """
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        
         target_grid = 0
         current_grid = grid  # Positive = importing
         
@@ -1242,8 +1278,8 @@ class VirtualModeController:
         if abs(power) < self.grid_zero_buffer:
             power = 0
             
-        # Limit to battery capabilities
-        return max(min(power, 5000), -5000)
+        # Limit to actual battery capabilities
+        return max(min(power, max_charge), -max_discharge)
     
     def _calc_peak_shave(self, solar: float, home: float,
                          grid: float, soc: float) -> float:
@@ -1254,16 +1290,21 @@ class VirtualModeController:
         - Monitor home load
         - Discharge if load exceeds threshold
         - Charge during low demand
+        
+        Uses actual device ratings from M702 nameplate.
         """
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        
         if home > self.peak_shave_threshold and soc > 30:
             # High demand - discharge to help
-            discharge = min(home - solar, 5000)
+            discharge = min(home - solar, max_discharge)
             return -discharge
         
         elif home < 500 and soc < 80:
-            # Low demand - charge if solar available
+            # Low demand - charge if solar available (60% of max)
             if solar > home:
-                return min(solar - home, 3000)
+                return min(solar - home, max_charge * 0.6)
         
         return 0
     
