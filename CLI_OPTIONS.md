@@ -652,3 +652,62 @@ If you didn't set this command, another controller (Cloud API, VPP aggregator) i
 
 **Note**: Some VPP contracts may penalize you for overriding their commands. Check your agreement before using `--reset-on-start` during VPP events.
 
+
+### Strategy: solar_priority
+
+**Purpose**: Prioritize charging battery from solar, even if home loads need grid power
+
+**Behavior**:
+- All solar generation goes to battery charging first
+- Home loads are powered from grid (not solar)
+- Only when battery is nearly full does solar power the home
+
+**Use case**: 
+- Pre-peak charging: Before expensive peak pricing period, maximize battery storage
+- Next-day preparation: Store solar for next morning before sun rises
+- Grid arbitrage: Accept small grid import now to avoid large grid import later
+
+**Example schedule**:
+```json
+{
+  "periods": [
+    {
+      "id": "pre_peak",
+      "name": "Pre-Peak Charging",
+      "hours": [13, 14, 15],
+      "price": 0.25,
+      "strategy": "solar_priority"
+    }
+  ]
+}
+```
+
+**Trade-off**: 
+- ⚠️ May increase grid import during this period
+- ✅ Maximizes battery storage for later use
+- ✅ Better than grid charging (uses free solar)
+
+---
+
+## Device Ratings (M702)
+
+The script automatically reads your aGate's nameplate ratings from SunSpec Model 702:
+
+| Register | Description | Example |
+|----------|-------------|---------|
+| WMaxRtg | Maximum active power | 5000W |
+| WChaRteMaxRtg | Maximum charge rate | 5000W |
+| WDisChaRteMaxRtg | Maximum discharge rate | 5000W |
+
+These ratings are:
+- Read automatically on connection
+- Used to clamp user-specified power values
+- Used by virtual modes for maximum calculations
+- Displayed in `--status` output
+
+**Asymmetric example**: Some models may have:
+- Charge: 3500W
+- Discharge: 5000W
+
+The script handles this automatically.
+
