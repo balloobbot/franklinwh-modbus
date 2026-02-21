@@ -1081,68 +1081,83 @@ class VirtualModeController:
         """
         Check if proposed battery operation is safe for inverter.
         
+        For AC-coupled systems (aGate X), monitors total power balance:
+        - Available: Battery discharge + Solar generation
+        - Required: Home loads
+        - If Required > Available in off-grid, system will shutdown
+        
         Returns:
             (is_safe, reason, safe_power)
             is_safe: True if operation is safe
             reason: Description of safety check result
-            safe_power: Adjusted power if needed (0 for emergency stop)
+            safe_power: Adjusted power if needed
         """
-        solar = status['solar'].get('dc_power_w', 0)
+        solar = status['solar'].get('dc_power_w', 0)  # Solar AC-coupled or DC
         home = status['derived'].get('home_load_w', 0)
         grid = status['grid'].get('grid_power_w', 0)
+        battery_actual = status['battery'].get('dc_power_w', 0)  # Current battery power
         
         # Get inverter ratings
-        # Total DC power = solar DC + battery DC (charging is positive DC)
-        # For discharge, battery DC is negative
-        # Inverter must handle total DC conversion to AC
-        max_dc_power = self.ctrl.RATED_MAX_W  # Max inverter DC handling
+        max_dc_power = self.ctrl.RATED_MAX_W  # Max inverter DC handling (battery side)
         
-        # Calculate total DC load if we apply proposed power
-        # Battery power: positive = charging (DC in), negative = discharging (DC out)
-        # Solar is always DC in
+        # Check 1: Battery DC limits (independent of solar for AC-coupled)
+        # For AC-coupled aGate X, solar comes in on separate AC inputs
+        # We only control battery DC via Modbus
         if proposed_power > 0:  # Charging
-            total_dc_in = solar + proposed_power
-            total_dc_out = 0
-        else:  # Discharging or idle
-            total_dc_in = solar
-            total_dc_out = abs(proposed_power)
+            if proposed_power > max_dc_power * 1.05:
+                safe_charge = max_dc_power
+                logger.error(f"INVERTER SAFETY: Charge request {proposed_power:.0f}W exceeds max {max_dc_power}W. "
+                            f"Limiting to {safe_charge:.0f}W")
+                return False, f"Charge limit exceeded", safe_charge
+        else:  # Discharging
+            if abs(proposed_power) > max_dc_power * 1.05:
+                safe_discharge = max_dc_power
+                logger.error(f"INVERTER SAFETY: Discharge request {abs(proposed_power):.0f}W exceeds max {max_dc_power}W. "
+                            f"Limiting to {safe_discharge:.0f}W")
+                return False, f"Discharge limit exceeded", -safe_discharge
         
-        # Check 1: DC input limit (solar + charging cannot exceed inverter max)
-        if total_dc_in > max_dc_power * 1.05:  # 5% tolerance
-            excess = total_dc_in - max_dc_power
-            safe_charge = max(0, proposed_power - excess)
-            logger.error(f"INVERTER SAFETY: DC input {total_dc_in:.0f}W exceeds max {max_dc_power}W. "
-                        f"Solar: {solar:.0f}W + Battery charge: {proposed_power:.0f}W. "
-                        f"EMERGENCY: Reducing charge to {safe_charge:.0f}W")
-            return False, f"DC input limit exceeded: {total_dc_in:.0f}W > {max_dc_power}W", safe_charge
+        # Check 2: Off-grid load vs capacity (CRITICAL for AC-coupled systems)
+        # In off-grid or high-load scenarios, home demand may exceed supply
+        # Available supply = Battery discharge capacity + Solar generation
+        # If home load > available, aGate will shutdown
         
-        # Check 2: DC output limit (discharge cannot exceed inverter max)
-        # During discharge: inverter converts battery DC to AC for home/grid
-        # Plus must handle any solar DC going to home/grid
-        if total_dc_out > max_dc_power * 1.05:
-            excess = total_dc_out - max_dc_power
-            safe_discharge = max(0, abs(proposed_power) - excess)
-            logger.error(f"INVERTER SAFETY: DC discharge {total_dc_out:.0f}W exceeds max {max_dc_power}W. "
-                        f"EMERGENCY: Reducing discharge to {safe_discharge:.0f}W")
-            return False, f"DC discharge limit exceeded: {total_dc_out:.0f}W > {max_dc_power}W", -safe_discharge
-        
-        # Check 3: Warning at 90% of limit
-        if total_dc_in > max_dc_power * 0.9:
-            logger.warning(f"INVERTER WARNING: DC input at {total_dc_in/max_dc_power*100:.0f}% of max "
-                          f"({total_dc_in:.0f}W / {max_dc_power}W)")
-        
-        # Check 4: Grid stability for high power operations
         grid_status = status.get('grid', {})
+        conn_state = grid_status.get('grid_connection_state', 1)  # 1 = Connected
+        
+        # Estimate available discharge capacity
+        available_discharge = max_dc_power  # Max battery can provide
+        available_solar = solar if solar > 0 else 0
+        total_available = available_discharge + available_solar
+        
+        # Warning: Home load approaching total capacity
+        if home > total_available * 0.8:
+            logger.warning(f"OFF-GRID RISK: Home load {home:.0f}W at {home/total_available*100:.0f}% of capacity "
+                          f"({total_available:.0f}W = Battery {available_discharge:.0f}W + Solar {available_solar:.0f}W)")
+            
+            # If we're in discharge mode and home load is critical, limit discharge
+            # to preserve capacity for surge handling
+            if proposed_power < 0 and home > total_available * 0.9:
+                # Reduce discharge to leave headroom
+                max_safe_discharge = total_available - home - 500  # 500W buffer
+                if max_safe_discharge < 0:
+                    max_safe_discharge = 0
+                if abs(proposed_power) > max_safe_discharge:
+                    logger.error(f"EMERGENCY: Home load {home:.0f}W would exceed supply capacity! "
+                                f"Limiting discharge to {max_safe_discharge:.0f}W to prevent shutdown")
+                    return False, f"Load exceeds capacity - discharge limited", -max_safe_discharge
+        
+        # Check 3: Grid stability for high power operations
         voltage = grid_status.get('voltage_v', 230)
         freq = grid_status.get('frequency_hz', 50)
         
-        # If grid is unstable, limit high power operations
-        if voltage < 210 or voltage > 250 or freq < 48 or freq > 52:
+        # If grid is unstable or disconnected, be more conservative
+        if voltage < 210 or voltage > 250 or freq < 48 or freq > 52 or conn_state != 1:
             if abs(proposed_power) > max_dc_power * 0.5:
                 reduced_power = proposed_power * 0.5
-                logger.warning(f"GRID UNSTABLE: V={voltage:.1f}V, F={freq:.2f}Hz. "
+                grid_state = "DISCONNECTED" if conn_state != 1 else "UNSTABLE"
+                logger.warning(f"GRID {grid_state}: V={voltage:.1f}V, F={freq:.2f}Hz. "
                               f"Limiting power from {proposed_power:.0f}W to {reduced_power:.0f}W")
-                return True, f"Grid unstable - power limited to 50%", reduced_power
+                return True, f"Grid {grid_state} - power limited to 50%", reduced_power
         
         return True, "Inverter safety check passed", proposed_power
     
@@ -1665,17 +1680,37 @@ class VirtualModeController:
         print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W){limit_status}")
         print(f"  LIMITS: Discharge≥{self.min_discharge_soc}% Charge≤{self.max_charge_soc}% (window:{self.soc_ramp_window}%)")
         
-        # Inverter load check
+        # Inverter load check (battery DC only for AC-coupled)
         max_dc = self.ctrl.RATED_MAX_W
-        total_dc_load = abs(solar_power) + abs(dc_power)
-        load_pct = (total_dc_load / max_dc * 100) if max_dc > 0 else 0
+        battery_dc_load = abs(dc_power)  # Actual battery DC power
+        battery_load_pct = (battery_dc_load / max_dc * 100) if max_dc > 0 else 0
         
-        if load_pct > 95:
-            print(f"  ⚠️  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W) - CRITICAL!")
-        elif load_pct > 80:
-            print(f"  ⚠️  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W) - HIGH")
+        if battery_load_pct > 95:
+            print(f"  ⚠️  BATTERY INVERTER: {battery_load_pct:.0f}% ({battery_dc_load:.0f}W / {max_dc}W) - CRITICAL!")
+        elif battery_load_pct > 80:
+            print(f"  ⚠️  BATTERY INVERTER: {battery_load_pct:.0f}% ({battery_dc_load:.0f}W / {max_dc}W) - HIGH")
         else:
-            print(f"  INVERTER LOAD: {load_pct:.0f}% ({total_dc_load:.0f}W / {max_dc}W)")
+            print(f"  BATTERY INVERTER: {battery_load_pct:.0f}% ({battery_dc_load:.0f}W / {max_dc}W)")
+        
+        # Off-grid capacity monitoring (AC-coupled systems)
+        # Available: Battery max discharge + Solar AC
+        # Required: Home load
+        available_battery = max_dc
+        available_solar = max(0, solar_power)  # Solar only if producing
+        total_available = available_battery + available_solar
+        
+        if home_load > 0 and total_available > 0:
+            capacity_used_pct = (home_load / total_available * 100)
+            
+            if capacity_used_pct > 95:
+                print(f"  🚨 OFF-GRID RISK: Home load {home_load:.0f}W at {capacity_used_pct:.0f}% of supply capacity!")
+                print(f"     Available: Battery {available_battery:.0f}W + Solar {available_solar:.0f}W = {total_available:.0f}W")
+                print(f"     ⚠️  System may shutdown if load exceeds supply!")
+            elif capacity_used_pct > 80:
+                print(f"  ⚠️  CAPACITY: Home load {home_load:.0f}W using {capacity_used_pct:.0f}% of supply")
+                print(f"     Available: {total_available:.0f}W (Battery {available_battery:.0f}W + Solar {available_solar:.0f}W)")
+            else:
+                print(f"  CAPACITY: {capacity_used_pct:.0f}% ({home_load:.0f}W / {total_available:.0f}W available)")
         
         # Grid stability check
         voltage = grid.get('voltage_v', 230)
