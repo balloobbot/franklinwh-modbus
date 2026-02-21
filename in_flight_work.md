@@ -51,6 +51,30 @@ _No blockers._
 
 ## Session Log
 
+### 2026-02-21 23:10 AEDT — Cloud API Coordination & Conflict Detection
+- User request: Show OnGridMode, reserve SOC, detect Cloud API conflicts
+- Implemented telemetry enhancements:
+  - Show OnGridMode register (15507) value and mode name
+  - Show active reserve (Self or TOU based on OnGridMode)
+  - Show both actual battery DC power AND Modbus command power
+  - Show WSetEna status
+  - Detect ⚠️  CLOUD ACTIVE when OnGridMode != Manual AND battery active
+- Added startup coordination logging:
+  - Read and log OnGridMode at startup
+  - Log active reserve for current mode
+  - Detect WSetEna=1 in non-Manual modes (potential Cloud conflict)
+  - Log warnings with recommendations
+- Added documentation:
+  - Cloud API Coordination section in CLI_OPTIONS.md
+  - OnGridMode value reference table
+  - Conflict detection explanation
+  - Best practices for hybrid operation
+  - Note: OnGridMode is read-only via Modbus (requires SPAN unlock)
+  - VPP mode detection notes
+- Key insight: Cannot write OnGridMode via Modbus, but can detect conflicts
+- Recommendation: Use FranklinWH app to switch to Self-Consumption before local control
+- Commit: `ef96eb0` - "feat: add Cloud API coordination visibility and conflict detection"
+
 ### 2026-02-21 22:45 AEDT — SoC Limits with Ramping Implemented
 - Implemented comprehensive SoC limit system as requested:
   - --max-charge-soc: Maximum SoC for charging (default 100%)
