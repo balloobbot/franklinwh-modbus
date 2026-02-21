@@ -53,40 +53,41 @@ The help says "Emergency backup target SOC" implying it's only for that mode, BU
 ### DEFECT-002: Insufficient CLI Output for Operational Verification
 **Component**: CLI output / Status reporting  
 **Severity**: HIGH  
-**Impact**: Users cannot determine if virtual modes are working without external dashboards
+**Status**: ✅ **FIXED** in commit `1ddeb97`
 
-**Current Output** (inadequate):
+**Original Issue**: Users could not determine if virtual modes were working without external dashboards
+
+**Fix Applied**:
+- Added `_print_telemetry()` method to `VirtualModeController`
+- Console output every 5 seconds with:
+  - ⏱️ Elapsed time (HH:MM:SS)
+  - ⏳ Remaining time (when `--duration` specified)
+  - 🎯 Target SoC (mode-dependent display)
+  - ☀️ Solar PV production
+  - 🏠 Home load estimation
+  - ⚡/🔋/💤 Battery state with power
+  - ↓/↑/─ Grid import/export/balanced
+- Formatted with visual separators and icons
+- Added `_format_duration()` and `_get_target_soc_display()` helpers
+
+**New Output Example**:
 ```
-Command sent: WSetPct=30.0% (raw=300), WSet=1500, WSetEna=1
+======================================================================
+  MODE: SELF_CONSUMPTION
+  ────────────────────────────────────────────────────────────────────
+  ⏱️  ELAPSED: 00:05:32  |  ⏳ REMAINING: 01:54:28
+  🎯 TARGET:   20% reserve
+  ────────────────────────────────────────────────────────────────────
+  BATTERY:    ⚡ CHARGING        1500W  |  SoC: 75.0%
+  SOLAR PV:   ☀️  PRODUCING      2800W  |  
+  HOME LOAD:  🏠 CONSUMING      1500W  |  
+  GRID:       ↑ EXPORTING         200W
+  ────────────────────────────────────────────────────────────────────
+  CMD: WSetPct=30.0%  (1500W)
+======================================================================
 ```
 
-**Missing Critical Information**:
-| Information | Why Needed | Current Status |
-|-------------|------------|----------------|
-| Home loads (W) | Verify grid_zero mode working | ❌ Not shown |
-| Solar PV (W) | Verify self_consumption using solar | ❌ Not shown |
-| Target SoC | Verify emergency_backup target | ❌ Not shown |
-| Elapsed time | Know how long mode has been active | ❌ Not shown |
-| Time remaining | Know when --duration will expire | ❌ Not shown |
-| Current mode state | Verify mode is actually active | ❌ Not shown |
-| Grid power | Verify import/export direction | ❌ Not shown |
-
-**User Workaround**: "I look at dashboards and the FranklinWH app - they all have lag"
-
-**Expected Output Example**:
-```
-================================================================================
-MODE: self_consumption (active for 00:05:32, remaining: 01:54:28)
---------------------------------------------------------------------------------
-Battery:     75% SOC (charging at 1,500W)
-Solar PV:    2,800W (excess: 1,300W)
-Home Load:   1,500W
-Grid:        -200W (exporting)
---------------------------------------------------------------------------------
-Target:      20% reserve | Current: 75% (OK)
-Command:     WSetPct=30% (1,500W charge)
-================================================================================
-```
+**Verification**: See `TELEMETRY_DEMO.md` for full examples
 
 ---
 
