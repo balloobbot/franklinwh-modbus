@@ -103,7 +103,13 @@ class BatteryCommand:
 
 @dataclass
 class TOUSchedule:
-    """Time-of-use rate periods for arbitrage."""
+    """Time-of-use rate periods for arbitrage.
+    
+    Supports both legacy hardcoded schedules and file-based configuration.
+    File-based schedules provide more flexibility with custom periods,
+    strategies, and constraint rules.
+    """
+    # Legacy fields (for backward compatibility)
     peak_hours: Tuple[int, int] = (16, 21)      # 4 PM - 9 PM
     shoulder_hours: Tuple[int, int] = (7, 16)    # 7 AM - 4 PM
     off_peak_hours: Tuple[int, int] = (21, 7)   # 9 PM - 7 AM
@@ -112,8 +118,109 @@ class TOUSchedule:
     shoulder_price: float = 0.25
     off_peak_price: float = 0.10
     
+    # File-based schedule support
+    _schedule_data: Optional[Dict] = field(default=None, repr=False)
+    _source_file: Optional[str] = field(default=None, repr=False)
+    
+    @classmethod
+    def from_file(cls, filepath: str) -> "TOUSchedule":
+        """Load TOU schedule from JSON file.
+        
+        Args:
+            filepath: Path to JSON schedule file
+            
+        Returns:
+            TOUSchedule instance with loaded configuration
+            
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ValueError: If file contains invalid JSON or schema
+        """
+        import json
+        from pathlib import Path
+        
+        path = Path(filepath)
+        if not path.exists():
+            raise FileNotFoundError(f"Schedule file not found: {filepath}")
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        # Validate basic schema
+        cls._validate_schedule(data)
+        
+        # Create instance with schedule data
+        instance = cls(_schedule_data=data, _source_file=str(path))
+        
+        # Try to populate legacy fields for compatibility
+        instance._populate_legacy_fields(data)
+        
+        logger.info(f"Loaded TOU schedule from {filepath}: {data.get('name', 'unnamed')}")
+        return instance
+    
+    @staticmethod
+    def _validate_schedule(data: Dict) -> None:
+        """Validate schedule file schema."""
+        if not isinstance(data, dict):
+            raise ValueError("Schedule must be a JSON object")
+        
+        if 'version' not in data:
+            raise ValueError("Schedule must have 'version' field")
+        
+        if 'periods' not in data or not isinstance(data['periods'], list):
+            raise ValueError("Schedule must have 'periods' array")
+        
+        if len(data['periods']) == 0:
+            raise ValueError("Schedule must have at least one period")
+        
+        for i, period in enumerate(data['periods']):
+            if 'id' not in period:
+                raise ValueError(f"Period {i} missing 'id' field")
+            if 'hours' not in period or not isinstance(period['hours'], list):
+                raise ValueError(f"Period '{period.get('id', i)}' missing 'hours' array")
+            if 'strategy' not in period:
+                raise ValueError(f"Period '{period.get('id', i)}' missing 'strategy' field")
+    
+    def _populate_legacy_fields(self, data: Dict) -> None:
+        """Try to populate legacy fields from schedule for backward compat."""
+        # Look for known period types
+        for period in data.get('periods', []):
+            pid = period.get('id', '').lower()
+            hours = period.get('hours', [])
+            
+            if 'peak' in pid and hours:
+                self.peak_hours = (min(hours), max(hours) + 1)
+                self.peak_price = period.get('price', self.peak_price)
+            elif 'shoulder' in pid and hours:
+                self.shoulder_hours = (min(hours), max(hours) + 1)
+                self.shoulder_price = period.get('price', self.shoulder_price)
+            elif 'off' in pid or 'valley' in pid and hours:
+                self.off_peak_hours = (min(hours), max(hours) + 1)
+                self.off_peak_price = period.get('price', self.off_peak_price)
+    
+    def is_file_based(self) -> bool:
+        """Check if using file-based schedule."""
+        return self._schedule_data is not None
+    
+    def get_schedule_name(self) -> str:
+        """Get schedule name or 'Legacy' if using defaults."""
+        if self._schedule_data:
+            return self._schedule_data.get('name', 'Unnamed')
+        return 'Legacy (hardcoded)'
+    
     def get_current_period(self) -> str:
-        """Determine current TOU period."""
+        """Determine current TOU period.
+        
+        Uses file-based schedule if loaded, otherwise legacy logic.
+        """
+        if self._schedule_data:
+            hour = datetime.now().hour
+            for period in self._schedule_data['periods']:
+                if hour in period.get('hours', []):
+                    return period['id']
+            return "unknown"
+        
+        # Legacy logic
         hour = datetime.now().hour
         p_start, p_end = self.peak_hours
         
@@ -126,8 +233,94 @@ class TOUSchedule:
     
     def get_current_price(self) -> float:
         """Get current electricity price."""
+        if self._schedule_data:
+            period_id = self.get_current_period()
+            for period in self._schedule_data['periods']:
+                if period['id'] == period_id:
+                    return period.get('price', 0.25)
+            return 0.25
+        
+        # Legacy logic
         period = self.get_current_period()
-        return getattr(self, f"{period}_price")
+        return getattr(self, f"{period}_price", 0.25)
+    
+    def get_strategy(self) -> str:
+        """Get battery strategy for current period.
+        
+        Returns:
+            Strategy name: 'charge', 'discharge', 'self_consumption', 
+                          'grid_zero', or 'standby'
+        """
+        if self._schedule_data:
+            period_id = self.get_current_period()
+            for period in self._schedule_data['periods']:
+                if period['id'] == period_id:
+                    return period.get('strategy', 'self_consumption')
+        
+        # Default strategy based on legacy period
+        period = self.get_current_period()
+        if period == 'peak':
+            return 'discharge'
+        elif period == 'off_peak':
+            return 'charge'
+        else:
+            return 'self_consumption'
+    
+    def get_rules(self) -> Dict[str, Any]:
+        """Get constraint rules from schedule."""
+        if self._schedule_data:
+            return self._schedule_data.get('rules', {})
+        return {}
+    
+    def get_min_soc(self) -> int:
+        """Get minimum SoC constraint."""
+        return self.get_rules().get('min_soc', 10)
+    
+    def get_max_soc(self) -> int:
+        """Get maximum SoC constraint."""
+        return self.get_rules().get('max_soc', 95)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Export schedule as dictionary."""
+        if self._schedule_data:
+            return self._schedule_data
+        
+        # Legacy format
+        return {
+            'version': '1.0 (legacy)',
+            'name': 'Legacy Hardcoded',
+            'periods': [
+                {
+                    'id': 'peak',
+                    'name': 'Peak',
+                    'hours': list(range(self.peak_hours[0], self.peak_hours[1])),
+                    'price': self.peak_price,
+                    'strategy': 'discharge'
+                },
+                {
+                    'id': 'shoulder',
+                    'name': 'Shoulder',
+                    'hours': list(range(self.shoulder_hours[0], self.shoulder_hours[1])),
+                    'price': self.shoulder_price,
+                    'strategy': 'self_consumption'
+                },
+                {
+                    'id': 'off_peak',
+                    'name': 'Off-Peak',
+                    'hours': list(range(self.off_peak_hours[0], 24)) + list(range(0, self.off_peak_hours[1])),
+                    'price': self.off_peak_price,
+                    'strategy': 'charge'
+                }
+            ]
+        }
+    
+    def __str__(self) -> str:
+        """String representation of schedule."""
+        name = self.get_schedule_name()
+        period = self.get_current_period()
+        price = self.get_current_price()
+        strategy = self.get_strategy()
+        return f"{name} | Current: {period} (${price:.2f}/kWh) | Strategy: {strategy}"
 
 
 @dataclass
@@ -926,27 +1119,47 @@ class VirtualModeController:
         """
         Arbitrage grid prices: charge cheap, discharge expensive.
         
-        Strategy:
-        - Off-peak: Charge from grid if battery low
-        - Shoulder: Normal self-consumption
-        - Peak: Discharge to avoid grid import
-        """
-        period = self.get_current_period()
+        Uses TOU schedule strategy if file-based schedule loaded,
+        otherwise falls back to hardcoded logic.
         
-        if period == "off_peak":
+        Strategies:
+        - charge: Maximize charging (off-peak)
+        - discharge: Maximize discharging (peak)
+        - self_consumption: Normal solar self-use (shoulder)
+        - grid_zero: Minimize grid import/export
+        - standby: Let aGate manage itself
+        """
+        # Get strategy from schedule (file-based or legacy)
+        strategy = self.tou.get_strategy()
+        min_soc = self.tou.get_min_soc()
+        max_soc = self.tou.get_max_soc()
+        
+        if strategy == "charge":
             # Cheap power - charge if not full
-            if soc < 90:
-                return 5000  # Max charge
+            if soc < max_soc - 5:  # 5% buffer
+                # Use excess solar first, then grid
+                if solar > home:
+                    return min(solar - home + 3000, 5000)  # Some grid charging
+                else:
+                    return 5000  # Max charge from grid
             return 0
             
-        elif period == "peak":
+        elif strategy == "discharge":
             # Expensive power - discharge to cover load
-            if soc > 20:
-                # Cover home load, export excess if profitable
+            if soc > min_soc + 5:  # 5% buffer
+                # Cover home load from battery
                 return max(min(home - solar, 5000), -5000)
             return 0
             
-        else:  # shoulder
+        elif strategy == "grid_zero":
+            # Minimize grid interaction
+            return self._calc_grid_zero(solar, home, grid, soc)
+            
+        elif strategy == "standby":
+            # Let aGate manage itself
+            return 0
+            
+        else:  # self_consumption or unknown
             # Normal self-consumption
             return self._calc_self_consumption(solar, home, grid, soc)
     
@@ -1068,6 +1281,15 @@ class VirtualModeController:
             return f"{self.backup_target_soc}%"
         elif self.mode == VirtualMode.SELF_CONSUMPTION:
             return f"{self.self_reserve_pct}% reserve"
+        elif self.mode == VirtualMode.TIME_OF_USE:
+            # Show schedule info
+            if self.tou.is_file_based():
+                period = self.tou.get_current_period()
+                strategy = self.tou.get_strategy()
+                price = self.tou.get_current_price()
+                return f"{period} (${price:.2f}) → {strategy}"
+            else:
+                return "Legacy schedule"
         else:
             return "N/A"
     
@@ -1284,8 +1506,8 @@ Examples:
     )
     
     # Connection parameters
-    parser.add_argument('-i', '--ip', required=True,
-                       help='aGate IP address')
+    parser.add_argument('-i', '--ip', 
+                       help='aGate IP address (required for most operations)')
     parser.add_argument('-p', '--port', type=int, default=502,
                        help='Modbus TCP port (default: 502)')
     parser.add_argument('-u', '--unit', type=int, default=2,
@@ -1322,6 +1544,15 @@ Examples:
                        help='Peak shave threshold in watts (default: 2000)')
     parser.add_argument('--duration', type=int,
                        help='Mode duration in seconds (default: indefinite)')
+    
+    # TOU Schedule file support
+    parser.add_argument('--schedule-file', type=str, metavar='FILE',
+                       help='TOU schedule JSON file (for time_of_use mode). '
+                            'See schedules/ directory for examples.')
+    parser.add_argument('--show-schedule', type=str, metavar='FILE',
+                       help='Display schedule file contents and exit')
+    parser.add_argument('--validate-schedule', type=str, metavar='FILE',
+                       help='Validate schedule file and exit')
     
     # Information
     parser.add_argument('--status', action='store_true',
@@ -1655,6 +1886,41 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Handle schedule file display/validation (no hardware needed)
+    if args.show_schedule:
+        try:
+            schedule = TOUSchedule.from_file(args.show_schedule)
+            print(f"\nSchedule: {schedule.get_schedule_name()}")
+            print("=" * 60)
+            import json
+            print(json.dumps(schedule.to_dict(), indent=2))
+            print("=" * 60)
+            print(f"Current period: {schedule.get_current_period()}")
+            print(f"Current price: ${schedule.get_current_price():.2f}/kWh")
+            print(f"Current strategy: {schedule.get_strategy()}")
+            print(f"Rules: {schedule.get_rules()}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error loading schedule: {e}")
+            sys.exit(1)
+    
+    if args.validate_schedule:
+        try:
+            schedule = TOUSchedule.from_file(args.validate_schedule)
+            print(f"✓ Schedule '{schedule.get_schedule_name()}' is valid")
+            print(f"  Periods: {len(schedule._schedule_data.get('periods', []))}")
+            print(f"  Current period: {schedule.get_current_period()}")
+            print(f"  Current strategy: {schedule.get_strategy()}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"✗ Schedule validation failed: {e}")
+            sys.exit(1)
+    
+    # Check required IP for hardware operations
+    if not args.ip:
+        print("Error: -i/--ip is required (except for --show-schedule and --validate-schedule)")
+        sys.exit(1)
+    
     # Create hardware controller
     ctrl = FranklinWHController(
         ip_address=args.ip,
@@ -1724,6 +1990,16 @@ def main():
             
             vmc = VirtualModeController(ctrl)
             
+            # Load schedule file if provided (for time_of_use mode)
+            if args.schedule_file:
+                try:
+                    schedule = TOUSchedule.from_file(args.schedule_file)
+                    vmc.tou = schedule
+                    print(f"Loaded TOU schedule: {schedule}")
+                except Exception as e:
+                    print(f"Error loading schedule file: {e}")
+                    sys.exit(1)
+            
             # Map CLI args to mode parameters
             mode_kwargs = {}
             if args.mode == 'self_consumption':
@@ -1734,6 +2010,10 @@ def main():
                 mode_kwargs['peak_shave_threshold'] = args.threshold
             elif args.mode == 'manual':
                 mode_kwargs['manual_power_w'] = args.power or 0
+            elif args.mode == 'time_of_use':
+                # Schedule file is optional - will use default if not provided
+                if vmc.tou.is_file_based():
+                    mode_kwargs['tou_schedule'] = vmc.tou
             
             # Set mode and run
             vmc.set_mode(VirtualMode(args.mode), **mode_kwargs)

@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "name": "Simple Day/Night",
+  "description": "Basic 2-period schedule: day (self-consumption), night (charge)",
+  "timezone": "Australia/Sydney",
+  "periods": [
+    {
+      "id": "day",
+      "name": "Day",
+      "hours": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+      "price": 0.30,
+      "color": "#ffaa00",
+      "strategy": "self_consumption"
+    },
+    {
+      "id": "night",
+      "name": "Night",
+      "hours": [21, 22, 23, 0, 1, 2, 3, 4, 5, 6],
+      "price": 0.15,
+      "color": "#4444ff",
+      "strategy": "charge"
+    }
+  ],
+  "rules": {
+    "min_soc": 20,
+    "max_soc": 95,
+    "charge_from_grid": true
+  }
+}

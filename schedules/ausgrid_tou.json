@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "name": "Ausgrid TOU",
+  "description": "Australian Ausgrid Time of Use rates (Sydney region)",
+  "timezone": "Australia/Sydney",
+  "periods": [
+    {
+      "id": "peak",
+      "name": "Peak",
+      "hours": [14, 15, 16, 17, 18, 19, 20],
+      "price": 0.55,
+      "color": "#ff4444",
+      "strategy": "discharge"
+    },
+    {
+      "id": "shoulder",
+      "name": "Shoulder",
+      "hours": [7, 8, 9, 10, 11, 12, 13, 21, 22],
+      "price": 0.24,
+      "color": "#ffaa00",
+      "strategy": "self_consumption"
+    },
+    {
+      "id": "off_peak",
+      "name": "Off-Peak",
+      "hours": [23, 0, 1, 2, 3, 4, 5, 6],
+      "price": 0.12,
+      "color": "#44aa44",
+      "strategy": "charge"
+    }
+  ],
+  "rules": {
+    "min_soc": 10,
+    "max_soc": 95,
+    "charge_from_grid": true,
+    "export_limit_w": 5000
+  }
+}
