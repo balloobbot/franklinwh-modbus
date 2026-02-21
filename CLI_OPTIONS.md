@@ -837,3 +837,81 @@ Grid alert appears when:
 5. **Start conservative** with power limits
 6. **Have --stop ready** for quick shutdown
 
+
+---
+
+## AC-Coupled vs DC-Coupled Systems
+
+### aGate X (AC-Coupled)
+
+**Architecture**:
+- Solar panels → AC solar inputs (2x 63A circuits)
+- AC solar → Internal rectifier → DC bus
+- Battery ↔ DC bus ↔ Inverter → AC output
+- Grid ↔ AC output
+
+**Monitoring**:
+- **Model 714**: Battery DC power only (not solar!)
+- **Model 502**: Solar AC output
+- **Model 701**: Grid/AC power
+
+**Safety Considerations**:
+- Battery inverter is separate from solar AC inputs
+- Total home load can be: Battery discharge + Solar AC - Grid export
+- Off-grid risk: If home load > (Battery max + Solar), system shuts down
+
+### aPower S (DC-Coupled with AC inputs)
+
+**Architecture**:
+- Solar panels → MPPT DC inputs (4x)
+- MPPT → DC bus
+- Battery ↔ DC bus ↔ Inverter → AC output
+- Grid ↔ AC output
+- **Also has**: 2x AC solar inputs (like aGate X)
+
+**Monitoring**:
+- **Model 714**: Battery DC power
+- **Model 502**: Solar (AC + DC combined?)
+- **Model 701**: Grid/AC power
+
+### Off-Grid Capacity Monitoring
+
+The script monitors this critical calculation:
+
+```
+AVAILABLE SUPPLY:
+  Battery Max Discharge: 5000W (from M702 rating)
+  + Solar Generation:    3000W (from Model 502)
+  = Total Available:     8000W
+
+REQUIRED:
+  Home Load:             7500W
+
+CAPACITY USED: 7500/8000 = 94% ⚠️  HIGH
+SAFETY MARGIN: 500W
+```
+
+**Warnings**:
+- **80-95%**: ⚠️  CAPACITY warning (yellow)
+- **>95%**: 🚨 OFF-GRID RISK (red) - System may shutdown!
+
+**Telemetry Display**:
+```
+BATTERY INVERTER: 45% (2250W / 5000W)
+CAPACITY: 94% (7500W / 8000W available)
+⚠️  OFF-GRID RISK: Home load 7500W at 94% of supply capacity!
+   Available: Battery 5000W + Solar 3000W = 8000W
+   ⚠️  System may shutdown if load exceeds supply!
+```
+
+### Supported aGate Models
+
+| Model | aPower | Capacity | DC Solar | AC Solar | Peak AC | Continuous |
+|-------|--------|----------|----------|----------|---------|------------|
+| aGate 12 | aPower | 10.2-40.8 kWh | 30A | - | 12 kW | 10 kW |
+| aGate 15 | aPower S | 12.6-50.4 kWh | 35A | 30A | 15 kW | 12 kW |
+| aGate 20 | aPower X | 15.3-61.2 kWh | 40A | - | 20 kW | 16 kW |
+| aGate 20 | aPower 2 | 18.4-73.6 kWh | 45A | - | 20 kW | 16 kW |
+
+**Note**: The script auto-detects ratings from M702 registers. Models with higher continuous AC ratings (16kW) will show different limits than 5kW base models.
+
