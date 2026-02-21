@@ -523,3 +523,132 @@ After library split:
 ---
 
 *End of CLI Options Reference*
+
+---
+
+## Cloud API Coordination
+
+### Understanding OnGridMode
+
+The aGate maintains an `OnGridMode` register (15507) that indicates which operating mode it's in:
+
+| Value | Mode | Reserve Register | Typical Controller |
+|-------|------|------------------|-------------------|
+| 0 | Emergency Backup | None | Cloud API (manual set) |
+| 1 | Self-Consumption | 15508 (Self) | Cloud API or local |
+| 2 | Time-of-Use | 15509 (TOU) | Cloud API scheduler |
+| 3 | Manual | None | Modbus / Local control |
+
+**Key Point**: Modbus writes to WSetPct work regardless of OnGridMode, but the Cloud API expects to control modes 0-2. Mode 3 (Manual) is intended for external Modbus control.
+
+### Coordination Strategy
+
+When using this script alongside Cloud API:
+
+1. **Check Current Mode First**:
+   ```bash
+   python franklinwh_control_standalone.py -i 192.168.0.110 --status
+   ```
+   Look for "OnGridMode" in the output.
+
+2. **Switch to Self-Consumption (Recommended)**:
+   The Cloud API handles TOU scheduling in mode 2, but if you want to use this script for specific control:
+   - Use FranklinWH app to switch to "Self-Consumption" mode
+   - Or switch to "Manual" mode if available
+
+3. **Use `--reset-on-start`**:
+   This ensures WSetEna is cleared and we take control via Modbus.
+
+4. **Monitor for Conflicts**:
+   The telemetry now shows:
+   - `OnGridMode` - what the aGate thinks it's doing
+   - `Reserve` - active reserve for that mode
+   - `⚠️  CLOUD ACTIVE` - warning if battery active while not in Manual mode
+
+### Conflict Detection
+
+The script detects potential conflicts:
+
+```
+MODE: MANUAL ⚠️  CLOUD ACTIVE (OnGridMode=TOU)
+```
+
+This means:
+- We're trying to run in Manual mode
+- But OnGridMode is still TOU (Cloud API scheduler active)
+- Battery is charging/discharging (likely from Cloud TOU schedule)
+- Our Modbus commands may conflict with Cloud commands
+
+**Resolution**:
+1. Stop this script (Ctrl+C)
+2. Use FranklinWH app to switch to Self-Consumption or Manual mode
+3. Restart script with `--reset-on-start`
+
+### Reserve SOC Coordination
+
+The reserve SOC registers (15508/15509) are **read-only via Modbus** (require SPAN installer unlock to write). However, you can set them via:
+- FranklinWH mobile app
+- Cloud API (if you have access)
+
+**Important**: The `--min-discharge-soc` parameter is constrained to be ≥ the aGate's reserve SOC. If the aGate reserve is 20%, you cannot discharge below 20% via Modbus (the aGate will enforce its own limit).
+
+### Writing to OnGridMode
+
+**Not possible via standard Modbus** - requires SPAN installer unlock.
+
+This means:
+- We cannot switch the aGate from TOU to Manual mode via this script
+- You must use the FranklinWH app or Cloud API to change modes
+- Our Modbus control works regardless, but Cloud may override
+
+### Best Practices
+
+1. **Before starting control**:
+   ```bash
+   # Check current state
+   python franklinwh_control_standalone.py -i 192.168.0.110 --status
+   
+   # If OnGridMode is TOU or Backup, consider switching via app first
+   # Then run with reset
+   python franklinwh_control_standalone.py -i 192.168.0.110 \
+     --reset-on-start --mode manual --power -2000
+   ```
+
+2. **Monitor telemetry**:
+   Watch for `⚠️  CLOUD ACTIVE` warnings which indicate conflicts.
+
+3. **Always release control when done**:
+   ```bash
+   python franklinwh_control_standalone.py -i 192.168.0.110 --stop
+   ```
+   This sets WSetEna=0 and allows Cloud API to resume control.
+
+4. **Use Self-Consumption mode for hybrid operation**:
+   - Set aGate to Self-Consumption via app
+   - Use this script for temporary overrides
+   - aGate will return to Self-Consumption when script stops
+
+---
+
+## VPP Mode Detection
+
+**VPP (Virtual Power Plant) Mode** is when the battery is under active dispatch control:
+
+- WSetEna = 1 (active control enabled)
+- WSetPct ≠ 0 (power command active)
+- OnGridMode may be any value
+
+The telemetry shows:
+```
+MODBUS:     WSetEna=1 | Command: -2500W
+```
+
+If you didn't set this command, another controller (Cloud API, VPP aggregator) is active.
+
+**To take control**:
+1. Use `--reset-on-start` to clear WSetEna
+2. This forces WSetEna=0, releasing other controllers
+3. Then we set our own WSetPct values
+
+**Note**: Some VPP contracts may penalize you for overriding their commands. Check your agreement before using `--reset-on-start` during VPP events.
+

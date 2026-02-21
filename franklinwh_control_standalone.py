@@ -1412,13 +1412,39 @@ class VirtualModeController:
         grid_power = grid.get('grid_power_w', 0)
         home_load = derived.get('home_load_w', 0)
         
-        # Battery state icon
-        if battery_power < -50:
+        # Read aGate native mode (OnGridMode and reserves)
+        native_mode = self.ctrl.read_native_mode() or {}
+        ongrid_mode = native_mode.get('mode_raw', -1)
+        ongrid_name = native_mode.get('mode_name', 'Unknown')
+        self_reserve = native_mode.get('self_reserve_pct', -1)
+        tou_reserve = native_mode.get('tou_reserve_pct', -1)
+        
+        # Determine which reserve is active based on OnGridMode
+        # 0=Backup (no reserve shown), 1=Self, 2=TOU, 3=Manual
+        active_reserve = "N/A"
+        if ongrid_mode == 1:
+            active_reserve = f"{self_reserve}% (Self)"
+        elif ongrid_mode == 2:
+            active_reserve = f"{tou_reserve}% (TOU)"
+        
+        # Detect potential Cloud API activity
+        # If OnGridMode is not Manual and battery is active, Cloud might be controlling
+        wset_ena = control.get('wset_ena', 0)
+        dc_power = battery.get('dc_power_w', 0)  # Actual battery DC power
+        cloud_active_warning = ""
+        
+        # Check for activity not from our Modbus control
+        if ongrid_mode != 3:  # Not in Manual mode
+            if abs(dc_power) > 100:  # Battery is actively charging/discharging
+                cloud_active_warning = f" ⚠️  CLOUD ACTIVE (OnGridMode={ongrid_name})"
+        
+        # Battery state icon (use actual DC power for truth)
+        if dc_power < -50:
             bat_icon = "⚡ CHARGING"
-            bat_detail = f"{abs(battery_power):.0f}W"
-        elif battery_power > 50:
+            bat_detail = f"{abs(dc_power):.0f}W"
+        elif dc_power > 50:
             bat_icon = "🔋 DISCHARGING"
-            bat_detail = f"{battery_power:.0f}W"
+            bat_detail = f"{dc_power:.0f}W"
         else:
             bat_icon = "💤 IDLE"
             bat_detail = "0W"
@@ -1438,13 +1464,15 @@ class VirtualModeController:
         # print("\033[2J\033[H", end="")  # Uncomment for terminal clear
         
         print("\n" + "=" * 70)
-        print(f"  MODE: {self.mode.value.upper()}")
+        print(f"  MODE: {self.mode.value.upper()}{cloud_active_warning}")
         print(f"  {'─' * 66}")
         print(f"  ⏱️  ELAPSED: {self._format_duration(elapsed)}" + 
               (f"  |  ⏳ REMAINING: {self._format_duration(remaining)}" if remaining is not None else ""))
         print(f"  🎯 TARGET:   {self._get_target_soc_display()}")
+        print(f"  aGATE:      OnGridMode={ongrid_name} ({ongrid_mode}) | Reserve: {active_reserve}")
         print(f"  {'─' * 66}")
         print(f"  BATTERY:    {bat_icon:15s} {bat_detail:>10s}  |  SoC: {soc:.1f}%")
+        print(f"  MODBUS:     WSetEna={wset_ena} | Command: {battery_power:.0f}W")
         print(f"  SOLAR PV:   {'☀️  PRODUCING':15s} {solar_power:>10.0f}W  |  ")
         print(f"  HOME LOAD:  {'🏠 CONSUMING':15s} {home_load:>10.0f}W  |  ")
         print(f"  GRID:       {grid_icon:15s} {grid_detail:>10s}")
@@ -2064,6 +2092,55 @@ def main():
     
     if not ctrl.connect():
         sys.exit(1)
+    
+    # Log startup information
+    logger.info("=" * 60)
+    logger.info("FranklinWH Control Starting")
+    logger.info(f"  Target: {args.ip}:{args.port} (unit {args.unit})")
+    logger.info(f"  Mode: {args.mode or 'direct control'}")
+    logger.info(f"  SoC Limits: min_discharge={args.min_discharge_soc or 'auto'}, "
+                f"max_charge={args.max_charge_soc}, ramp_window={args.soc_ramp_window}%")
+    
+    # Check aGate native mode for Cloud API coordination
+    native = ctrl.read_native_mode()
+    if native:
+        ongrid_mode = native.get('mode_raw', -1)
+        ongrid_name = native.get('mode_name', 'Unknown')
+        self_reserve = native.get('self_reserve_pct', -1)
+        tou_reserve = native.get('tou_reserve_pct', -1)
+        
+        logger.info(f"  aGate OnGridMode: {ongrid_name} ({ongrid_mode})")
+        
+        if ongrid_mode == 0:
+            logger.info(f"  aGate Reserve: Emergency Backup mode (no reserve)")
+        elif ongrid_mode == 1:
+            logger.info(f"  aGate Reserve: Self-Consumption {self_reserve}%")
+        elif ongrid_mode == 2:
+            logger.info(f"  aGate Reserve: TOU {tou_reserve}%")
+        elif ongrid_mode == 3:
+            logger.info(f"  aGate Reserve: Manual mode")
+        
+        # Check for potential Cloud API activity
+        if ongrid_mode != 3:  # Not in Manual mode
+            # Read current battery activity
+            bat_status = ctrl.read_battery_status()
+            soc = bat_status.get('soc', 0)
+            logger.info(f"  aGate SoC: {soc:.1f}%")
+            
+            # Check if Cloud API might be actively controlling
+            control_status = ctrl.read_control_status()
+            wset_ena = control_status.get('wset_enabled', 0)
+            
+            if wset_ena == 1:
+                logger.warning(f"  ⚠️  WARNING: WSetEna=1 detected in {ongrid_name} mode!")
+                logger.warning(f"      Cloud API or another controller may be active.")
+                logger.warning(f"      Using --reset-on-start will take control via Modbus.")
+            else:
+                logger.info(f"  Note: OnGridMode={ongrid_name}, but WSetEna=0 (no active control)")
+                if ongrid_mode == 2:
+                    logger.info(f"        TOU schedule may activate soon.")
+    
+    logger.info("=" * 60)
     
     # Register signal handlers for graceful shutdown
     def signal_handler(signum, frame):
