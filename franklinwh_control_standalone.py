@@ -920,7 +920,22 @@ class VirtualModeController:
         modes.run_continuous()
     """
     
-    def __init__(self, franklinwh_controller: FranklinWHController):
+    def __init__(self, franklinwh_controller: FranklinWHController,
+                 max_charge_soc: int = 100,
+                 min_discharge_soc: Optional[int] = None,
+                 soc_ramp_window: int = 10,
+                 force_soc_limits: bool = False):
+        """
+        Initialize virtual mode controller.
+        
+        Args:
+            franklinwh_controller: Connected FranklinWHController instance
+            max_charge_soc: Maximum SoC for charging (with ramping)
+            min_discharge_soc: Minimum SoC for discharging (with ramping).
+                             If None, reads from aGate native mode.
+            soc_ramp_window: SoC percentage for ramping before hard limit
+            force_soc_limits: If True, allows override of SoC limits (logged warning)
+        """
         self.ctrl = franklinwh_controller
         self.mode = VirtualMode.SELF_CONSUMPTION
         self.tou = TOUSchedule()
@@ -934,6 +949,29 @@ class VirtualModeController:
         # Manual mode setting
         self.manual_power_w = 0
         
+        # SoC limit parameters
+        self.max_charge_soc = max_charge_soc
+        self.soc_ramp_window = soc_ramp_window
+        self.force_soc_limits = force_soc_limits
+        
+        # Read min discharge from aGate if not specified
+        if min_discharge_soc is None:
+            self.min_discharge_soc = self._read_agate_reserve_soc()
+        else:
+            # Validate against aGate reserve (cannot go below)
+            agate_reserve = self._read_agate_reserve_soc()
+            if min_discharge_soc < agate_reserve:
+                logger.warning(f"Requested min-discharge-soc {min_discharge_soc}% is below "
+                              f"aGate reserve {agate_reserve}%. Using {agate_reserve}%.")
+                self.min_discharge_soc = agate_reserve
+            else:
+                self.min_discharge_soc = min_discharge_soc
+        
+        logger.info(f"SoC limits configured: min_discharge={self.min_discharge_soc}%, "
+                   f"max_charge={self.max_charge_soc}%, ramp_window={self.soc_ramp_window}%")
+        if self.force_soc_limits:
+            logger.warning("FORCE MODE ENABLED: SoC limits can be overridden (use with caution)")
+        
         # State for tick() method
         self.last_tick = 0
         self.tick_interval = 5  # seconds
@@ -943,6 +981,26 @@ class VirtualModeController:
         
         # Register cleanup handler
         atexit.register(self._emergency_idle)
+    
+    def _read_agate_reserve_soc(self) -> int:
+        """Read reserve SOC from aGate native mode registers.
+        
+        Returns:
+            Reserve SOC percentage (defaults to 10 if cannot read)
+        """
+        try:
+            native = self.ctrl.read_native_mode()
+            if native:
+                # TOU reserve (15509) or Self reserve (15508)
+                # Use the higher of the two for safety
+                tou_reserve = native.get('tou_reserve_pct', 10)
+                self_reserve = native.get('self_reserve_pct', 10)
+                reserve = max(tou_reserve, self_reserve)
+                logger.info(f"Read aGate reserve SOC: {reserve}% (TOU={tou_reserve}%, Self={self_reserve}%)")
+                return reserve
+        except Exception as e:
+            logger.warning(f"Could not read aGate reserve SOC: {e}, using default 10%")
+        return 10  # Safe default
     
     def _emergency_idle(self):
         """Ensure battery control is fully released on unexpected exit.
@@ -1215,26 +1273,69 @@ class VirtualModeController:
         return self.manual_power_w
     
     def _apply_safety_limits(self, power: float, soc: float) -> float:
-        """Apply safety limits based on SOC."""
-        # Don't charge if full
-        if soc >= 99 and power > 0:
-            logger.warning(f"SoC {soc:.1f}% - blocking charge")
+        """Apply safety limits based on SOC.
+        
+        Implements soft limits with ramping:
+        - Hard limits at absolute boundaries (0%, 100%)
+        - Configurable limits with ramping window
+        - Emergency override available (--force)
+        """
+        # Absolute hard limits (never override)
+        if soc >= 99.5 and power > 0:
+            logger.warning(f"SoC {soc:.1f}% at absolute maximum - blocking all charge")
             return 0
         
-        # Don't discharge if empty
-        if soc <= 5 and power < 0:
-            logger.warning(f"SoC {soc:.1f}% - blocking discharge")
+        if soc <= 0.5 and power < 0:
+            logger.warning(f"SoC {soc:.1f}% at absolute minimum - blocking all discharge")
             return 0
         
-        # Limit charge rate at high SOC
-        if soc > 95 and power > 1000:
-            logger.info(f"High SoC {soc:.1f}% - limiting charge to 1000W")
-            return 1000
+        # Get limit parameters
+        max_charge_soc = getattr(self, 'max_charge_soc', 100)
+        min_discharge_soc = getattr(self, 'min_discharge_soc', 5)
+        ramp_window = getattr(self, 'soc_ramp_window', 10)
+        force_override = getattr(self, 'force_soc_limits', False)
         
-        # Limit discharge rate at low SOC
-        if soc < 15 and power < -1000:
-            logger.info(f"Low SoC {soc:.1f}% - limiting discharge to 1000W")
-            return -1000
+        # Apply max charge limit with ramping
+        if power > 0 and soc >= (max_charge_soc - ramp_window):
+            if soc >= max_charge_soc:
+                # Hard stop at limit
+                if not force_override:
+                    logger.info(f"SoC {soc:.1f}% at max charge limit ({max_charge_soc}%) - blocking charge")
+                    return 0
+                else:
+                    logger.warning(f"FORCE OVERRIDE: SoC {soc:.1f}% exceeds max ({max_charge_soc}%) but charging anyway")
+            else:
+                # Ramping zone
+                ramp_progress = (soc - (max_charge_soc - ramp_window)) / ramp_window
+                ramp_factor = 1.0 - ramp_progress  # 1.0 at start, 0.0 at limit
+                ramped_power = power * max(ramp_factor, 0.05)  # Minimum 5% power
+                
+                if ramp_factor < 0.9:  # Log when significantly ramped
+                    logger.info(f"SoC {soc:.1f}% approaching max ({max_charge_soc}%) - "
+                               f"ramping charge: {power:.0f}W → {ramped_power:.0f}W "
+                               f"({ramp_factor*100:.0f}%)")
+                power = ramped_power
+        
+        # Apply min discharge limit with ramping
+        if power < 0 and soc <= (min_discharge_soc + ramp_window):
+            if soc <= min_discharge_soc:
+                # Hard stop at limit
+                if not force_override:
+                    logger.info(f"SoC {soc:.1f}% at min discharge limit ({min_discharge_soc}%) - blocking discharge")
+                    return 0
+                else:
+                    logger.warning(f"FORCE OVERRIDE: SoC {soc:.1f}% below min ({min_discharge_soc}%) but discharging anyway")
+            else:
+                # Ramping zone
+                ramp_progress = ((min_discharge_soc + ramp_window) - soc) / ramp_window
+                ramp_factor = 1.0 - ramp_progress  # 1.0 at start, 0.0 at limit
+                ramped_power = power * max(ramp_factor, 0.05)  # Minimum 5% power (negative)
+                
+                if ramp_factor < 0.9:  # Log when significantly ramped
+                    logger.info(f"SoC {soc:.1f}% approaching min ({min_discharge_soc}%) - "
+                               f"ramping discharge: {power:.0f}W → {ramped_power:.0f}W "
+                               f"({ramp_factor*100:.0f}%)")
+                power = ramped_power
         
         return power
     
@@ -1348,7 +1449,27 @@ class VirtualModeController:
         print(f"  HOME LOAD:  {'🏠 CONSUMING':15s} {home_load:>10.0f}W  |  ")
         print(f"  GRID:       {grid_icon:15s} {grid_detail:>10s}")
         print(f"  {'─' * 66}")
-        print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W)")
+        # SoC limit status
+        limit_status = ""
+        ramp_pct = 100.0
+        if battery_power > 0 and soc >= (self.max_charge_soc - self.soc_ramp_window):
+            if soc >= self.max_charge_soc:
+                limit_status = " 🔒 MAX LIMIT"
+            else:
+                ramp_pct = (self.max_charge_soc - soc) / self.soc_ramp_window * 100
+                limit_status = f" ↓ RAMPING ({ramp_pct:.0f}%)"
+        elif battery_power < 0 and soc <= (self.min_discharge_soc + self.soc_ramp_window):
+            if soc <= self.min_discharge_soc:
+                limit_status = " 🔒 MIN LIMIT"
+            else:
+                ramp_pct = (soc - self.min_discharge_soc) / self.soc_ramp_window * 100
+                limit_status = f" ↓ RAMPING ({ramp_pct:.0f}%)"
+        
+        if self.force_soc_limits and (soc >= self.max_charge_soc or soc <= self.min_discharge_soc):
+            limit_status += " [FORCE]"
+        
+        print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W){limit_status}")
+        print(f"  LIMITS: Discharge≥{self.min_discharge_soc}% Charge≤{self.max_charge_soc}% (window:{self.soc_ramp_window}%)")
         print("=" * 70)
 
     def run_continuous(self, duration_seconds: Optional[float] = None):
@@ -1544,6 +1665,18 @@ Examples:
                        help='Peak shave threshold in watts (default: 2000)')
     parser.add_argument('--duration', type=int,
                        help='Mode duration in seconds (default: indefinite)')
+    
+    # SoC Limits (with ramping)
+    parser.add_argument('--max-charge-soc', type=int, default=100,
+                       help='Maximum SoC for charging with ramping (default: 100)')
+    parser.add_argument('--min-discharge-soc', type=int, default=None,
+                       help='Minimum SoC for discharging with ramping '
+                            '(default: read from aGate reserve)')
+    parser.add_argument('--soc-ramp-window', type=int, default=10,
+                       help='SoC ramping window in percent (default: 10)')
+    parser.add_argument('--force', action='store_true',
+                       help='Force operation even if SoC limits would prevent it '
+                            '(logged warning, use with caution)')
     
     # TOU Schedule file support
     parser.add_argument('--schedule-file', type=str, metavar='FILE',
@@ -1988,7 +2121,14 @@ def main():
                     print("\n⚠ Control already active. Use --reset-on-start for clean state.")
                     sys.exit(1)
             
-            vmc = VirtualModeController(ctrl)
+            # Create virtual mode controller with SoC limits
+            vmc = VirtualModeController(
+                ctrl,
+                max_charge_soc=args.max_charge_soc,
+                min_discharge_soc=args.min_discharge_soc,
+                soc_ramp_window=args.soc_ramp_window,
+                force_soc_limits=args.force
+            )
             
             # Load schedule file if provided (for time_of_use mode)
             if args.schedule_file:
