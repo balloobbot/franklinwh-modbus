@@ -1055,6 +1055,80 @@ class VirtualModeController:
             return True
         return False
     
+    def _format_duration(self, seconds: float) -> str:
+        """Format seconds as HH:MM:SS."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    
+    def _get_target_soc_display(self) -> str:
+        """Get target SoC display based on current mode."""
+        if self.mode == VirtualMode.EMERGENCY_BACKUP:
+            return f"{self.backup_target_soc}%"
+        elif self.mode == VirtualMode.SELF_CONSUMPTION:
+            return f"{self.self_reserve_pct}% reserve"
+        else:
+            return "N/A"
+    
+    def _print_telemetry(self, status: Dict, start_time: float, duration_seconds: Optional[float] = None):
+        """Print formatted telemetry to console."""
+        now = time.time()
+        elapsed = now - start_time
+        remaining = duration_seconds - elapsed if duration_seconds else None
+        
+        battery = status.get('battery', {})
+        grid = status.get('grid', {})
+        solar = status.get('solar', {})
+        derived = status.get('derived', {})
+        control = status.get('control', {})
+        
+        soc = battery.get('soc', 0)
+        battery_power = control.get('wset_watts', 0)
+        solar_power = solar.get('dc_power_w', 0)
+        grid_power = grid.get('grid_power_w', 0)
+        home_load = derived.get('home_load_w', 0)
+        
+        # Battery state icon
+        if battery_power < -50:
+            bat_icon = "⚡ CHARGING"
+            bat_detail = f"{abs(battery_power):.0f}W"
+        elif battery_power > 50:
+            bat_icon = "🔋 DISCHARGING"
+            bat_detail = f"{battery_power:.0f}W"
+        else:
+            bat_icon = "💤 IDLE"
+            bat_detail = "0W"
+        
+        # Grid state
+        if grid_power > 50:
+            grid_icon = "↓ IMPORTING"
+            grid_detail = f"{grid_power:.0f}W"
+        elif grid_power < -50:
+            grid_icon = "↑ EXPORTING"
+            grid_detail = f"{abs(grid_power):.0f}W"
+        else:
+            grid_icon = "─ BALANCED"
+            grid_detail = f"{grid_power:.0f}W"
+        
+        # Clear screen (optional, for cleaner output)
+        # print("\033[2J\033[H", end="")  # Uncomment for terminal clear
+        
+        print("\n" + "=" * 70)
+        print(f"  MODE: {self.mode.value.upper()}")
+        print(f"  {'─' * 66}")
+        print(f"  ⏱️  ELAPSED: {self._format_duration(elapsed)}" + 
+              (f"  |  ⏳ REMAINING: {self._format_duration(remaining)}" if remaining is not None else ""))
+        print(f"  🎯 TARGET:   {self._get_target_soc_display()}")
+        print(f"  {'─' * 66}")
+        print(f"  BATTERY:    {bat_icon:15s} {bat_detail:>10s}  |  SoC: {soc:.1f}%")
+        print(f"  SOLAR PV:   {'☀️  PRODUCING':15s} {solar_power:>10.0f}W  |  ")
+        print(f"  HOME LOAD:  {'🏠 CONSUMING':15s} {home_load:>10.0f}W  |  ")
+        print(f"  GRID:       {grid_icon:15s} {grid_detail:>10s}")
+        print(f"  {'─' * 66}")
+        print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W)")
+        print("=" * 70)
+
     def run_continuous(self, duration_seconds: Optional[float] = None):
         """
         Run controller continuously with graceful shutdown.
@@ -1074,19 +1148,37 @@ class VirtualModeController:
         
         start = time.time()
         last_status_log = 0
+        last_console_output = 0
+        
+        # Print initial header
+        print("\n" + "=" * 70)
+        print(f"  STARTING: {self.mode.value} mode")
+        if duration_seconds:
+            print(f"  DURATION: {self._format_duration(duration_seconds)}")
+        print(f"  Press Ctrl+C to stop")
+        print("=" * 70)
         
         try:
             while not self._shutdown_requested:
                 # Execute control tick
                 self.tick()
                 
-                # Periodic status logging (every 60 seconds)
                 now = time.time()
+                
+                # Console telemetry output (every 5 seconds for visibility)
+                if now - last_console_output >= 5:
+                    status = self.read_status()
+                    self._print_telemetry(status, start, duration_seconds)
+                    last_console_output = now
+                
+                # Periodic status logging (every 60 seconds to file)
                 if now - last_status_log >= 60:
-                    status = self.ctrl.read_battery_status()
-                    grid = self.ctrl.read_grid_status()
-                    logger.info(f"Status: SOC={status.get('soc', 0):.1f}%, "
-                               f"Grid={grid.get('grid_power_w', 0):.0f}W")
+                    status = self.read_status()
+                    battery = status.get('battery', {})
+                    grid = status.get('grid', {})
+                    logger.info(f"Status: SOC={battery.get('soc', 0):.1f}%, "
+                               f"Grid={grid.get('grid_power_w', 0):.0f}W, "
+                               f"Mode={self.mode.value}")
                     last_status_log = now
                 
                 # Small sleep to prevent busy-wait
@@ -1094,7 +1186,7 @@ class VirtualModeController:
                 
                 # Check duration limit
                 if duration_seconds and (now - start) > duration_seconds:
-                    logger.info("Duration expired, stopping")
+                    print("\n✓ Duration expired, stopping...")
                     break
                     
         except Exception as e:
@@ -1103,11 +1195,15 @@ class VirtualModeController:
             # Safe shutdown — MUST set WSetEna=0 to release Modbus control.
             # Without this, aGate stays in VPP standby instead of resuming
             # its configured mode (e.g. Self-Consumption).
-            logger.info("Releasing Modbus control (WSetEna=0)")
+            print("\n" + "=" * 70)
+            print("  SHUTTING DOWN: Releasing Modbus control (WSetEna=0)")
+            print("=" * 70)
             try:
                 self.ctrl.reset_control_state()
+                print("✓ Control released - aGate will resume configured mode")
             except Exception as e:
                 logger.error(f"Shutdown reset failed: {e}")
+                print(f"✗ Error releasing control: {e}")
 
     def read_all_alarms(client):
         """Read all alarm sources from FranklinWH aGate"""
