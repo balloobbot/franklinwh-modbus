@@ -2365,6 +2365,8 @@ Examples:
     parser.add_argument('--force', action='store_true',
                        help='Force operation even if SoC limits would prevent it '
                             '(logged warning, use with caution)')
+    parser.add_argument('--off-grid-permitted', action='store_true',
+                       help='Allow operation when grid is disconnected (off-grid)')
     
     # TOU Schedule file support
     parser.add_argument('--schedule-file', type=str, metavar='FILE',
@@ -2519,7 +2521,18 @@ def check_startup_state(ctrl, requested_mode: str = None) -> dict:
         voltage = grid.get('voltage_v', 0)
         result['current_state']['grid_power'] = grid_power
         result['current_state']['grid_voltage'] = voltage
-        result['current_state']['grid_connected'] = voltage > 180 and voltage < 270
+        # Grid connection: check both voltage and ConnSt register
+        connection_state = grid.get('connection_state', 'Unknown')
+        result['current_state']['connection_state'] = connection_state
+        voltage_ok = 180 < voltage < 270
+        conn_st_connected = connection_state == 'Connected'
+        result['current_state']['grid_connected'] = voltage_ok and conn_st_connected
+        
+        # Off-grid warning (will block unless --off-grid-permitted)
+        if not result['current_state']['grid_connected']:
+            result['warnings'].append(
+                f"OFF-GRID: Grid connection state is '{connection_state}' (voltage: {voltage:.1f}V)"
+            )
         
         # Read control status
         ctl = ctrl.read_control_status()
@@ -3114,6 +3127,18 @@ def main():
         print("    2. Change aGate mode via FranklinWH app to match requested mode")
         print("    3. Wait for current operation to complete")
         sys.exit(1)
+    
+    # Check for off-grid condition
+    grid_connected = startup_state['current_state'].get('grid_connected', False)
+    connection_state = startup_state['current_state'].get('connection_state', 'Unknown')
+    if not grid_connected and not args.off_grid_permitted:
+        print(f"\n🚨 OFF-GRID DETECTED - Grid connection state: {connection_state}")
+        print("   Operating without grid connection can be unsafe.")
+        print("   Use --off-grid-permitted to explicitly allow off-grid operation.")
+        sys.exit(1)
+    elif not grid_connected and args.off_grid_permitted:
+        print(f"\n⚠️  WARNING: Operating OFF-GRID (connection: {connection_state})")
+        print("   --off-grid-permitted specified, continuing...")
     
     # Check if target SoC already reached for charge modes
     if hasattr(args, 'target_soc') and args.target_soc and hasattr(args, 'mode') and args.mode:

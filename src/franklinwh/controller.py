@@ -845,7 +845,11 @@ class FranklinWHController:
             grid = self.read_grid_status()
             result['grid_power'] = grid.get('grid_power_w', 0)
             result['grid_voltage'] = grid.get('voltage_v', 0)
-            result['grid_connected'] = 180 < result['grid_voltage'] < 270
+            result['connection_state'] = grid.get('connection_state', 'Unknown')
+            # Grid is connected if ConnSt=1 AND voltage in valid range
+            voltage_ok = 180 < result['grid_voltage'] < 270
+            conn_st_ok = result['connection_state'] == 'Connected'
+            result['grid_connected'] = voltage_ok and conn_st_ok
             
             # Control status
             ctl = self.read_control_status()
