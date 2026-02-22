@@ -2386,6 +2386,8 @@ Examples:
                        help='Clear alarms if safe (no critical faults)')
     parser.add_argument('--check-alarms', action='store_true',
                        help='Check and display all alarm states')
+    parser.add_argument('--test-extension-write', action='store_true',
+                       help='Test extension register writability (15507-15509)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Validate without writing')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -3246,6 +3248,45 @@ def main():
                 print(f"  ✗ {msg}")
             print("=" * 70)
             sys.exit(0 if success else 1)
+        
+        if args.test_extension_write:
+            print("\n" + "=" * 70)
+            print("  TESTING EXTENSION REGISTER WRITABILITY")
+            print("=" * 70)
+            
+            # Force re-test by resetting results and running again
+            ctrl._extension_write_results = {
+                'tested': False,
+                'timestamp': None,
+                'ongrid_mode': {'writable': False, 'error': None},
+                'self_reserve': {'writable': False, 'error': None},
+                'tou_reserve': {'writable': False, 'error': None},
+            }
+            results = ctrl._test_extension_writability()
+            
+            print(f"\n  Results:")
+            for reg_name in ['ongrid_mode', 'self_reserve', 'tou_reserve']:
+                reg_result = results.get(reg_name, {})
+                addr = {'ongrid_mode': 15507, 'self_reserve': 15508, 'tou_reserve': 15509}[reg_name]
+                if reg_result.get('writable'):
+                    print(f"    ✓ {reg_name.replace('_', ' ').title():12} ({addr}): WRITABLE")
+                else:
+                    err = reg_result.get('error', 'unknown')
+                    print(f"    ✗ {reg_name.replace('_', ' ').title():12} ({addr}): READ-ONLY ({err})")
+            
+            writable_count = sum(1 for k in ['ongrid_mode', 'self_reserve', 'tou_reserve']
+                                if results.get(k, {}).get('writable'))
+            
+            print(f"\n  Summary: {writable_count}/3 registers writable")
+            if writable_count == 0:
+                print("  Note: Write access requires 'SPAN Modbus' unlock in installer settings")
+            elif writable_count < 3:
+                print("  Note: Partial write access - some features may be limited")
+            else:
+                print("  Full write access - all extension features available")
+            
+            print("=" * 70)
+            sys.exit(0)
         
         if args.healthcheck:
             health = ctrl.healthcheck()
