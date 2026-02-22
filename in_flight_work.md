@@ -48,6 +48,12 @@
 - [x] **Stage fix** — Added missing --test-extension-write option — Commit: `7917623`
 - [x] Sync standalone with CLI features
 
+### Bug 7: Fix Extension Register Test — 2026-02-22 14:45
+**Stages:**
+- [x] **Stage fix** — Changed from pymodbus API to raw socket — Commit: `0a80014`
+- [x] Fixed 'Read failed' → now shows 'Write rejected' (correct behavior)
+- [x] Extension registers 15507-15509 now readable
+
 ---
 
 ## Completed: Solar PV Display Bugfix — 2026-02-22 13:03
