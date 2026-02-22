@@ -116,6 +116,7 @@ class FranklinWHController:
         Returns dict with test results stored in self._extension_write_results.
         """
         import time
+        import struct
         self._extension_write_results['timestamp'] = time.time()
         
         if not self.dev or not self.dev.client:
@@ -126,12 +127,20 @@ class FranklinWHController:
         
         client = self.dev.client
         
-        # Helper to read a single register
-        def read_reg(addr: int) -> Optional[int]:
+        # Helper to read registers using raw socket (sunspec2 client doesn't have read_holding_registers)
+        def read_regs(addr: int, count: int) -> Optional[list]:
             try:
-                result = client.read_holding_registers(addr, 1, unit=self.unit_id)
-                if not result.isError() and hasattr(result, 'registers'):
-                    return result.registers[0]
+                client.connect()
+                sock = client.socket
+                if not sock:
+                    return None
+                # Modbus TCP request: transaction_id(2), protocol(2), length(2), unit(1), function(1), addr(2), count(2)
+                req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, addr, count)
+                sock.sendall(req)
+                resp = sock.recv(256)
+                # Response: transaction_id(2), protocol(2), length(2), unit(1), function(1), byte_count(1), data...
+                if len(resp) >= 9 + count * 2:
+                    return list(struct.unpack(f'>{count}H', resp[9:9+count*2]))
             except Exception:
                 pass
             return None
@@ -139,15 +148,23 @@ class FranklinWHController:
         # Helper to write a single register
         def write_reg(addr: int, value: int) -> bool:
             try:
-                result = client.write_register(addr, value, unit=self.unit_id)
-                return not result.isError()
+                client.connect()
+                sock = client.socket
+                if not sock:
+                    return False
+                # Modbus TCP write request
+                req = struct.pack('>HHHBBHHH', 0, 0, 6, self.unit_id, 6, addr, value)
+                sock.sendall(req)
+                resp = sock.recv(256)
+                return len(resp) >= 12
             except Exception:
                 return False
         
         # Test 1: OnGridMode (15507)
         # Test: read -> write Self-Consumption (2) -> verify -> restore original
         try:
-            original = read_reg(self.EXT_ONGRID_MODE)
+            regs = read_regs(self.EXT_ONGRID_MODE, 1)
+            original = regs[0] if regs else None
             if original is None:
                 self._extension_write_results['ongrid_mode']['error'] = 'Read failed'
             elif original not in (0, 1, 2, 3):
@@ -158,7 +175,8 @@ class FranklinWHController:
                 if write_reg(self.EXT_ONGRID_MODE, test_value):
                     # Verify write
                     time.sleep(0.1)
-                    verified = read_reg(self.EXT_ONGRID_MODE)
+                    verified_regs = read_regs(self.EXT_ONGRID_MODE, 1)
+                    verified = verified_regs[0] if verified_regs else None
                     if verified == test_value:
                         self._extension_write_results['ongrid_mode']['writable'] = True
                         # Restore original
@@ -173,7 +191,8 @@ class FranklinWHController:
         # Test 2: SelfReserve (15508)
         # Test: read -> write +1 -> verify -> restore
         try:
-            original = read_reg(self.EXT_SELF_RESERVE)
+            regs = read_regs(self.EXT_SELF_RESERVE, 1)
+            original = regs[0] if regs else None
             if original is None:
                 self._extension_write_results['self_reserve']['error'] = 'Read failed'
             elif not (0 <= original <= 100):
@@ -183,7 +202,8 @@ class FranklinWHController:
                 test_value = (original + 1) % 101
                 if write_reg(self.EXT_SELF_RESERVE, test_value):
                     time.sleep(0.1)
-                    verified = read_reg(self.EXT_SELF_RESERVE)
+                    verified_regs = read_regs(self.EXT_SELF_RESERVE, 1)
+                    verified = verified_regs[0] if verified_regs else None
                     if verified == test_value:
                         self._extension_write_results['self_reserve']['writable'] = True
                         write_reg(self.EXT_SELF_RESERVE, original)
@@ -197,7 +217,8 @@ class FranklinWHController:
         # Test 3: TOUReserve (15509)
         # Test: read -> write +1 -> verify -> restore
         try:
-            original = read_reg(self.EXT_TOU_RESERVE)
+            regs = read_regs(self.EXT_TOU_RESERVE, 1)
+            original = regs[0] if regs else None
             if original is None:
                 self._extension_write_results['tou_reserve']['error'] = 'Read failed'
             elif not (0 <= original <= 100):
@@ -206,7 +227,8 @@ class FranklinWHController:
                 test_value = (original + 1) % 101
                 if write_reg(self.EXT_TOU_RESERVE, test_value):
                     time.sleep(0.1)
-                    verified = read_reg(self.EXT_TOU_RESERVE)
+                    verified_regs = read_regs(self.EXT_TOU_RESERVE, 1)
+                    verified = verified_regs[0] if verified_regs else None
                     if verified == test_value:
                         self._extension_write_results['tou_reserve']['writable'] = True
                         write_reg(self.EXT_TOU_RESERVE, original)
