@@ -47,6 +47,22 @@ except ImportError as e:
     print(f"Error: sunspec2 not installed. Run: pip install pysunspec2")
     sys.exit(1)
 
+# Import alarm enums if available
+try:
+    from enum_alarms import SystemAlarm, DCPortAlarm, SolarEvent, BatteryStatus, FranklinWHAlarmStatus
+    ALARM_ENUMS_AVAILABLE = True
+except ImportError:
+    ALARM_ENUMS_AVAILABLE = False
+    # Define minimal alarm constants
+    class SystemAlarm:
+        GROUND_FAULT = 1 << 0
+        DC_OVER_VOLTAGE = 1 << 2
+        AC_DISCONNECT = 1 << 3
+        GRID_DISCONNECT = 1 << 5
+        MANUAL_SHUTDOWN = 1 << 7
+        OVER_TEMP = 1 << 8
+        CRITICAL_FAULTS = GROUND_FAULT | MANUAL_SHUTDOWN
+
 # Future cloud integration (v2.0+)
 # try:
 #     from franklinwh_cloud import FranklinWHCloudClient
@@ -441,17 +457,71 @@ class FranklinWHController:
         m701.read()
         
         sf_w = self._get_scale_factor(m701, 'W_SF')
+        sf_v = self._get_scale_factor(m701, 'V_SF')
+        sf_hz = self._get_scale_factor(m701, 'Hz_SF')
+        
+        # Basic electrical readings
+        voltage = m701.LNV.value * (10 ** sf_v) if m701.LNV.value is not None else 0
+        freq = m701.Hz.value * (10 ** sf_hz) if m701.Hz.value is not None else 0
+        
+        # Connection state
+        conn_st = m701.ConnSt.value if hasattr(m701, 'ConnSt') and m701.ConnSt.value is not None else -1
+        CONN_STATES = {0: 'Disconnected', 1: 'Connected', 2: 'Fault'}
+        
+        # Operating and inverter states
+        st = m701.St.value if hasattr(m701, 'St') and m701.St.value is not None else -1
+        inv_st = m701.InvSt.value if hasattr(m701, 'InvSt') and m701.InvSt.value is not None else -1
+        
+        OPERATING_STATES = {0: 'Off', 1: 'Operating', 2: 'Standby', 3: 'Fault',
+                           4: 'Shutting Down', 5: 'Starting', 6: 'Maintenance'}
+        INVERTER_STATES = {0: 'Off', 1: 'Sleeping', 2: 'Starting', 3: 'Running',
+                          4: 'Throttled', 5: 'Shutting Down', 6: 'Fault',
+                          7: 'Standby', 8: 'Test', 9: 'Manufacturing'}
+        
+        # DERMode contains grid support mode in upper bits
+        der_mode_raw = m701.DERMode.value if hasattr(m701, 'DERMode') and m701.DERMode.value is not None else 0
+        
+        # Grid mode from upper bits (16-17)
+        if der_mode_raw & (1 << 17):
+            grid_mode = 'Grid Forming'
+        elif der_mode_raw & (1 << 16):
+            grid_mode = 'Grid Following'
+        else:
+            grid_mode = 'Grid Following (default)'
+        
+        # Determine AC type based on voltage and available readings
+        # Single phase: ~230V (AU/EU) or ~120V (US)
+        # Split phase: ~240V (US split phase, L1-L2)
+        # Three phase: Would typically have phase voltage ~230V and line-line ~400V
+        # For now, we classify based on voltage level and what's available
+        if 200 <= voltage <= 260:
+            ac_type = 'Single-Phase (230V Nominal)'
+        elif 100 <= voltage < 200:
+            ac_type = 'Single-Phase (120V Nominal)'
+        elif 380 <= voltage <= 420:
+            ac_type = 'Three-Phase (400V Line-Line)'
+        else:
+            ac_type = 'Unknown'
         
         return {
-            'grid_power_w': m701.W.value * (10 ** sf_w),  # Negative = exporting
-            'grid_va': m701.VA.value * (10 ** sf_w),
-            'grid_var': m701.Var.value * (10 ** sf_w),
-            'voltage_v': m701.LNV.value * (10 ** self._get_scale_factor(m701, 'V_SF')),
-            'frequency_hz': m701.Hz.value * (10 ** self._get_scale_factor(m701, 'Hz_SF')),
+            'grid_power_w': m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0,
+            'grid_va': m701.VA.value * (10 ** sf_w) if m701.VA.value is not None else 0,
+            'grid_var': m701.Var.value * (10 ** sf_w) if m701.Var.value is not None else 0,
+            'voltage_v': voltage,
+            'frequency_hz': freq,
+            'connection_state': CONN_STATES.get(conn_st, f'Unknown({conn_st})'),
+            'connection_state_raw': conn_st,
+            'operating_state': OPERATING_STATES.get(st, f'Unknown({st})'),
+            'operating_state_raw': st,
+            'inverter_state': INVERTER_STATES.get(inv_st, f'Unknown({inv_st})'),
+            'inverter_state_raw': inv_st,
+            'grid_mode': grid_mode,
+            'der_mode_raw': der_mode_raw,
+            'ac_type': ac_type,
         }
     
     def read_solar_status(self) -> dict:
-        """Read solar status from Model 714."""
+        """Read solar status from Model 714 and FranklinWH extensions."""
         m714 = self.get_model(714)
         if not m714:
             return {}
@@ -460,12 +530,109 @@ class FranklinWHController:
         
         sf_w = self._get_scale_factor(m714, 'DCW_SF')
         
-        return {
+        # Base solar from Model 714 (DC power)
+        solar_status = {
             'dc_power_w': m714.DCW.value * (10 ** sf_w),
             'dc_current_a': m714.DCA.value * (10 ** self._get_scale_factor(m714, 'DCA_SF')) if hasattr(m714, 'DCA') else None,
             'dc_energy_injected_wh': m714.DCWhInj.value,
             'dc_energy_absorbed_wh': m714.DCWhAbs.value,
         }
+        
+        # Also read FranklinWH extension registers for AC-coupled solar
+        # These may provide more accurate data for AC-coupled systems
+        try:
+            ext_solar = self._read_extension_solar()
+            if ext_solar:
+                solar_status['extension'] = ext_solar
+                # Use extension total if available and DC is 0 (AC-coupled case)
+                if solar_status['dc_power_w'] == 0 and ext_solar.get('pv_total', 0) > 0:
+                    solar_status['dc_power_w'] = ext_solar['pv_total']
+        except Exception as e:
+            logger.debug(f"Could not read extension solar: {e}")
+        
+        return solar_status
+    
+    def _read_extension_solar(self) -> Optional[dict]:
+        """Read FranklinWH extension registers for solar (15500-15513).
+        
+        Returns dict with solar values from all sources, or None if unavailable.
+        """
+        try:
+            # Read raw registers 15500-15513 (14 registers)
+            result = self.dev.client.read_holding_registers(15500, count=14, device_id=self.unit_id)
+            if result.isError():
+                return None
+            
+            regs = result.registers
+            
+            # Parse extension registers
+            # 15502: PV Total Power (W)
+            # 15503: PV Proximal Power (W) - local AC-coupled
+            # 15504: PV Remote 1 Power (W) - additional array
+            # 15505: PV Remote 2 Power (W) - additional array
+            # 15506: Home Load (W)
+            # 15507: OnGridMode
+            # 15508: Self Reserve %
+            # 15509: TOU Reserve %
+            
+            pv_total = regs[2] if len(regs) > 2 else 0
+            pv_proximal = regs[3] if len(regs) > 3 else 0
+            pv_remote1 = regs[4] if len(regs) > 4 else 0
+            pv_remote2 = regs[5] if len(regs) > 5 else 0
+            home_load = regs[6] if len(regs) > 6 else 0
+            ongrid_mode = regs[7] if len(regs) > 7 else -1
+            self_reserve = regs[8] if len(regs) > 8 else 0
+            tou_reserve = regs[9] if len(regs) > 9 else 0
+            
+            # Calculate total solar from all sources
+            # PV Total (15502) may be the sum of all sources, or 0 if not populated
+            # If PV Total > 0 and matches sum of individual sources, use it directly
+            # Otherwise sum the individual sources (Proximal, Remote 1, Remote 2)
+            individual_sum = pv_proximal + pv_remote1 + pv_remote2
+            if pv_total > 0 and abs(pv_total - individual_sum) < 100:  # Within 100W tolerance
+                total_solar = pv_total  # Use reported total (they match)
+            elif individual_sum > 0:
+                total_solar = individual_sum  # Sum the individual sources
+            else:
+                total_solar = pv_total  # Fall back to reported total
+            
+            return {
+                'pv_total': pv_total,  # Register 15502 (may be 0 or total)
+                'pv_proximal': pv_proximal,  # Register 15503 (local AC-coupled)
+                'pv_remote1': pv_remote1,  # Register 15504 (additional array)
+                'pv_remote2': pv_remote2,  # Register 15505 (additional array)
+                'total_solar': total_solar,  # Best estimate of total solar production
+                'home_load_ext': home_load,  # From extension (may differ from calculated)
+                'ongrid_mode': ongrid_mode,
+                'self_reserve': self_reserve,
+                'tou_reserve': tou_reserve,
+            }
+        except Exception as e:
+            logger.debug(f"Extension solar read failed: {e}")
+            return None
+    
+    def read_nameplate(self) -> dict:
+        """Read device nameplate information from Model 1 (Common).
+        
+        Returns:
+            Dict with manufacturer, model, serial, version, etc.
+        """
+        m1 = self.get_model(1)
+        if not m1:
+            return {}
+        
+        try:
+            m1.read()
+            return {
+                'manufacturer': getattr(m1, 'Mn', None),
+                'model': getattr(m1, 'Md', None),
+                'serial': getattr(m1, 'SN', None),
+                'version': getattr(m1, 'Vr', None),
+                'options': getattr(m1, 'Opt', None),
+            }
+        except Exception as e:
+            logger.debug(f"Could not read Model 1 nameplate: {e}")
+            return {}
     
     def read_control_status(self) -> dict:
         """Read current control settings from Model 704."""
@@ -477,10 +644,14 @@ class FranklinWHController:
         
         sf_w = self._get_scale_factor(m704, 'WSet_SF')
         
+        sf_pct = self._get_scale_factor(m704, 'WSetPct_SF')
+        
         return {
             'wset_enabled': m704.WSetEna.value,
             'wset_mode': m704.WSetMod.value,
             'wset_watts': m704.WSet.value * (10 ** sf_w),
+            'wset_pct': m704.WSetPct.value * (10 ** sf_pct),  # Actual percentage
+            'wset_pct_raw': m704.WSetPct.value,  # Raw register value
             'wset_revert_watts': m704.WSetRvrt.value * (10 ** sf_w) if m704.WSetRvrt.value != -0x80000000 else None,
             'wset_revert_time_s': m704.WSetRvrtTms.value,
             'wset_revert_remain_s': m704.WSetRvrtRem.value,
@@ -834,6 +1005,156 @@ class FranklinWHController:
             return clamped
         return power_watts
 
+    def read_alarms(self) -> Dict[str, Any]:
+        """
+        Read all alarm registers from the aGate.
+        
+        Returns dict with:
+            - system_alrm: Model 701 Alrm bitfield
+            - dc_port_alrm: Model 714 PrtAlrms bitfield
+            - solar_evt: Model 502 Evt bitfield (if available)
+            - battery_sta: Model 713 Sta enum
+            - vendor_info: Manufacturer alarm info string
+            - decoded: Human-readable alarm descriptions (if enums available)
+        """
+        alarms = {
+            'system_alrm': 0,
+            'dc_port_alrm': 0,
+            'solar_evt': 0,
+            'battery_sta': 0,
+            'vendor_info': '',
+            'decoded': {},
+        }
+        
+        try:
+            # Model 701: System alarms (Alrm at offset 76, 2 registers for bitfield32)
+            m701 = self.get_model(701)
+            if m701 and hasattr(m701, 'Alrm'):
+                alarms['system_alrm'] = m701.Alrm.value if m701.Alrm.value else 0
+                
+                # Vendor alarm info (MnAlrmInfo) if available
+                if hasattr(m701, 'MnAlrmInfo') and m701.MnAlrmInfo.value:
+                    alarms['vendor_info'] = str(m701.MnAlrmInfo.value)
+            
+            # Model 714: DC Port alarms
+            m714 = self.get_model(714)
+            if m714 and hasattr(m714, 'PrtAlrms'):
+                alarms['dc_port_alrm'] = m714.PrtAlrms.value if m714.PrtAlrms.value else 0
+            
+            # Model 713: Battery status
+            m713 = self.get_model(713)
+            if m713 and hasattr(m713, 'Sta'):
+                alarms['battery_sta'] = m713.Sta.value if m713.Sta.value else 0
+            
+            # Decode alarms if enums available
+            if ALARM_ENUMS_AVAILABLE:
+                sys_alm = SystemAlarm(alarms['system_alrm'])
+                dc_alm = DCPortAlarm(alarms['dc_port_alrm'])
+                bat_sta = BatteryStatus(alarms['battery_sta'])
+                
+                alarms['decoded'] = {
+                    'system': [a.name for a in SystemAlarm if a in sys_alm and a != 0],
+                    'dc_port': [a.name for a in DCPortAlarm if a in dc_alm and a != 0],
+                    'battery_status': bat_sta.name if bat_sta else 'UNKNOWN',
+                    'critical': bool(sys_alm & SystemAlarm.CRITICAL_FAULTS),
+                    'blocking_dc': bool(dc_alm & DCPortAlarm.ELECTRICAL_FAULTS),
+                }
+            else:
+                # Basic decoding without enums
+                sys_alm = alarms['system_alrm']
+                critical_bits = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 13) | (1 << 14)
+                alarms['decoded'] = {
+                    'system': [],
+                    'dc_port': [],
+                    'battery_status': 'UNKNOWN',
+                    'critical': bool(sys_alm & critical_bits),
+                    'blocking_dc': False,
+                }
+                
+                # Decode basic alarm bits
+                ALARM_NAMES = {
+                    0: 'GROUND_FAULT', 1: 'INPUT_OVER_CURRENT', 2: 'DC_OVER_VOLTAGE',
+                    3: 'AC_DISCONNECT', 4: 'DC_DISCONNECT', 5: 'GRID_DISCONNECT',
+                    6: 'CABINET_OPEN', 7: 'MANUAL_SHUTDOWN', 8: 'OVER_TEMP',
+                    9: 'OVER_FREQUENCY', 10: 'UNDER_FREQUENCY', 11: 'AC_OVER_VOLTAGE',
+                    12: 'AC_UNDER_VOLTAGE', 13: 'STRING_FAULT', 14: 'ARC_FAULT',
+                    15: 'THERMAL_DERATE'
+                }
+                for bit, name in ALARM_NAMES.items():
+                    if sys_alm & (1 << bit):
+                        alarms['decoded']['system'].append(name)
+            
+        except Exception as e:
+            logger.debug(f"Could not read all alarms: {e}")
+        
+        return alarms
+
+    def clear_alarms(self) -> Tuple[bool, str]:
+        """
+        Attempt to clear alarms by writing to AlarmReset register.
+        
+        Returns (success, message).
+        Only clears if no critical faults are active.
+        """
+        try:
+            # First check current alarms
+            alarms = self.read_alarms()
+            decoded = alarms.get('decoded', {})
+            
+            # Check if safe to clear
+            if decoded.get('critical'):
+                return False, f"Cannot clear: Critical alarms active: {decoded.get('system', [])}"
+            
+            if alarms['battery_sta'] == 6:  # FAULT
+                return False, "Cannot clear: Battery status is FAULT"
+            
+            # Model 715 AlarmReset is at register 41094
+            m715 = self.get_model(715)
+            if not m715:
+                return False, "Model 715 not available for alarm reset"
+            
+            # Check if AlarmReset point exists
+            if not hasattr(m715, 'AlarmReset'):
+                return False, "AlarmReset register not available in Model 715"
+            
+            # Write 1 to reset
+            m715.read()
+            m715.AlarmReset.value = 1
+            m715.write()
+            time.sleep(0.5)
+            
+            # Clear the reset bit
+            m715.read()
+            m715.AlarmReset.value = 0
+            m715.write()
+            
+            logger.info("Alarm reset command sent")
+            return True, "Alarm reset command sent successfully"
+            
+        except Exception as e:
+            return False, f"Alarm reset failed: {e}"
+
+    def check_blocking_alarms(self) -> Tuple[bool, List[str]]:
+        """
+        Check if any alarms are blocking operation.
+        
+        Returns (can_operate, blocking_reasons).
+        """
+        alarms = self.read_alarms()
+        decoded = alarms.get('decoded', {})
+        blocking = []
+        
+        if decoded.get('critical'):
+            blocking.extend(decoded.get('system', []))
+        
+        if decoded.get('blocking_dc'):
+            blocking.extend([f"DC:{a}" for a in decoded.get('dc_port', [])])
+        
+        if alarms['battery_sta'] == 6:  # FAULT
+            blocking.append('BATTERY_FAULT')
+        
+        return len(blocking) == 0, blocking
+
     def send_command(
         self,
         command: BatteryCommand,
@@ -942,7 +1263,8 @@ class VirtualModeController:
         
         # Mode-specific parameters
         self.self_reserve_pct = 20        # Keep 20% for self-consumption
-        self.backup_target_soc = 95       # Charge to 95% for backup
+        self.backup_target_soc = 95       # Charge to 95% for backup (legacy)
+        self.target_soc = 100             # Universal target SoC for all modes
         self.grid_zero_buffer = 100       # Watts tolerance for grid zero
         self.peak_shave_threshold = 2000  # Discharge if home load > 2kW
         
@@ -1060,19 +1382,32 @@ class VirtualModeController:
         }
         
         # Add derived values
-        solar = status['solar'].get('dc_power_w', 0)
-        home = 0  # Estimated or from proprietary registers if available
+        solar_data = status['solar']
+        solar = solar_data.get('dc_power_w', 0)
+        
+        # Get total solar from all sources (including extensions if available)
+        total_solar = solar
+        extension_data = solar_data.get('extension', {})
+        if extension_data:
+            total_solar = extension_data.get('total_solar', solar)
+        
         grid = status['grid'].get('grid_power_w', 0)
         
-        # Estimate home load: solar + grid_import - battery_activity
-        battery_w = status['control'].get('wset_watts', 0)
-        home_est = solar + grid - battery_w  # Simplified
+        # Use extension home load if available (more accurate), otherwise estimate
+        home_ext = extension_data.get('home_load_ext', 0) if extension_data else 0
+        if home_ext > 0:
+            home_est = home_ext
+        else:
+            # Estimate home load: solar + grid_import - battery_activity
+            battery_w = status['control'].get('wset_watts', 0)
+            home_est = solar + grid - battery_w  # Simplified
         
         status['derived'] = {
             'home_load_w': home_est,
-            'excess_solar_w': max(solar - home_est, 0),
+            'excess_solar_w': max(total_solar - home_est, 0),
             'grid_import_w': max(grid, 0),
             'grid_export_w': max(-grid, 0),
+            'total_solar_w': total_solar,  # From all sources
         }
         
         return status
@@ -1136,6 +1471,7 @@ class VirtualModeController:
             
             # If we're in discharge mode and home load is critical, limit discharge
             # to preserve capacity for surge handling
+            # VMC convention: positive=charge, negative=discharge
             if proposed_power < 0 and home > total_available * 0.9:
                 # Reduce discharge to leave headroom
                 max_safe_discharge = total_available - home - 500  # 500W buffer
@@ -1145,6 +1481,17 @@ class VirtualModeController:
                     logger.error(f"EMERGENCY: Home load {home:.0f}W would exceed supply capacity! "
                                 f"Limiting discharge to {max_safe_discharge:.0f}W to prevent shutdown")
                     return False, f"Load exceeds capacity - discharge limited", -max_safe_discharge
+            
+            # If we're charging and home load is critical, that's actually GOOD
+            # Charging adds capacity to the system (battery + solar + charging power)
+            # Only warn if we're not providing enough help
+            elif proposed_power > 0 and home > total_available * 0.9:
+                # When charging, available capacity includes the charge power
+                # (we're adding energy to the battery which can be used later)
+                effective_available = total_available + proposed_power
+                if home > effective_available * 0.95:
+                    logger.warning(f"CRITICAL: Even with charging, home load {home:.0f}W near capacity "
+                                  f"{effective_available:.0f}W. Consider reducing loads.")
         
         # Check 3: Grid stability for high power operations
         voltage = grid_status.get('voltage_v', 230)
@@ -1210,29 +1557,42 @@ class VirtualModeController:
         Maximize self-consumption of solar generation.
         
         Strategy:
-        - Charge battery with excess solar
+        - Charge battery with excess solar (until target_soc reached)
         - Discharge to cover home load when solar insufficient
         - Maintain reserve for nighttime
         
         Uses actual device ratings from M702 nameplate.
+        Respects target_soc - will not charge beyond target.
         """
         # Get actual device ratings (not hardcoded)
         max_charge = self.ctrl.RATED_MAX_CHARGE_W
         max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
+        target_soc = getattr(self, 'target_soc', 100)
         
         excess_solar = solar - home
         
-        # High SOC - prioritize using battery
-        if soc > (100 - self.self_reserve_pct):
-            if excess_solar > 0:
-                # Still charging but gently
-                return min(excess_solar * 0.5, max_charge * 0.2)  # 20% of max
+        # At or above target - stop charging, only discharge if needed
+        if soc >= target_soc:
+            if excess_solar < 0:
+                # Need power, discharge to cover
+                return max(home - solar, -max_discharge)
             else:
+                # Excess solar but at target - idle or export
+                return 0
+        
+        # High SOC (above reserve) - prioritize using battery
+        if soc > (100 - self.self_reserve_pct):
+            if excess_solar > 0 and soc < target_soc - 5:
+                # Still charging but gently if below target
+                return min(excess_solar * 0.5, max_charge * 0.2)  # 20% of max
+            elif excess_solar < 0:
                 # Discharge to cover deficit
                 return max(home - solar, -max_discharge)
+            else:
+                return 0
         
-        # Low SOC - aggressive charging if excess solar
-        if excess_solar > 0:
+        # Low SOC - aggressive charging if excess solar (until target)
+        if excess_solar > 0 and soc < target_soc:
             return min(excess_solar, max_charge)  # Up to rated max
         
         # No excess solar, discharge if needed
@@ -1559,21 +1919,31 @@ class VirtualModeController:
     
     def _get_target_soc_display(self) -> str:
         """Get target SoC display based on current mode."""
+        # Universal target_soc applies to all modes
+        target = getattr(self, 'target_soc', 100)
+        
         if self.mode == VirtualMode.EMERGENCY_BACKUP:
-            return f"{self.backup_target_soc}%"
+            # Show both universal target and legacy backup_target_soc
+            return f"{target}% (charge to target)"
         elif self.mode == VirtualMode.SELF_CONSUMPTION:
-            return f"{self.self_reserve_pct}% reserve"
+            return f"{self.self_reserve_pct}% reserve / {target}% target"
         elif self.mode == VirtualMode.TIME_OF_USE:
-            # Show schedule info
+            # Show schedule info and target
             if self.tou.is_file_based():
                 period = self.tou.get_current_period()
                 strategy = self.tou.get_strategy()
                 price = self.tou.get_current_price()
-                return f"{period} (${price:.2f}) → {strategy}"
+                return f"{period} (${price:.2f}) → {strategy} | target: {target}%"
             else:
-                return "Legacy schedule"
+                return f"Legacy schedule | target: {target}%"
+        elif self.mode == VirtualMode.PEAK_SHAVE:
+            return f"{self.peak_shave_threshold}W threshold / {target}% target"
+        elif self.mode == VirtualMode.GRID_ZERO:
+            return f"Zero grid | {target}% target"
+        elif self.mode == VirtualMode.MANUAL:
+            return f"Manual {self.manual_power_w}W | {target}% target"
         else:
-            return "N/A"
+            return f"{target}% target"
     
     def _print_telemetry(self, status: Dict, start_time: float, duration_seconds: Optional[float] = None):
         """Print formatted telemetry to console."""
@@ -1589,9 +1959,36 @@ class VirtualModeController:
         
         soc = battery.get('soc', 0)
         battery_power = control.get('wset_watts', 0)
+        wset_ena = control.get('wset_enabled', 0)  # Fixed: was 'wset_ena'
+        wset_pct = control.get('wset_pct', 0)  # Will be calculated below
         solar_power = solar.get('dc_power_w', 0)
         grid_power = grid.get('grid_power_w', 0)
         home_load = derived.get('home_load_w', 0)
+        
+        # Get total solar from all sources (including extensions)
+        # For AC-coupled systems, Model 714 DC power may be 0, use extensions
+        total_solar = derived.get('total_solar_w', solar_power)
+        # Ensure solar is never negative (it's production)
+        total_solar = abs(total_solar) if total_solar != 0 else 0
+        
+        # Derive actual command power from WSetPct (more reliable than WSet)
+        # FranklinWH firmware uses WSetPct for actual power control
+        wset_pct_value = control.get('wset_pct', 0)  # Already scaled
+        rated_max = getattr(self.ctrl, 'RATED_MAX_W', 5000)
+        
+        if wset_ena == 1:
+            # Calculate power from percentage (WSetPct is the actual control)
+            actual_power = wset_pct_value / 100.0 * rated_max
+        else:
+            actual_power = battery_power  # Fallback to WSet
+        
+        # Get individual solar sources from extensions if available
+        ext_solar = solar.get('extension', {})
+        pv_proximal = ext_solar.get('pv_proximal', 0)
+        pv_remote1 = ext_solar.get('pv_remote1', 0)
+        pv_remote2 = ext_solar.get('pv_remote2', 0)
+        pv_total_reg = ext_solar.get('pv_total', 0)
+        has_extension_data = bool(ext_solar)
         
         # Read aGate native mode (OnGridMode and reserves)
         native_mode = self.ctrl.read_native_mode() or {}
@@ -1609,8 +2006,6 @@ class VirtualModeController:
             active_reserve = f"{tou_reserve}% (TOU)"
         
         # Detect potential Cloud API activity
-        # If OnGridMode is not Manual and battery is active, Cloud might be controlling
-        wset_ena = control.get('wset_ena', 0)
         dc_power = battery.get('dc_power_w', 0)  # Actual battery DC power
         cloud_active_warning = ""
         
@@ -1619,13 +2014,26 @@ class VirtualModeController:
             if abs(dc_power) > 100:  # Battery is actively charging/discharging
                 cloud_active_warning = f" ⚠️  CLOUD ACTIVE (OnGridMode={ongrid_name})"
         
-        # Battery state icon (use actual DC power for truth)
-        if dc_power < -50:
-            bat_icon = "⚡ CHARGING"
-            bat_detail = f"{abs(dc_power):.0f}W"
-        elif dc_power > 50:
-            bat_icon = "🔋 DISCHARGING"
-            bat_detail = f"{dc_power:.0f}W"
+        # Battery state icon
+        # FranklinWH defect: dc_power from Model 713 is often 0 even when active
+        # Derive from: 1) actual DC power, 2) WSetPct-derived power if WSetEna=1
+        if abs(dc_power) > 50:
+            # Use actual DC power if available (from hardware)
+            if dc_power < 0:
+                bat_icon = "⚡ CHARGING"
+                bat_detail = f"{abs(dc_power):.0f}W"
+            else:
+                bat_icon = "🔋 DISCHARGING"
+                bat_detail = f"{dc_power:.0f}W"
+        elif wset_ena == 1 and abs(actual_power) > 50:
+            # Derive from WSetPct when DC power not available
+            # WSetPct < 0 = charging, WSetPct > 0 = discharging
+            if actual_power < 0:
+                bat_icon = "⚡ CHARGING"
+                bat_detail = f"{abs(actual_power):.0f}W"
+            else:
+                bat_icon = "🔋 DISCHARGING"
+                bat_detail = f"{actual_power:.0f}W"
         else:
             bat_icon = "💤 IDLE"
             bat_detail = "0W"
@@ -1653,21 +2061,39 @@ class VirtualModeController:
         print(f"  aGATE:      OnGridMode={ongrid_name} ({ongrid_mode}) | Reserve: {active_reserve}")
         print(f"  {'─' * 66}")
         print(f"  BATTERY:    {bat_icon:15s} {bat_detail:>10s}  |  SoC: {soc:.1f}%")
-        print(f"  MODBUS:     WSetEna={wset_ena} | Command: {battery_power:.0f}W")
-        print(f"  SOLAR PV:   {'☀️  PRODUCING':15s} {solar_power:>10.0f}W  |  ")
+        print(f"  MODBUS:     WSetEna={wset_ena} | Command: {actual_power:.0f}W (from WSetPct={wset_pct_value:.1f}%)")
+        
+        # Solar display - show total and individual sources
+        # Use total_solar (from extensions if available, else Model 714)
+        display_solar = abs(total_solar)  # Ensure positive
+        if has_extension_data and (pv_proximal > 0 or pv_remote1 > 0 or pv_remote2 > 0):
+            # Show detailed breakdown with FranklinWH extensions
+            print(f"  SOLAR PV:   {'☀️  TOTAL':15s} {display_solar:>10.0f}W")
+            if pv_proximal > 0:
+                print(f"              {'  └─ Proximal':15s} {pv_proximal:>10.0f}W  (local AC-coupled)")
+            if pv_remote1 > 0:
+                print(f"              {'  └─ Remote 1':15s} {pv_remote1:>10.0f}W  (additional array)")
+            if pv_remote2 > 0:
+                print(f"              {'  └─ Remote 2':15s} {pv_remote2:>10.0f}W  (additional array)")
+            if pv_total_reg > 0 and pv_total_reg != total_solar:
+                print(f"              {'  (Reg 15502)':15s} {pv_total_reg:>10.0f}W")
+        else:
+            # Simple display - Model 714 only
+            print(f"  SOLAR PV:   {'☀️  PRODUCING':15s} {display_solar:>10.0f}W  |  ")
+        
         print(f"  HOME LOAD:  {'🏠 CONSUMING':15s} {home_load:>10.0f}W  |  ")
         print(f"  GRID:       {grid_icon:15s} {grid_detail:>10s}")
         print(f"  {'─' * 66}")
         # SoC limit status
         limit_status = ""
         ramp_pct = 100.0
-        if battery_power > 0 and soc >= (self.max_charge_soc - self.soc_ramp_window):
+        if actual_power > 0 and soc >= (self.max_charge_soc - self.soc_ramp_window):
             if soc >= self.max_charge_soc:
                 limit_status = " 🔒 MAX LIMIT"
             else:
                 ramp_pct = (self.max_charge_soc - soc) / self.soc_ramp_window * 100
                 limit_status = f" ↓ RAMPING ({ramp_pct:.0f}%)"
-        elif battery_power < 0 and soc <= (self.min_discharge_soc + self.soc_ramp_window):
+        elif actual_power < 0 and soc <= (self.min_discharge_soc + self.soc_ramp_window):
             if soc <= self.min_discharge_soc:
                 limit_status = " 🔒 MIN LIMIT"
             else:
@@ -1677,12 +2103,13 @@ class VirtualModeController:
         if self.force_soc_limits and (soc >= self.max_charge_soc or soc <= self.min_discharge_soc):
             limit_status += " [FORCE]"
         
-        print(f"  CMD: WSetPct={control.get('wset_pct', 0):.1f}%  ({battery_power:.0f}W){limit_status}")
+        print(f"  CMD: WSetPct={wset_pct_value:.1f}%  ({actual_power:.0f}W){limit_status}")
         print(f"  LIMITS: Discharge≥{self.min_discharge_soc}% Charge≤{self.max_charge_soc}% (window:{self.soc_ramp_window}%)")
         
         # Inverter load check (battery DC only for AC-coupled)
         max_dc = self.ctrl.RATED_MAX_W
-        battery_dc_load = abs(dc_power)  # Actual battery DC power
+        # Use actual DC power if available, otherwise derive from command
+        battery_dc_load = abs(dc_power) if abs(dc_power) > 50 else abs(actual_power)
         battery_load_pct = (battery_dc_load / max_dc * 100) if max_dc > 0 else 0
         
         if battery_load_pct > 95:
@@ -1693,10 +2120,10 @@ class VirtualModeController:
             print(f"  BATTERY INVERTER: {battery_load_pct:.0f}% ({battery_dc_load:.0f}W / {max_dc}W)")
         
         # Off-grid capacity monitoring (AC-coupled systems)
-        # Available: Battery max discharge + Solar AC
+        # Available: Battery max discharge + Solar AC (from all sources)
         # Required: Home load
         available_battery = max_dc
-        available_solar = max(0, solar_power)  # Solar only if producing
+        available_solar = max(0, total_solar)  # Solar from all sources (extensions + Model 714)
         total_available = available_battery + available_solar
         
         if home_load > 0 and total_available > 0:
@@ -1777,6 +2204,12 @@ class VirtualModeController:
                     logger.info(f"Status: SOC={battery.get('soc', 0):.1f}%, "
                                f"Grid={grid.get('grid_power_w', 0):.0f}W, "
                                f"Mode={self.mode.value}")
+                    
+                    # Check for alarms during operation
+                    can_operate, blocking = self.ctrl.check_blocking_alarms()
+                    if not can_operate:
+                        logger.warning(f"BLOCKING ALARMS: {blocking}")
+                    
                     last_status_log = now
                 
                 # Small sleep to prevent busy-wait
@@ -1947,10 +2380,16 @@ Examples:
                        help='Read status only')
     parser.add_argument('--healthcheck', action='store_true',
                        help='Run health check and exit')
+    parser.add_argument('--clear-alarms', action='store_true',
+                       help='Clear alarms if safe (no critical faults)')
+    parser.add_argument('--check-alarms', action='store_true',
+                       help='Check and display all alarm states')
     parser.add_argument('--dry-run', action='store_true',
                        help='Validate without writing')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Enable debug logging')
+    parser.add_argument('-q', '--quiet', action='store_true',
+                       help='Minimal output (warnings and errors only)')
     
     return parser
 
@@ -2031,6 +2470,241 @@ def print_health_report(health: HealthStatus):
     print("=" * 70)
 
 
+def check_startup_state(ctrl, requested_mode: str = None) -> dict:
+    """
+    Check current system state at startup and detect potential conflicts.
+    
+    Returns dict with:
+        - current_state: Description of current battery/grid state
+        - conflicts: List of potential conflicts
+        - can_proceed: Whether it's safe to proceed
+        - warnings: List of warning messages
+    """
+    result = {
+        'current_state': {},
+        'conflicts': [],
+        'warnings': [],
+        'can_proceed': True
+    }
+    
+    try:
+        # Check alarms first
+        can_operate, blocking = ctrl.check_blocking_alarms()
+        alarms = ctrl.read_alarms()
+        decoded = alarms.get('decoded', {})
+        
+        result['alarms'] = {
+            'system': decoded.get('system', []),
+            'dc_port': decoded.get('dc_port', []),
+            'battery_status': decoded.get('battery_status', 'UNKNOWN'),
+            'blocking': blocking
+        }
+        
+        if not can_operate:
+            result['conflicts'].append(f"BLOCKING ALARMS: {', '.join(blocking)}")
+            result['can_proceed'] = False
+        elif decoded.get('system') or decoded.get('dc_port'):
+            # Non-blocking alarms present
+            all_alarms = decoded.get('system', []) + decoded.get('dc_port', [])
+            result['warnings'].append(f"Active alarms (non-blocking): {', '.join(all_alarms)}")
+        
+        # Read current battery status
+        bat = ctrl.read_battery_status()
+        soc = bat.get('soc', 0)
+        result['current_state']['soc'] = soc
+        
+        # Read grid status
+        grid = ctrl.read_grid_status()
+        grid_power = grid.get('grid_power_w', 0)
+        voltage = grid.get('voltage_v', 0)
+        result['current_state']['grid_power'] = grid_power
+        result['current_state']['grid_voltage'] = voltage
+        result['current_state']['grid_connected'] = voltage > 180 and voltage < 270
+        
+        # Read control status
+        ctl = ctrl.read_control_status()
+        wset_ena = ctl.get('wset_enabled', 0)
+        wset_pct = ctl.get('wset_pct', 0)
+        result['current_state']['wset_ena'] = wset_ena
+        result['current_state']['wset_pct'] = wset_pct
+        
+        # Calculate actual power
+        rated_max = getattr(ctrl, 'RATED_MAX_W', 5000)
+        actual_power = (wset_pct / 100.0 * rated_max) if wset_ena == 1 else 0
+        result['current_state']['actual_power'] = actual_power
+        
+        # Determine battery activity
+        if wset_ena == 1:
+            if actual_power < -50:
+                result['current_state']['battery_activity'] = f'CHARGING ({abs(actual_power):.0f}W)'
+            elif actual_power > 50:
+                result['current_state']['battery_activity'] = f'DISCHARGING ({actual_power:.0f}W)'
+            else:
+                result['current_state']['battery_activity'] = 'IDLE'
+        else:
+            result['current_state']['battery_activity'] = 'IDLE (no control)'
+        
+        # Read native mode
+        native = ctrl.read_native_mode()
+        if native:
+            ongrid_mode = native.get('mode_raw', -1)
+            ongrid_name = native.get('mode_name', 'Unknown')
+            result['current_state']['ongrid_mode'] = ongrid_name
+            result['current_state']['ongrid_mode_raw'] = ongrid_mode
+            
+            # Check for conflicts - including Cloud API control (WSetEna=0 but battery active)
+            # Read actual battery DC power from Model 714 to detect Cloud API activity
+            m714 = ctrl.get_model(714)
+            battery_dc_power = 0
+            if m714:
+                try:
+                    m714.read()
+                    sf_w = ctrl._get_scale_factor(m714, 'DCW_SF')
+                    battery_dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value else 0
+                    result['current_state']['battery_dc_power'] = battery_dc_power
+                except Exception:
+                    pass
+            
+            # Detect active control: either Modbus (wset_ena=1) OR Cloud API (battery moving)
+            is_modbus_control = wset_ena == 1
+            is_cloud_charging = battery_dc_power < -500
+            is_cloud_discharging = battery_dc_power > 500
+            is_cloud_active = is_cloud_charging or is_cloud_discharging
+            
+            # Store for display
+            result['current_state']['control_source'] = 'Modbus' if is_modbus_control else ('Cloud API' if is_cloud_active else 'Idle')
+            
+            if requested_mode:
+                # Map requested mode to OnGridMode
+                mode_mapping = {
+                    'emergency_backup': 0,
+                    'self_consumption': 1,
+                    'time_of_use': 2,
+                    'manual': 3,
+                }
+                requested_ongrid = mode_mapping.get(requested_mode, -1)
+                
+                # CONFLICT: aGate is actively controlling via Cloud API or Modbus
+                if is_modbus_control or is_cloud_active:
+                    conflict_msg = f"CONFLICT: aGate '{ongrid_name}' mode is actively controlling"
+                    if is_cloud_charging:
+                        conflict_msg += f" (CHARGING {abs(battery_dc_power):.0f}W via Cloud API)"
+                    elif is_cloud_discharging:
+                        conflict_msg += f" (DISCHARGING {battery_dc_power:.0f}W via Cloud API)"
+                    elif is_modbus_control:
+                        conflict_msg += f" (WSetEna=1, {actual_power:.0f}W)"
+                    
+                    result['conflicts'].append(conflict_msg)
+                    result['conflicts'].append(f"         Requested '{requested_mode}' conflicts with active operation")
+                    result['can_proceed'] = False
+                
+                elif ongrid_mode != 3 and ongrid_mode != requested_ongrid:
+                    # Different mode but not actively controlling
+                    result['warnings'].append(
+                        f"NOTE: aGate is in '{ongrid_name}' mode but idle"
+                    )
+                    result['warnings'].append(
+                        f"      Mode change recommended for '{requested_mode}' operation"
+                    )
+        
+        # Check grid stability
+        if voltage < 210 or voltage > 250:
+            result['warnings'].append(f"Grid voltage {voltage:.1f}V outside normal range (210-250V)")
+        
+        # Check SoC limits
+        if soc < 10:
+            result['warnings'].append(f"SoC very low ({soc:.1f}%) - charging may be limited")
+        elif soc > 95:
+            result['warnings'].append(f"SoC very high ({soc:.1f}%) - discharging may be limited")
+        
+        # Check if target SoC already reached
+        if requested_mode and hasattr(args, 'target_soc') and args.target_soc:
+            target = args.target_soc
+            if requested_mode in ['emergency_backup', 'self_consumption']:
+                if soc >= target:
+                    result['warnings'].append(
+                        f"TARGET ALREADY REACHED: Current SoC {soc:.1f}% >= Target {target:.1f}%"
+                    )
+                    if requested_mode == 'emergency_backup':
+                        result['warnings'].append("Battery is already at/above backup target")
+                    elif requested_mode == 'self_consumption':
+                        result['warnings'].append("Will NOT charge from grid. Only excess solar will be stored")
+            
+    except Exception as e:
+        result['warnings'].append(f"Could not read full state: {e}")
+    
+    return result
+
+
+def print_startup_summary(state: dict, requested_mode: str = None, args=None):
+    """Print clear startup state summary."""
+    print("\n" + "=" * 70)
+    print("  CURRENT SYSTEM STATE")
+    print("=" * 70)
+    
+    current = state['current_state']
+    soc = current.get('soc', 0)
+    
+    # Build SOC summary line with ETA
+    soc_line = f"    SoC: {soc:.1f}%"
+    if args and hasattr(args, 'target_soc') and args.target_soc:
+        target = args.target_soc
+        soc_line += f" | Target: {target:.1f}%"
+        if soc < target:
+            eta_min = (target - soc) * 1.6  # ~1.6 min per % at 5kW
+            soc_line += f" | ETA: +{int(eta_min)}min"
+        else:
+            soc_line += " | AT TARGET"
+    
+    print(f"\n  Battery:")
+    print(soc_line)
+    print(f"    Activity:      {current.get('battery_activity', 'Unknown')}")
+    
+    print(f"\n  Grid:")
+    print(f"    Status:        {'✓ Connected' if current.get('grid_connected') else '✗ Disconnected/Unsafe'}")
+    print(f"    Power:         {current.get('grid_power', 0):.0f}W")
+    print(f"    Voltage:       {current.get('grid_voltage', 0):.1f}V")
+    
+    print(f"\n  Control:")
+    print(f"    WSetEna:       {current.get('wset_ena', 0)}")
+    print(f"    WSetPct:       {current.get('wset_pct', 0):.1f}%")
+    print(f"    Actual Power:  {current.get('actual_power', 0):.0f}W")
+    
+    if current.get('ongrid_mode'):
+        print(f"\n  aGate Mode:")
+        print(f"    OnGridMode:    {current.get('ongrid_mode')} ({current.get('ongrid_mode_raw')})")
+    
+    # Display alarms if any
+    alarms = state.get('alarms', {})
+    if alarms.get('system') or alarms.get('dc_port'):
+        print(f"\n  ⚠️  ALARMS:")
+        if alarms.get('system'):
+            print(f"    System:        {', '.join(alarms['system'])}")
+        if alarms.get('dc_port'):
+            print(f"    DC Port:       {', '.join(alarms['dc_port'])}")
+        if alarms.get('blocking'):
+            print(f"    BLOCKING:      {', '.join(alarms['blocking'])}")
+    
+    if state['warnings']:
+        print(f"\n  ⚠️  WARNINGS:")
+        for warning in state['warnings']:
+            print(f"      • {warning}")
+    
+    if state['conflicts']:
+        print(f"\n  🚨 CONFLICTS:")
+        for conflict in state['conflicts']:
+            print(f"      • {conflict}")
+    
+    if requested_mode:
+        print(f"\n  Requested Mode: {requested_mode}")
+        if state['can_proceed']:
+            print(f"  Status:         ✓ Can proceed")
+        else:
+            print(f"  Status:         ✗ CONFLICTS DETECTED - use --reset-on-start to override")
+    
+    print("=" * 70)
+
+
 def print_system_status(ctrl):
     """Print comprehensive system status with clear operational state."""
 
@@ -2096,13 +2770,16 @@ def print_system_status(ctrl):
         # Upper bits (16+): Grid mode flags (FranklinWH may not populate these)
         der_sources = [name for bit, name in DER_SOURCE.items() if der_mode_raw & (1 << bit)]
 
-        # FranklinWH product line:
-        #   aGate X (AU/US): AC-coupled — PV via AC solar inputs (2x 63A)
-        #   aPower S (US):   DC-coupled — PV via 4x MPPT (built-in hybrid inverter)
-        # Firmware only reports bit 0 (PV) in DERMode, missing bit 1 (Battery).
-        # We correct this to reflect the actual hybrid PV+Battery hardware.
+        # FranklinWH product line architecture:
+        #   aGate X (AU/US): AC-coupled — PV via AC solar inputs (2x 63A circuits)
+        #   aPower S (US):   Hybrid — PV via 4x MPPT DC + AC inputs
+        #   aPower 2:        DC-coupled — PV via MPPT DC inputs
+        # 
+        # Firmware DERMode register only reports bit 0 (PV), missing bit 1 (Battery).
+        # We correct this to reflect actual hardware: AC-coupled battery + AC solar inputs
         if der_sources == ['PV']:
-            der_source_str = 'PV+Battery (Hybrid Inverter)'
+            # aGate X is AC-coupled: Battery (AC) + Solar (AC inputs)
+            der_source_str = 'Battery+Solar (AC-Coupled)'
         elif der_sources:
             der_source_str = '+'.join(der_sources)
         else:
@@ -2133,20 +2810,42 @@ def print_system_status(ctrl):
             print(f"  Cabinet Temp:      {tmp_cab:.1f} °C")
         if tmp_amb:
             print(f"  Ambient Temp:      {tmp_amb:.1f} °C")
-        if alrm:
-            # Decode alarm bitfield
-            ALARM_BITS = {
-                0: 'GROUND_FAULT', 2: 'DC_OVER_VOLTAGE', 3: 'AC_DISCONNECT',
-                5: 'GRID_DISCONNECT', 7: 'MANUAL_SHUTDOWN', 8: 'OVER_TEMP',
-                9: 'VOLT_OUT_OF_RANGE', 10: 'FREQ_OUT_OF_RANGE',
-                12: 'HW_FAILURE', 13: 'MANUFACTURER_ALARM'
-            }
-            active = [name for bit, name in ALARM_BITS.items() if alrm & (1 << bit)]
-            print(f"  ⚠ Alarms:          0x{alrm:08X}")
-            for a in active:
-                print(f"                     → {a}")
+        # --- Alarms Section ---
+        print(f"\n  Alarms & Events")
+        print(f"  {'─' * 40}")
+        
+        # Read comprehensive alarm status
+        alarms = ctrl.read_alarms()
+        decoded = alarms.get('decoded', {})
+        
+        # System alarms (Model 701)
+        sys_alarms = decoded.get('system', [])
+        if sys_alarms:
+            print(f"  ⚠ System Alarms:   0x{alarms['system_alrm']:08X}")
+            for alarm in sys_alarms:
+                print(f"                     → {alarm}")
         else:
-            print(f"  Alarms:            None ✓")
+            print(f"  ✓ System Alarms:   None")
+        
+        # DC Port alarms (Model 714)
+        dc_alarms = decoded.get('dc_port', [])
+        if dc_alarms:
+            print(f"  ⚠ DC Port Alarms:  0x{alarms['dc_port_alrm']:08X}")
+            for alarm in dc_alarms:
+                print(f"                     → {alarm}")
+        else:
+            print(f"  ✓ DC Port Alarms:  None")
+        
+        # Battery status
+        bat_status = decoded.get('battery_status', 'UNKNOWN')
+        if alarms['battery_sta'] == 6:  # FAULT
+            print(f"  🚨 Battery Status:  {bat_status} (FAULT)")
+        else:
+            print(f"  ✓ Battery Status:  {bat_status}")
+        
+        # Vendor alarm info if available
+        if alarms.get('vendor_info'):
+            print(f"  Vendor Info:       {alarms['vendor_info']}")
 
     # --- Battery ---
     if m713:
@@ -2266,6 +2965,64 @@ def print_system_status(ctrl):
     print("\n" + "=" * 60)
 
 
+def validate_mode_params(args) -> Tuple[bool, List[str]]:
+    """
+    Validate that CLI parameters are compatible with selected mode.
+    
+    Returns (is_valid, warning_messages).
+    """
+    warnings = []
+    
+    # Parameter to mode mapping: which modes have specialized use for these parameters
+    # target_soc is now universal - works with all modes
+    PARAM_MODE_MAP = {
+        'reserve': ['self_consumption'],
+        'threshold': ['peak_shave'],
+        'power': ['manual'],
+        'schedule_file': ['time_of_use'],
+    }
+    
+    # Check each parameter
+    mode = args.mode
+    
+    # target_soc now works with ALL modes - no warning needed
+    # It sets a universal target SoC that modes will respect
+    
+    # reserve only valid for self_consumption
+    if args.reserve != 20:  # Non-default value provided
+        if mode not in PARAM_MODE_MAP['reserve']:
+            warnings.append(
+                f"--reserve={args.reserve} is only used by 'self_consumption' mode, "
+                f"not '{mode}'. This parameter will be ignored."
+            )
+    
+    # threshold only valid for peak_shave
+    if args.threshold != 2000:  # Non-default value provided
+        if mode not in PARAM_MODE_MAP['threshold']:
+            warnings.append(
+                f"--threshold={args.threshold} is only used by 'peak_shave' mode, "
+                f"not '{mode}'. This parameter will be ignored."
+            )
+    
+    # power only valid for manual
+    if args.power is not None:
+        if mode not in PARAM_MODE_MAP['power']:
+            warnings.append(
+                f"--power={args.power} is only used by 'manual' mode, "
+                f"not '{mode}'. This parameter will be ignored."
+            )
+    
+    # schedule_file only valid for time_of_use
+    if args.schedule_file:
+        if mode not in PARAM_MODE_MAP['schedule_file']:
+            warnings.append(
+                f"--schedule-file is only used by 'time_of_use' mode, "
+                f"not '{mode}'. This parameter will be ignored."
+            )
+    
+    return len(warnings) == 0, warnings
+
+
 def main():
     """Main entry point."""
     parser = create_parser()
@@ -2273,6 +3030,29 @@ def main():
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+    elif args.quiet:
+        logging.getLogger().setLevel(logging.WARNING)
+    
+    # Validate parameter combinations when mode is specified
+    if args.mode:
+        is_valid, warnings = validate_mode_params(args)
+        if warnings:
+            print("\n⚠️  Parameter/Mode Mismatch Warnings:")
+            for warning in warnings:
+                print(f"   • {warning}")
+            print(f"\n   For mode '{args.mode}', valid parameters are:")
+            if args.mode == 'self_consumption':
+                print("   --reserve (reserve percentage)")
+            elif args.mode == 'emergency_backup':
+                print("   --target-soc (target SoC percentage)")
+            elif args.mode == 'peak_shave':
+                print("   --threshold (watts threshold)")
+            elif args.mode == 'manual':
+                print("   --power (watts)")
+            elif args.mode == 'time_of_use':
+                print("   --schedule-file (JSON schedule file)")
+            print("")
+            # Don't exit - just warn the user
     
     # Handle schedule file display/validation (no hardware needed)
     if args.show_schedule:
@@ -2320,54 +3100,46 @@ def main():
     if not ctrl.connect():
         sys.exit(1)
     
-    # Log startup information
-    logger.info("=" * 60)
+    # Check current system state and detect conflicts
+    startup_state = check_startup_state(ctrl, args.mode)
+    
+    # Print startup summary (unless in quiet mode)
+    if not args.quiet:
+        print_startup_summary(startup_state, args.mode, args)
+    
+    # If conflicts detected and no reset flag, exit
+    if not startup_state['can_proceed'] and not args.reset_on_start:
+        print("\n⚠️  Cannot proceed due to conflicts. Options:")
+        print("    1. Use --reset-on-start to take control anyway")
+        print("    2. Change aGate mode via FranklinWH app to match requested mode")
+        print("    3. Wait for current operation to complete")
+        sys.exit(1)
+    
+    # Check if target SoC already reached for charge modes
+    if hasattr(args, 'target_soc') and args.target_soc and hasattr(args, 'mode') and args.mode:
+        current_soc = startup_state['current_state'].get('soc', 0)
+        target_soc = args.target_soc
+        if args.mode in ['self_consumption', 'emergency_backup'] and current_soc >= target_soc:
+            print(f"\n❌ TARGET ALREADY REACHED: Current SoC {current_soc:.1f}% >= Target {target_soc:.1f}%")
+            print(f"\nBattery is already at or above the target SoC.")
+            print(f"Cannot charge further. Options:")
+            print(f"    1. Lower --target-soc below {current_soc:.1f}%")
+            print(f"    2. Wait for battery to discharge naturally")
+            print(f"    3. Use --power negative_value to discharge first")
+            sys.exit(1)
+    
+    # Log startup information (INFO level - hidden in quiet mode)
     logger.info("FranklinWH Control Starting")
     logger.info(f"  Target: {args.ip}:{args.port} (unit {args.unit})")
     logger.info(f"  Mode: {args.mode or 'direct control'}")
     logger.info(f"  SoC Limits: min_discharge={args.min_discharge_soc or 'auto'}, "
                 f"max_charge={args.max_charge_soc}, ramp_window={args.soc_ramp_window}%")
     
-    # Check aGate native mode for Cloud API coordination
-    native = ctrl.read_native_mode()
-    if native:
-        ongrid_mode = native.get('mode_raw', -1)
-        ongrid_name = native.get('mode_name', 'Unknown')
-        self_reserve = native.get('self_reserve_pct', -1)
-        tou_reserve = native.get('tou_reserve_pct', -1)
-        
-        logger.info(f"  aGate OnGridMode: {ongrid_name} ({ongrid_mode})")
-        
-        if ongrid_mode == 0:
-            logger.info(f"  aGate Reserve: Emergency Backup mode (no reserve)")
-        elif ongrid_mode == 1:
-            logger.info(f"  aGate Reserve: Self-Consumption {self_reserve}%")
-        elif ongrid_mode == 2:
-            logger.info(f"  aGate Reserve: TOU {tou_reserve}%")
-        elif ongrid_mode == 3:
-            logger.info(f"  aGate Reserve: Manual mode")
-        
-        # Check for potential Cloud API activity
-        if ongrid_mode != 3:  # Not in Manual mode
-            # Read current battery activity
-            bat_status = ctrl.read_battery_status()
-            soc = bat_status.get('soc', 0)
-            logger.info(f"  aGate SoC: {soc:.1f}%")
-            
-            # Check if Cloud API might be actively controlling
-            control_status = ctrl.read_control_status()
-            wset_ena = control_status.get('wset_enabled', 0)
-            
-            if wset_ena == 1:
-                logger.warning(f"  ⚠️  WARNING: WSetEna=1 detected in {ongrid_name} mode!")
-                logger.warning(f"      Cloud API or another controller may be active.")
-                logger.warning(f"      Using --reset-on-start will take control via Modbus.")
-            else:
-                logger.info(f"  Note: OnGridMode={ongrid_name}, but WSetEna=0 (no active control)")
-                if ongrid_mode == 2:
-                    logger.info(f"        TOU schedule may activate soon.")
-    
-    logger.info("=" * 60)
+    # Log native mode
+    if startup_state['current_state'].get('ongrid_mode'):
+        logger.info(f"  aGate OnGridMode: {startup_state['current_state']['ongrid_mode']}")
+    logger.info(f"  Battery SoC: {startup_state['current_state'].get('soc', 0):.1f}%")
+    logger.info(f"  Battery Activity: {startup_state['current_state'].get('battery_activity', 'Unknown')}")
     
     # Register signal handlers for graceful shutdown
     def signal_handler(signum, frame):
@@ -2379,6 +3151,52 @@ def main():
     
     try:
         # Health check mode
+        if args.check_alarms:
+            print("\n" + "=" * 70)
+            print("  ALARM STATUS CHECK")
+            print("=" * 70)
+            alarms = ctrl.read_alarms()
+            decoded = alarms.get('decoded', {})
+            
+            print(f"\n  System Alarms (Model 701): 0x{alarms['system_alrm']:08X}")
+            sys_alarms = decoded.get('system', [])
+            if sys_alarms:
+                for alarm in sys_alarms:
+                    print(f"    ⚠ {alarm}")
+            else:
+                print(f"    ✓ None active")
+            
+            print(f"\n  DC Port Alarms (Model 714): 0x{alarms['dc_port_alrm']:08X}")
+            dc_alarms = decoded.get('dc_port', [])
+            if dc_alarms:
+                for alarm in dc_alarms:
+                    print(f"    ⚠ {alarm}")
+            else:
+                print(f"    ✓ None active")
+            
+            print(f"\n  Battery Status: {decoded.get('battery_status', 'UNKNOWN')}")
+            
+            can_operate, blocking = ctrl.check_blocking_alarms()
+            if blocking:
+                print(f"\n  🚨 BLOCKING: {', '.join(blocking)}")
+            else:
+                print(f"\n  ✓ No blocking alarms")
+            
+            print("=" * 70)
+            sys.exit(0 if can_operate else 1)
+        
+        if args.clear_alarms:
+            print("\n" + "=" * 70)
+            print("  CLEARING ALARMS")
+            print("=" * 70)
+            success, msg = ctrl.clear_alarms()
+            if success:
+                print(f"  ✓ {msg}")
+            else:
+                print(f"  ✗ {msg}")
+            print("=" * 70)
+            sys.exit(0 if success else 1)
+        
         if args.healthcheck:
             health = ctrl.healthcheck()
             print_health_report(health)
@@ -2445,11 +3263,13 @@ def main():
                     sys.exit(1)
             
             # Map CLI args to mode parameters
-            mode_kwargs = {}
+            # target_soc is universal - applies to all modes
+            mode_kwargs = {'target_soc': args.target_soc}
+            
             if args.mode == 'self_consumption':
                 mode_kwargs['self_reserve_pct'] = args.reserve
             elif args.mode == 'emergency_backup':
-                mode_kwargs['backup_target_soc'] = args.target_soc
+                mode_kwargs['backup_target_soc'] = args.target_soc  # Legacy support
             elif args.mode == 'peak_shave':
                 mode_kwargs['peak_shave_threshold'] = args.threshold
             elif args.mode == 'manual':
