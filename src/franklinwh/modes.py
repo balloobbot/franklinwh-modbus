@@ -410,6 +410,47 @@ class VirtualModeController:
         
         return True, "Safety check passed", proposed_power
     
+    def verify_command_execution(self, tolerance_percent: float = 20.0) -> tuple:
+        """
+        Verify that commanded power matches actual battery DC power.
+        
+        Returns:
+            (ok: bool, commanded: float, actual: float, diff_percent: float)
+        """
+        try:
+            # Get commanded power from control status
+            ctl = self.ctrl.read_control_status()
+            commanded = ctl.get('wset_watts', 0)
+            wset_ena = ctl.get('wset_enabled', 0)
+            
+            if wset_ena != 1 or commanded == 0:
+                # Not actively controlling, skip check
+                return True, 0, 0, 0
+            
+            # Get actual battery DC power from Model 714
+            m714 = self.ctrl.get_model(714)
+            if not m714:
+                return True, commanded, 0, 0  # Can't verify without Model 714
+            
+            m714.read()
+            sf_w = self._get_scale_factor(m714, 'DCW_SF')
+            actual = m714.DCW.value * (10 ** sf_w) if m714.DCW.value else 0
+            
+            # Calculate difference percentage
+            if commanded == 0:
+                diff_percent = 0 if actual == 0 else 100
+            else:
+                diff_percent = abs((actual - commanded) / commanded) * 100
+            
+            # Check if within tolerance
+            ok = diff_percent <= tolerance_percent
+            
+            return ok, commanded, actual, diff_percent
+            
+        except Exception as e:
+            logger.debug(f"Could not verify command execution: {e}")
+            return True, 0, 0, 0  # Fail open (assume OK) on error
+    
     def execute_once(self) -> float:
         """Calculate and send single command. Returns actual power sent."""
         status = self.read_status()
@@ -473,8 +514,10 @@ class VirtualModeController:
         start_time = time.time()
         tick_interval = 5.0
         alarm_interval = 30.0  # Check alarms every 30s
+        sanity_check_interval = 10.0  # Verify command execution every 10s
         last_tick = 0
         last_alarm_check = 0
+        last_sanity_check = 0
         alarm_check_failures = 0
         consecutive_failures = 0
         max_consecutive_failures = 5
@@ -524,6 +567,20 @@ class VirtualModeController:
                             alarm_check_failures = 0
                     except Exception as e:
                         logger.warning(f"Could not check alarms: {e}")
+                
+                # Periodic sanity check: verify commanded power matches actual
+                if now - last_sanity_check >= sanity_check_interval and consecutive_failures == 0:
+                    last_sanity_check = now
+                    try:
+                        ok, commanded, actual, diff = self.verify_command_execution(tolerance_percent=20.0)
+                        if not ok:
+                            logger.warning(
+                                f"⚠️  COMMAND VERIFICATION: Commanded {commanded:.0f}W but actual {actual:.0f}W "
+                                f"({diff:.1f}% difference)"
+                            )
+                            logger.warning("   Battery may not be responding to commands")
+                    except Exception as e:
+                        logger.debug(f"Could not run sanity check: {e}")
                 
                 time.sleep(0.1)
                 
