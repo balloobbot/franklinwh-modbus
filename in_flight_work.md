@@ -16,6 +16,30 @@
 
 ---
 
+## Completed: Bugfixes — Off-Grid, SoC Validation, Sanity Check — 2026-02-22 13:20
+
+### Bug 1: Off-Grid Detection & Blocking
+**Stages:**
+- [x] **Stage 1.1** — Grid connection check using ConnSt + voltage — Commit: `a36b9b3`
+- [x] **Stage 1.2-1.3** — Add `--off-grid-permitted` flag — Commit: `a36b9b3`
+- [x] **Stage 1.4** — Block start unless flag provided — Commit: `a36b9b3`
+
+### Bug 2: SoC Limit Validation  
+**Stages:**
+- [x] **Stage 2.1-2.3** — Validate target_soc, max_charge_soc, min_discharge_soc — Commit: `e055665`
+- [x] **Stage 2.4** — Immediate exit on validation failure — Commit: `e055665`
+
+### Bug 3: Fix "AT TARGET" Display
+**Stages:**
+- [x] **Stage 3.1-3.3** — Show ABOVE TARGET when SoC > target — Commit: `96d1f72`
+
+### Bug 4: Runtime Sanity Check
+**Stages:**
+- [x] **Stage 4.1-4.3** — Verify commanded vs actual DC power — Commit: `5d26917`
+- [x] Warning on >20% difference every 10s — Commit: `5d26917`
+
+---
+
 ## Completed: Solar PV Display Bugfix — 2026-02-22 13:03
 
 **Defect:** Solar PV showing 0W in --status despite Model 502 showing 2100W+  
@@ -24,9 +48,10 @@
 2. Wrong attribute: `m502.W` → `m502.OutPw`
 
 **Stages:**
-- [x] **Stage 1.1** — Fix extension solar API (`device_id=`) — Commit: `6666e2c`
+- [x] **Stage 0.1/0.2** — Fix standalone script API — Commit: `cb6a041`
+- [x] **Stage 1.1** — Fix library extension solar API — Commit: `6666e2c`
 - [x] **Stage 2.1** — Fix Model 502 attribute (`OutPw`) — Commit: `24ac709`
-- [x] **Stage 1.3/2.3** — Verify fix: Solar now shows 3600W ✓
+- [x] **Verify** — Solar now shows 3600W ✓
 
 **Result:** 
 - Before: `Solar: 0W Idle`
