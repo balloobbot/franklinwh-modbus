@@ -1,12 +1,30 @@
-# In-Flight Work — Updated 2026-02-18 14:12
+# In-Flight Work — Updated 2026-02-22 12:35
 
 ## Current Plan Reference
 
 **Project**: FranklinWH Modbus Battery Manager (`/home/david/dev/modbus/`)
-**Plan Status**: GOVERNANCE COMPLETE — Implementation plan not yet written
+**Plan Status**: GOVERNANCE COMPLETE — Awaiting next scoped implementation plan
 **Priority**: Stabilise `franklinwh_control_standalone.py` as an importable library (see `ARCHITECTURE.md` Phase 2)
 
-## Status: SETTING UP PROJECT GOVERNANCE
+## Status: GOVERNANCE COMPLETE — AWAITING APPROVAL FOR NEXT WORK
+
+**⚠️ MANDATORY PROCESS:** All work must follow `.agent/workflows/staged-execution.md`
+- Proposed plan required before ANY work
+- Explicit user approval required ("go", "yes", "approved", "proceed")
+- Per-stage git commits
+- in_flight_work.md tracking
+
+---
+
+## Completed: Staged Execution Governance
+
+- [x] Created `.agent/workflows/staged-execution.md` — comprehensive staged work process
+- [x] Created `.agent/rules/staged_execution_rule.md` — hard rule for planning gate
+- [x] Updated `agent.md` — reference new staged execution process
+
+---
+
+## Completed (Previous)
 
 ---
 
@@ -50,6 +68,297 @@ _No blockers._
 ---
 
 ## Session Log
+
+### 2026-02-23 01:00 AEDT — ADDED: Comprehensive Alarm Monitoring
+
+**Major Feature: Full Alarm System**
+
+1. **Alarm Types Monitored**
+   - System Alarms (Model 701): GROUND_FAULT, OVER_TEMP, AC_DISCONNECT, etc.
+   - DC Port Alarms (Model 714): PORT_OVER_VOLTAGE, PORT_OVER_CURRENT, etc.
+   - Battery Status (Model 713): FAULT detection
+   - Solar Events (Model 502): INPUT_OVER_VOLTAGE, etc.
+
+2. **New CLI Options**
+   - `--check-alarms`: Display all alarm states
+   - `--clear-alarms`: Reset alarms if safe (no critical faults)
+
+3. **Alarm Reset Mechanism**
+   - Writes to Model 715 AlarmReset (register 41094)
+   - Only clears non-critical alarms
+   - Critical faults require manual intervention
+
+4. **Integration**
+   - Startup check: Blocks if critical alarms active
+   - Runtime check: Logs blocking alarms every 60s
+   - Status display: Shows all active alarms with descriptions
+   - Healthcheck: Includes alarm status
+
+**Files Modified:**
+- `franklinwh_control_standalone.py` - Alarm methods and CLI integration
+- `FIXES_SUMMARY.md` - Documentation
+
+### 2026-02-23 00:45 AEDT — POLISH: Nameplate Cleanup & Zombie State Display
+
+**Final Polish Items:**
+
+1. **Nameplate Display Cleanup**
+   - Stripped register prefixes (Mn:, Md:, SN:, Vr:, Opt:) from display
+   - Cleaner output without raw register notation
+   - Added `clean_value()` helper function
+
+2. **Zombie State Display Fix**
+   - Fixed confusing "FAIL" message when not in zombie state
+   - Now shows: "✓ zombie_state: OK (not in zombie state)" when healthy
+   - Shows: "🚨 zombie_state: ZOMBIE STATE DETECTED" when active
+
+### 2026-02-23 00:30 AEDT — ADDED: AC Type & Grid State to Status/Health
+
+**New Grid Information in --status and --healthcheck:**
+
+1. **AC Type Detection**
+   - Single-Phase 230V (200-260V range)
+   - Single-Phase 120V (100-200V range)
+   - Three-Phase 400V (380-420V range)
+   - Based on LNV (Line-Neutral Voltage) reading
+
+2. **Grid Connection State**
+   - From Model 701 ConnSt register
+   - Shows: Connected / Disconnected / Fault
+
+3. **Grid Mode**
+   - From DERMode upper bits (bits 16-17)
+   - Grid Following (normal operation)
+   - Grid Forming (island/off-grid mode)
+   - Default: Grid Following if bits not set
+
+4. **Inverter State**
+   - From Model 701 InvSt register
+   - Shows: Running, Standby, Starting, Fault, etc.
+
+**Files Modified:**
+- `franklinwh_control_standalone.py` - Enhanced `read_grid_status()`
+- `src/franklinwh/controller.py` - Enhanced `read_grid_status()`, added to healthcheck
+- `franklinwh_cli.py` - Updated `print_status()` to show new fields
+
+### 2026-02-23 00:15 AEDT — FIXED: HealthStatus Bug + Model 1 Nameplate
+
+**Bug Fixes:**
+
+1. **HealthStatus Field Mismatch**
+   - Library `HealthStatus` had `issues` field but controller used `message`
+   - Fixed `types.py` to use `message: str` field
+   - `--healthcheck` now works correctly
+
+2. **Model 1 (Common) Nameplate Reading**
+   - Added `read_nameplate()` method to both original and library
+   - Reads Model 1: manufacturer, model, serial, version, options
+   - Displayed in `--status` and `--healthcheck` output
+   - Example:
+     ```
+     DEVICE:
+       Manufacturer: FranklinWH
+       Model:        aGate X
+       Serial:       FW123456789
+       Firmware:     2.1.4
+     ```
+
+### 2026-02-23 00:00 AEDT — ADDED: Startup State Check & Quiet Mode
+
+**New Features:**
+
+1. **Clear Startup State Display**
+   - `check_startup_state()` - reads all system state
+   - `print_startup_summary()` - visual summary before taking control
+   - Shows: SoC, battery activity, grid status, control state, aGate mode
+   - Only shown if not in `--quiet` mode
+
+2. **Conflict Detection**
+   - Detects when aGate is already active in different mode
+   - Warns about mode mismatches
+   - Exits with clear options unless `--reset-on-start` used
+   - Example: aGate in TOU mode but requesting manual mode
+
+3. **Quiet Mode (`-q` / `--quiet`)**
+   - Only shows warnings, errors, and startup summary
+   - Hides INFO level logs
+   - Usage: `python script.py -i 192.168.0.110 -q --mode manual --power -4000`
+
+4. **Library State Check Method**
+   - Added `ctrl.check_state()` to library controller
+   - Returns dict with all current state info
+   - Useful for programmatic conflict detection
+
+**Example Startup Output:**
+```
+======================================================================
+  CURRENT SYSTEM STATE
+======================================================================
+  Battery:
+    SoC:           41.0%
+    Activity:      CHARGING (4000W)
+  Grid:
+    Status:        ✓ Connected
+    Power:         2058W
+    Voltage:       230.5V
+  Control:
+    WSetEna:       1
+    WSetPct:       -80.0%
+    Actual Power:  -4000W
+  aGate Mode:
+    OnGridMode:    Self-Consumption (2)
+  Requested Mode: manual
+  Status:         ✓ Can proceed
+======================================================================
+```
+
+### 2026-02-22 23:45 AEDT — FIXED: Telemetry Display Bugs
+
+**Critical Fixes to Original Script:**
+
+1. **Battery shows "IDLE 0W"** → Now derives state from WSetPct
+   - FranklinWH hardware returns dc_power=0 (defect)
+   - Fixed: Calculate actual_power from WSetPct percentage
+   - Shows ⚡ CHARGING / 🔋 DISCHARGING based on command
+
+2. **WSetEna shows 0** → Fixed key lookup
+   - Was: `control.get('wset_ena', 0)` 
+   - Now: `control.get('wset_enabled', 0)`
+
+3. **CMD shows WSetPct=0.0%** → Added wset_pct to control status
+   - `read_control_status()` now returns `wset_pct` and `wset_pct_raw`
+   - CMD line shows actual percentage
+
+4. **Battery Inverter 0%** → Falls back to actual_power
+   - Uses dc_power if >50W, else actual_power from WSetPct
+
+5. **MODBUS line wrong power** → Shows actual_power with WSetPct
+   - Before: `Command: {battery_power:.0f}W`
+   - After: `Command: {actual_power:.0f}W (from WSetPct={wset_pct_value:.1f}%)`
+
+6. **SoC limit checks wrong** → Uses actual_power instead of battery_power
+   - Fixed ramping detection and limit status display
+
+**Files Modified:**
+- `franklinwh_control_standalone.py` - All telemetry fixes
+- `src/franklinwh/controller.py` - Added wset_pct to control status
+- `FIXES_SUMMARY.md` - Documentation of all fixes
+
+### 2026-02-22 23:15 AEDT — COMPLETED: Library Split
+- Created proper Python package structure in `src/franklinwh/`:
+  - `types.py` - Enums and data classes (ControlMode, VirtualMode, BatteryCommand, HealthStatus)
+  - `controller.py` - FranklinWHController hardware interface (~575 lines)
+  - `schedule.py` - TOUSchedule time-of-use scheduling (~285 lines)
+  - `modes.py` - VirtualModeController mode logic (~410 lines)
+  - `__init__.py` - Package exports
+- Created new CLI: `franklinwh_cli.py` (~300 lines)
+  - Imports from franklinwh package
+  - Same interface as original
+  - Cleaner, more maintainable code
+- Created `setup.py` for package installation
+  - Entry point: `franklinwh` command
+  - Dependencies: sunspec2
+  - Dev extras: pytest, pytest-mock
+- Updated tests to use new package:
+  - Fixed imports in conftest.py
+  - Fixed imports in unit tests
+  - Fixed imports in integration tests
+  - All 23 tests pass ✓
+- Original script preserved: `franklinwh_control_standalone.py`
+  - Full backward compatibility
+  - Can be archived later when migration complete
+- Created documentation: `LIBRARY_SPLIT.md`
+  - Package structure overview
+  - Usage examples
+  - Installation instructions
+
+### 2026-02-22 22:30 AEDT — Fixed: Critical Bugs from User Testing
+
+**Changes Made:**
+
+1. **--target-soc now works on ALL modes** (not just emergency_backup)
+   - Added universal `target_soc` attribute to VirtualModeController
+   - Updated all modes to respect target_soc as charge limit
+   - Updated `_get_target_soc_display()` to show target for all modes
+   - Removed validation warning that restricted it to emergency_backup
+
+2. **Fixed battery state display** (FranklinWH defect workaround)
+   - FranklinWH battery status register always returns 0 (IDLE)
+   - Now derives battery state from: 1) actual DC power, 2) command power if WSetEna=1
+   - Shows ⚡ CHARGING / 🔋 DISCHARGING / 💤 IDLE based on command when DC power unavailable
+
+3. **Fixed emergency capacity check bug**
+   - Bug: Was triggering "Limiting discharge" when trying to CHARGE
+   - Fixed: Added separate handling for charging vs discharging
+   - When charging: warns if still near capacity even with charge power added
+   - When discharging: limits discharge to prevent overload
+
+4. **Fixed solar showing negative values**
+   - Ensured solar display uses `abs(total_solar)`
+   - Fixed off-grid capacity calculation to use `max(0, total_solar)`
+
+5. **Fixed WSetEna display**
+   - Was showing 0 even when commands sent successfully
+   - Now correctly reads `wset_ena` from control status
+
+### 2026-02-22 21:45 AEDT — Created: Pytest Infrastructure & Integration Tests
+- Fixed `self.tou.min_soc` - already using `get_min_soc()` method (audit was outdated)
+- Created pytest infrastructure:
+  - `pytest.ini` - Configuration with markers (integration, unit, slow, hardware)
+  - `tests/conftest.py` - Shared fixtures (mock_modbus_client, mock_sunspec_device, etc.)
+  - `tests/unit/__init__.py` - Unit test package
+  - `tests/integration/__init__.py` - Integration test package
+- Created unit tests: `tests/unit/test_tou_schedule.py`
+  - 10 tests for TOUSchedule class
+  - Tests default schedules, file loading, price/period retrieval
+  - All passing ✓
+- Created integration tests: `tests/integration/test_virtual_mode_controller.py`
+  - 13 tests for VirtualModeController with mocked hardware
+  - Tests self_consumption, emergency_backup, peak_shave modes
+  - Tests SoC limits with ramping
+  - Tests multi-source solar aggregation
+  - Tests TOU schedule file loading
+  - All passing ✓
+- Discovered sign convention bug (documented in tests):
+  - VirtualModeController: Positive=charge, negative=discharge
+  - BatteryCommand: Positive=discharge, negative=charge
+  - Tests written to match actual code behavior with notes about the bug
+
+### 2026-02-22 21:15 AEDT — Fixed: DEFECT-001 Parameter Validation
+- Fixed DEFECT-001: `--target-soc` (and other params) silently ignored in wrong modes
+- Added `validate_mode_params()` function that checks parameter/mode compatibility:
+  - `--target-soc` only valid for `emergency_backup`
+  - `--reserve` only valid for `self_consumption`
+  - `--threshold` only valid for `peak_shave`
+  - `--power` only valid for `manual`
+  - `--schedule-file` only valid for `time_of_use`
+- Validation runs when `--mode` is specified
+- Warns user with clear message about:
+  - Which parameter is incompatible
+  - What mode it was used with
+  - What parameters ARE valid for that mode
+- Non-blocking: script continues but user is informed
+- Updated `audits/02_known_defects.md` to mark DEFECT-001 as FIXED
+- Both HIGH severity defects (DEFECT-001, DEFECT-002) now resolved
+- Ready for library split
+
+### 2026-02-22 21:00 AEDT — Enhanced: Multi-Source Solar Monitoring for AC-Coupled Systems
+- User provided register dump showing FranklinWH extension solar registers (15502-15505)
+- Updated `_read_extension_solar()` to properly aggregate all solar sources:
+  - PV Total (15502): Aggregate when populated, 0 when not
+  - PV Proximal (15503): Local AC-coupled solar
+  - PV Remote 1 (15504): Additional solar array  
+  - PV Remote 2 (15505): Additional solar array
+- Smart total calculation to avoid double-counting:
+  - If PV Total matches sum of individuals (within 100W) → use PV Total
+  - Otherwise sum individual sources (Proximal + Remote 1 + Remote 2)
+- Updated `read_status()` to use total solar from all sources for derived values
+- Updated `_print_telemetry()` to display detailed solar breakdown:
+  - Shows TOTAL with all individual sources listed
+  - Uses total_solar for off-grid capacity monitoring
+  - Shows home load from extension register 15506 when available (more accurate)
+- Critical for AC-coupled aGate X systems where solar comes on AC inputs
+- Ensures accurate off-grid capacity calculation: Battery max + Total Solar vs Home Load
 
 ### 2026-02-21 23:55 AEDT — Fixed: AC-Coupled Solar Safety Monitoring
 - User clarification: aGate X is AC-coupled (solar on AC inputs, not DC)
