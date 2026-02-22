@@ -2666,8 +2666,10 @@ def print_startup_summary(state: dict, requested_mode: str = None, args=None):
         if soc < target:
             eta_min = (target - soc) * 1.6  # ~1.6 min per % at 5kW
             soc_line += f" | ETA: +{int(eta_min)}min"
-        else:
+        elif soc == target:
             soc_line += " | AT TARGET"
+        else:
+            soc_line += " | ABOVE TARGET"
     
     print(f"\n  Battery:")
     print(soc_line)
