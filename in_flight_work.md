@@ -38,6 +38,11 @@
 - [x] **Stage 4.1-4.3** — Verify commanded vs actual DC power — Commit: `5d26917`
 - [x] Warning on >20% difference every 10s — Commit: `5d26917`
 
+### Bug 5: Fix 'args is not defined' Error — 2026-02-22 13:35
+**Stages:**
+- [x] **Stage fix** — Added args parameter to check_startup_state() — Commit: `de6de85`
+- [x] Fixed warning: 'Could not read full state: name args is not defined'
+
 ---
 
 ## Completed: Solar PV Display Bugfix — 2026-02-22 13:03
