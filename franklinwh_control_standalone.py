@@ -2472,7 +2472,7 @@ def print_health_report(health: HealthStatus):
     print("=" * 70)
 
 
-def check_startup_state(ctrl, requested_mode: str = None) -> dict:
+def check_startup_state(ctrl, requested_mode: str = None, args=None) -> dict:
     """
     Check current system state at startup and detect potential conflicts.
     
@@ -3116,7 +3116,7 @@ def main():
         sys.exit(1)
     
     # Check current system state and detect conflicts
-    startup_state = check_startup_state(ctrl, args.mode)
+    startup_state = check_startup_state(ctrl, args.mode, args)
     
     # Print startup summary (unless in quiet mode)
     if not args.quiet:
