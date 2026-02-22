@@ -16,6 +16,24 @@
 
 ---
 
+## Completed: Solar PV Display Bugfix — 2026-02-22 13:03
+
+**Defect:** Solar PV showing 0W in --status despite Model 502 showing 2100W+  
+**Root Cause:** Two bugs in `read_solar_status()`:
+1. pymodbus 3.x API: `unit=` → `device_id=` 
+2. Wrong attribute: `m502.W` → `m502.OutPw`
+
+**Stages:**
+- [x] **Stage 1.1** — Fix extension solar API (`device_id=`) — Commit: `6666e2c`
+- [x] **Stage 2.1** — Fix Model 502 attribute (`OutPw`) — Commit: `24ac709`
+- [x] **Stage 1.3/2.3** — Verify fix: Solar now shows 3600W ✓
+
+**Result:** 
+- Before: `Solar: 0W Idle`
+- After: `Solar: → 3600W Producing` ✅
+
+---
+
 ## Completed: Staged Execution Governance
 
 - [x] **Stage 1 (COMPLETE)** — Add staged execution governance — 2026-02-22 12:45
