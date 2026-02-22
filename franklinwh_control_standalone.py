@@ -3140,18 +3140,41 @@ def main():
         print(f"\n⚠️  WARNING: Operating OFF-GRID (connection: {connection_state})")
         print("   --off-grid-permitted specified, continuing...")
     
-    # Check if target SoC already reached for charge modes
-    if hasattr(args, 'target_soc') and args.target_soc and hasattr(args, 'mode') and args.mode:
-        current_soc = startup_state['current_state'].get('soc', 0)
-        target_soc = args.target_soc
-        if args.mode in ['self_consumption', 'emergency_backup'] and current_soc >= target_soc:
-            print(f"\n❌ TARGET ALREADY REACHED: Current SoC {current_soc:.1f}% >= Target {target_soc:.1f}%")
-            print(f"\nBattery is already at or above the target SoC.")
-            print(f"Cannot charge further. Options:")
-            print(f"    1. Lower --target-soc below {current_soc:.1f}%")
-            print(f"    2. Wait for battery to discharge naturally")
-            print(f"    3. Use --power negative_value to discharge first")
+    # Validate SoC limits before operation
+    current_soc = startup_state['current_state'].get('soc', 0)
+    requested_power = args.power or 0
+    is_charge_request = requested_power < 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
+    is_discharge_request = requested_power > 0 or args.mode == 'peak_shave'
+    
+    # Check 1: target_soc for charge modes
+    if hasattr(args, 'target_soc') and args.target_soc:
+        if is_charge_request and current_soc >= args.target_soc:
+            print(f"\n🛑 SoC VALIDATION FAILED:")
+            print(f"   Current SoC: {current_soc:.1f}%")
+            print(f"   Target SoC:  {args.target_soc:.1f}%")
+            print(f"   Cannot charge - already at or above target.")
+            print(f"   Options:")
+            print(f"      1. Lower --target-soc below {current_soc:.1f}%")
+            print(f"      2. Wait for battery to discharge naturally")
+            print(f"      3. Use --power with positive value to discharge first")
             sys.exit(1)
+    
+    # Check 2: max_charge_soc for charge modes
+    if is_charge_request and current_soc >= args.max_charge_soc:
+        print(f"\n🛑 SoC VALIDATION FAILED:")
+        print(f"   Current SoC: {current_soc:.1f}%")
+        print(f"   Max Charge SoC: {args.max_charge_soc}%")
+        print(f"   Cannot charge - at maximum charge limit.")
+        sys.exit(1)
+    
+    # Check 3: min_discharge_soc for discharge modes
+    min_discharge = args.min_discharge_soc or startup_state['current_state'].get('reserve_soc', 20)
+    if is_discharge_request and current_soc <= min_discharge:
+        print(f"\n🛑 SoC VALIDATION FAILED:")
+        print(f"   Current SoC: {current_soc:.1f}%")
+        print(f"   Min Discharge SoC: {min_discharge}%")
+        print(f"   Cannot discharge - at minimum discharge limit.")
+        sys.exit(1)
     
     # Log startup information (INFO level - hidden in quiet mode)
     logger.info("FranklinWH Control Starting")

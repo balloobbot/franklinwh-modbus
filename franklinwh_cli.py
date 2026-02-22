@@ -549,6 +549,40 @@ def main():
                 print(f"\n⚠️  WARNING: Operating OFF-GRID (connection: {connection_state})")
                 print("   --off-grid-permitted specified, continuing...")
             
+            # Validate SoC limits before operation
+            current_soc = state.get('soc', 0)
+            requested_power = args.power or 0
+            is_charge_request = requested_power < 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
+            is_discharge_request = requested_power > 0 or args.mode == 'peak_shave'
+            
+            # Check 1: target_soc for charge modes
+            if is_charge_request and args.target_soc and current_soc >= args.target_soc:
+                print(f"\n🛑 SoC VALIDATION FAILED:")
+                print(f"   Current SoC: {current_soc:.1f}%")
+                print(f"   Target SoC:  {args.target_soc:.1f}%")
+                print(f"   Cannot charge - already at or above target.")
+                print(f"   Use --force to override (not recommended).")
+                sys.exit(1)
+            
+            # Check 2: max_charge_soc for charge modes
+            if is_charge_request and current_soc >= args.max_charge_soc:
+                print(f"\n🛑 SoC VALIDATION FAILED:")
+                print(f"   Current SoC: {current_soc:.1f}%")
+                print(f"   Max Charge SoC: {args.max_charge_soc}%")
+                print(f"   Cannot charge - at maximum charge limit.")
+                print(f"   Use --force to override (not recommended).")
+                sys.exit(1)
+            
+            # Check 3: min_discharge_soc for discharge modes
+            min_discharge = args.min_discharge_soc or state.get('reserve_soc', 20)
+            if is_discharge_request and current_soc <= min_discharge:
+                print(f"\n🛑 SoC VALIDATION FAILED:")
+                print(f"   Current SoC: {current_soc:.1f}%")
+                print(f"   Min Discharge SoC: {min_discharge}%")
+                print(f"   Cannot discharge - at minimum discharge limit.")
+                print(f"   Use --force to override (not recommended).")
+                sys.exit(1)
+            
             if args.reset_on_start:
                 ctrl.reset_control_state()
             
