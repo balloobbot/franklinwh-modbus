@@ -43,6 +43,11 @@
 - [x] **Stage fix** — Added args parameter to check_startup_state() — Commit: `de6de85`
 - [x] Fixed warning: 'Could not read full state: name args is not defined'
 
+### Bug 6: Add --test-extension-write to Standalone — 2026-02-22 13:45
+**Stages:**
+- [x] **Stage fix** — Added missing --test-extension-write option — Commit: `7917623`
+- [x] Sync standalone with CLI features
+
 ---
 
 ## Completed: Solar PV Display Bugfix — 2026-02-22 13:03
