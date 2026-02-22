@@ -431,8 +431,9 @@ class FranklinWHController:
                 try:
                     m502.read()
                     sf_w = self._get_scale_factor(m502, 'W_SF')
-                    if hasattr(m502, 'W') and m502.W.value is not None:
-                        solar_ac_power = m502.W.value * (10 ** sf_w)
+                    # Model 502 uses OutPw (Output Power), not W
+                    if hasattr(m502, 'OutPw') and m502.OutPw.value is not None:
+                        solar_ac_power = m502.OutPw.value * (10 ** sf_w)
                 except Exception as e:
                     logger.debug(f"Could not read Model 502: {e}")
             
