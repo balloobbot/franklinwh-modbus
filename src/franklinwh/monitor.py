@@ -95,17 +95,13 @@ class KeyboardInput:
         self.running = False
         self.thread = None
         self.old_settings = None
-        self.blocking_mode = False  # When True, blocking read for prompt
         
     def _setup_terminal(self):
-        """Set terminal to raw mode for single key input."""
+        """Set terminal to cbreak mode for single key input."""
         if sys.stdin.isatty():
             self.old_settings = termios.tcgetattr(sys.stdin)
-            # Use raw mode for immediate character input (no enter required)
-            tty.setraw(sys.stdin.fileno())
-            # But keep Ctrl+C working
-            import signal
-            signal.signal(signal.SIGINT, signal.default_int_handler)
+            # Use cbreak mode - immediate keys but preserves some terminal handling
+            tty.setcbreak(sys.stdin.fileno())
             
     def _restore_terminal(self):
         """Restore terminal to original settings."""
@@ -117,19 +113,12 @@ class KeyboardInput:
         self._setup_terminal()
         try:
             while self.running:
-                if self.blocking_mode:
-                    # Blocking read for prompt mode - wait for key
+                # Non-blocking with 50ms timeout - responsive but not aggressive
+                if select.select([sys.stdin], [], [], 0.05)[0]:
                     key = sys.stdin.read(1)
                     if key:
                         self.key_queue.append(key)
-                else:
-                    # Non-blocking with very short timeout for responsive monitoring
-                    if select.select([sys.stdin], [], [], 0.01)[0]:  # 10ms timeout
-                        key = sys.stdin.read(1)
-                        if key:
-                            self.key_queue.append(key)
-                    # Very short sleep to prevent CPU spinning
-                    time.sleep(0.001)
+                # Don't sleep here - let select do the waiting
         finally:
             self._restore_terminal()
             
@@ -144,10 +133,6 @@ class KeyboardInput:
         self.running = False
         if self.thread:
             self.thread.join(timeout=0.5)
-            
-    def set_blocking(self, blocking: bool):
-        """Set blocking mode for prompt input."""
-        self.blocking_mode = blocking
             
     def get_key(self) -> Optional[str]:
         """Get next key from queue (non-blocking)."""
@@ -253,6 +238,10 @@ class CLIMonitor:
     def _signal_handler(self, signum, frame):
         """Handle Ctrl+C gracefully."""
         self.running = False
+        # Restore terminal settings immediately
+        if hasattr(self, 'input_handler') and self.input_handler:
+            self.input_handler.stop()
+        raise KeyboardInterrupt()
         
     def connect(self) -> bool:
         """Connect to the FranklinWH device."""
@@ -947,9 +936,10 @@ class CLIMonitor:
             return self._handle_prompt_key(key)
         
         # Normal mode - command shortcuts
-        # Track keystroke for feedback
-        self.last_key = key
-        self.last_key_time = time.time()
+        # Track keystroke for feedback (only printable keys)
+        if key.isprint():
+            self.last_key = key
+            self.last_key_time = time.time()
         
         # Help toggle
         if key in 'hH?':
@@ -962,8 +952,8 @@ class CLIMonitor:
             self._log_command(f"Refresh: {key}s")
             return True
             
-        # Quit keys
-        if key in 'qQ\x03':  # q, Q, or Ctrl+C
+        # Quit keys - q, Q, Ctrl+C (0x03), or Escape (0x1b)
+        if key in 'qQ' or ord(key) == 3:  # 3 = Ctrl+C
             return False
             
         # Toggle refresh
@@ -1038,20 +1028,18 @@ class CLIMonitor:
             self.show_prompt = False
             self.prompt_buffer = ""
             self.prompt_mode = None
-            self.input_handler.set_blocking(False)  # Return to non-blocking
             return True
             
-        # Escape or Ctrl+C - cancel prompt
-        if key in '\x1b\x03':  # Escape or Ctrl+C
+        # Escape (0x1b) or Ctrl+C (0x03) - cancel prompt
+        if ord(key) == 27 or ord(key) == 3:  # Escape or Ctrl+C
             self.show_prompt = False
             self.prompt_buffer = ""
             self.prompt_mode = None
-            self.input_handler.set_blocking(False)  # Return to non-blocking
             self._log_command("Cancelled")
             return True
             
-        # Backspace
-        if key in '\x7f\b':  # DEL or Backspace
+        # Backspace (0x7f or 0x08)
+        if ord(key) == 127 or ord(key) == 8:
             self.prompt_buffer = self.prompt_buffer[:-1]
             return True
             
@@ -1107,33 +1095,37 @@ class CLIMonitor:
         self.running = True
         self.input_handler.start()
         last_data_fetch = 0
+        last_display_update = 0
         
         try:
-            # Use high refresh rate for UI (20 FPS), independent of data refresh
             with Live(
                 self.update_display(),
                 console=self.console,
                 screen=True,
-                refresh_per_second=20  # 50ms - smooth UI updates
+                refresh_per_second=10  # 100ms updates - smooth but not flickering
             ) as live:
                 while self.running:
-                    # Check for keyboard input (very responsive)
+                    # Check for keyboard input
                     key = self.input_handler.get_key()
                     if key is not None:
                         if not self._handle_key(key):
                             break
                     
-                    # Data fetch at configured rate (e.g., every 5s)
+                    # Data fetch at configured rate
                     now = time.time()
+                    data_changed = False
                     if not self.paused and (now - last_data_fetch) >= self.config.refresh_rate:
                         self.fetch_data()
                         last_data_fetch = now
+                        data_changed = True
                     
-                    # Always update display for smooth UI (keystroke feedback, cursor blink, etc)
-                    live.update(self.update_display())
+                    # Update display if data changed or enough time passed
+                    if data_changed or (now - last_display_update) >= 0.5:
+                        live.update(self.update_display())
+                        last_display_update = now
                     
-                    # Short sleep to prevent CPU spinning
-                    time.sleep(0.02)  # 20ms - 50 FPS check rate
+                    # Sleep to prevent CPU spinning
+                    time.sleep(0.05)  # 50ms - 20 FPS check rate
                     
         except KeyboardInterrupt:
             pass
