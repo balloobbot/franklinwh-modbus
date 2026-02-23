@@ -92,8 +92,10 @@ Examples:
     parser.add_argument('--schedule-file', help='TOU schedule JSON file')
     
     # SoC limits
-    parser.add_argument('--max-charge-soc', type=int, default=100, help='Max charge SoC')
-    parser.add_argument('--min-discharge-soc', type=int, help='Min discharge SoC (auto-read if not set)')
+    parser.add_argument('--max-charge-soc', type=int, default=100, 
+                       help='Max charge SoC - will EXIT when reached during charging')
+    parser.add_argument('--min-discharge-soc', type=int, 
+                       help='Min discharge SoC - will EXIT when reached during discharging (auto-read if not set)')
     parser.add_argument('--soc-ramp-window', type=int, default=10, help='SoC ramping window')
     parser.add_argument('--force', action='store_true', help='Force override SoC limits')
     parser.add_argument('--off-grid-permitted', action='store_true', help='Allow operation when grid is disconnected')

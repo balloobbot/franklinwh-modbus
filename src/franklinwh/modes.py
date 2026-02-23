@@ -542,6 +542,24 @@ class VirtualModeController:
                     success = self.tick()
                     if success:
                         consecutive_failures = 0
+                        
+                        # Check SoC limits - exit if reached
+                        status = self.ctrl.read_battery_status()
+                        soc = status.get('soc', 0)
+                        power = self.calculate_power()
+                        
+                        # Check max_charge_soc limit
+                        if power > 0 and soc >= self.max_charge_soc:
+                            logger.info(f"✓ MAX CHARGE SoC REACHED: {soc:.1f}% (limit: {self.max_charge_soc}%)")
+                            logger.info("Exiting as battery is fully charged to limit")
+                            break
+                        
+                        # Check min_discharge_soc limit  
+                        if power < 0 and soc <= self.min_discharge_soc:
+                            logger.info(f"✓ MIN DISCHARGE SoC REACHED: {soc:.1f}% (limit: {self.min_discharge_soc}%)")
+                            logger.info("Exiting as battery is depleted to limit")
+                            break
+                            
                     else:
                         consecutive_failures += 1
                         logger.warning(f"Tick failed ({consecutive_failures}/{max_consecutive_failures})")
