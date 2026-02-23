@@ -707,25 +707,36 @@ class CLIMonitor:
             content.append(" [Enter=send Esc=cancel]", style="dim")
             return Panel(content, box=box.SIMPLE, padding=(0, 1), border_style="yellow")
         else:
-            # Show normal shortcuts
-            shortcuts = [
-                ("[c]", "charge"),
-                ("[d]", "discharge"),
-                ("[s]", "standby"),
-                ("[+]", "+100W"),
-                ("[-]", "-100W"),
-                ("[m]", "max charge"),
-                ("[M]", "max discharge"),
-                ("[r]", "reset"),
-                ("[R]", "toggle refresh"),
-                ("[q]", "quit")
-            ]
+            # Show normal shortcuts - organized by function
+            line1 = Text()
+            line1.append("[c]", style="bold cyan")
+            line1.append("=charge ", style="dim")
+            line1.append("[d]", style="bold cyan")
+            line1.append("=discharge ", style="dim")
+            line1.append("[s]", style="bold cyan")
+            line1.append("=standby(0W) ", style="dim")
+            line1.append("[r]", style="bold cyan")
+            line1.append("=release ", style="dim")
+            line1.append("[q]", style="bold cyan")
+            line1.append("=quit", style="dim")
             
-            content = Text()
-            for key, action in shortcuts:
-                content.append(f"{key}", style="bold cyan")
-                content.append(f"={action} ", style="dim")
-                
+            line2 = Text()
+            line2.append("[m]", style="bold cyan")
+            line2.append("=max▲ ", style="dim")
+            line2.append("[M]", style="bold cyan")
+            line2.append("=max▼ ", style="dim")
+            line2.append("[+]", style="bold cyan")
+            line2.append("=+100W ", style="dim")
+            line2.append("[-]", style="bold cyan")
+            line2.append("=-100W ", style="dim")
+            line2.append("[R]", style="bold cyan")
+            line2.append("=pause ", style="dim")
+            line2.append("[1-9]", style="bold cyan")
+            line2.append("=rate", style="dim")
+            
+            from rich.console import Group
+            content = Group(line1, line2)
+            
             return Panel(content, box=box.SIMPLE, padding=(0, 1))
         
     def update_display(self) -> Layout:

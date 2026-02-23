@@ -16,6 +16,27 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
 ## Requirements (as approved)
 
 ### Core Features (Phase 1 - Complete ✅)
+
+**Keyboard Controls:**
+
+| Key | Action | Note |
+|-----|--------|------|
+| `c` | Charge prompt | Enter watts, press Enter |
+| `d` | Discharge prompt | Enter watts, press Enter |
+| `s` | Standby | Hold 0W, keep Modbus control |
+| `r` | **Release** | Same as `--stop`, cloud takes over |
+| `m` | Max charge | Use rated max charge rate |
+| `M` | Max discharge | Use rated max discharge rate |
+| `+` | +100W | Increase current power |
+| `-` | -100W | Decrease current power |
+| `R` | Toggle refresh | Pause/resume display updates |
+| `1-9` | Set refresh rate | 1-9 seconds |
+| `q` | Quit | Exit monitor |
+
+**Important:** `s` (standby) and `r` (release) are different!
+- `s` = Stay in control at 0W
+- `r` = Give up control to cloud/app
+
 - [x] **Live Power Flow Display**
   - Real-time battery power (charge/discharge)
   - Solar generation
