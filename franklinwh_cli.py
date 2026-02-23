@@ -675,12 +675,29 @@ def main():
         
         # Direct power control (no mode)
         if args.power is not None:
-            # If duration specified, run continuous control
-            if args.duration:
+            # Check if we should run continuous mode
+            # Continuous if: duration specified OR SoC limits specified
+            has_duration = args.duration is not None
+            has_soc_limits = (args.max_charge_soc != 100 or args.min_discharge_soc is not None)
+            is_controlling = args.power != 0
+            
+            if (has_duration or has_soc_limits) and is_controlling:
+                # Run continuous control with SoC limits
                 from franklinwh import VirtualModeController, VirtualMode
-                vmc = VirtualModeController(ctrl)
+                vmc = VirtualModeController(
+                    ctrl,
+                    max_charge_soc=args.max_charge_soc,
+                    min_discharge_soc=args.min_discharge_soc or 20,
+                    soc_ramp_window=args.soc_ramp_window
+                )
                 vmc.set_mode(VirtualMode.MANUAL, manual_power_w=args.power)
-                print(f"Running manual mode: {args.power}W for {args.duration}s")
+                
+                if has_duration:
+                    print(f"Running manual mode: {args.power}W for {args.duration}s")
+                else:
+                    print(f"Running manual mode: {args.power}W until SoC limit reached")
+                print(f"  Max charge SoC: {args.max_charge_soc}%")
+                print(f"  Min discharge SoC: {vmc.min_discharge_soc}%")
                 print("Press Ctrl+C to stop")
                 vmc.run_continuous(duration_seconds=args.duration)
                 sys.exit(0)
