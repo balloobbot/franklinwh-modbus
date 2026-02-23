@@ -55,6 +55,7 @@ class MonitorConfig:
     ip_address: str
     port: int = 502
     unit_id: int = 2
+    timeout: float = 10.0
     refresh_rate: float = 5.0
     use_rich: bool = True
     theme: str = "dark"  # dark, light
@@ -169,9 +170,10 @@ class CLIMonitor:
         """Connect to the FranklinWH device."""
         try:
             self.controller = FranklinWHController(
-                host=self.config.ip_address,
+                ip_address=self.config.ip_address,
                 port=self.config.port,
-                unit_id=self.config.unit_id
+                unit_id=self.config.unit_id,
+                timeout=self.config.timeout
             )
             self.controller.connect()
             return True
