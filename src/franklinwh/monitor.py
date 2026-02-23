@@ -46,7 +46,7 @@ except ImportError:
     HAS_RICH = False
 
 from .controller import FranklinWHController
-from .models import BatteryCommand, ControlMode
+from .types import BatteryCommand, ControlMode
 
 
 @dataclass
