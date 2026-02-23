@@ -383,30 +383,34 @@ class CLIMonitor:
             return {}
             
     def _read_lifetime_energy(self) -> dict:
-        """Read lifetime energy accumulators from Model 715."""
+        """Read lifetime energy accumulators from Model 715 (if available)."""
         try:
             m715 = self.controller.get_model(715)
             if not m715:
                 return {}
             m715.read()
             
-            # Scale factors
-            sf_wh = self.controller._get_scale_factor(m715, 'TotWhExp_SF')
-            
-            # Read values with fallbacks
-            def get_wh(point_name):
-                pt = getattr(m715, point_name, None)
-                if pt and hasattr(pt, 'value') and pt.value is not None:
-                    return pt.value * (10 ** sf_wh)
-                return 0
-            
-            return {
-                'injected_wh': get_wh('TotWhExp'),      # Exported to grid
-                'absorbed_wh': get_wh('TotWhImp'),      # Imported from grid
-                'discharged_wh': get_wh('TotWhOut'),    # Battery discharged
-                'charged_wh': get_wh('TotWhIn'),        # Battery charged
-                'generated_wh': get_wh('TotWhExp'),     # Solar generated (use export as proxy)
-            }
+            # Check if this is actually an accumulator model or control model
+            # Some firmware versions have M715 as DER control, not accumulators
+            if hasattr(m715, 'TotWhExp'):
+                sf_wh = self.controller._get_scale_factor(m715, 'TotWhExp_SF')
+                
+                def get_wh(point_name):
+                    pt = getattr(m715, point_name, None)
+                    if pt and hasattr(pt, 'value') and pt.value is not None:
+                        return pt.value * (10 ** sf_wh)
+                    return 0
+                
+                return {
+                    'injected_wh': get_wh('TotWhExp'),
+                    'absorbed_wh': get_wh('TotWhImp'),
+                    'discharged_wh': get_wh('TotWhOut'),
+                    'charged_wh': get_wh('TotWhIn'),
+                    'generated_wh': get_wh('TotWhExp'),
+                }
+            else:
+                # M715 is DER control model, not accumulators
+                return {}
         except Exception as e:
             return {}
         
@@ -530,7 +534,7 @@ class CLIMonitor:
         layout.split_column(
             Layout(name="header", size=3),
             Layout(name="body"),
-            Layout(name="footer", size=3)
+            Layout(name="footer", size=4)
         )
         
         # Body splits
@@ -717,16 +721,27 @@ class CLIMonitor:
         table.add_column("Type", style="cyan")
         table.add_column("Energy", style="white", justify="right")
         
-        # Solar first (most important for PV owners)
-        table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
-        table.add_row("", "")  # Spacer
-        # Battery activity
-        table.add_row("🔋 Battery Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
-        table.add_row("🔌 Battery Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
-        table.add_row("", "")  # Spacer
-        # Grid activity - consistent labeling
-        table.add_row("📤 Grid Exported", f"{self.data.lifetime_injected/1e6:.2f} MWh")
-        table.add_row("📥 Grid Imported", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
+        # Check if lifetime data is available
+        has_data = (self.data.lifetime_generated > 0 or 
+                   self.data.lifetime_discharged > 0 or 
+                   self.data.lifetime_charged > 0)
+        
+        if has_data:
+            # Solar first (most important for PV owners)
+            table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
+            table.add_row("", "")  # Spacer
+            # Battery activity
+            table.add_row("🔋 Battery Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
+            table.add_row("🔌 Battery Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
+            table.add_row("", "")  # Spacer
+            # Grid activity - consistent labeling
+            table.add_row("📤 Grid Exported", f"{self.data.lifetime_injected/1e6:.2f} MWh")
+            table.add_row("📥 Grid Imported", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
+        else:
+            table.add_row("", "")
+            table.add_row("Lifetime data not available", "", style="dim italic")
+            table.add_row("", "")
+            table.add_row("(M715 not accumulator model)", "", style="dim")
         
         return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style="cyan", box=box.ROUNDED)
         
@@ -858,26 +873,17 @@ class CLIMonitor:
         layout["header"].update(self.render_header())
         layout["footer"].update(self.render_footer())
         
-        layout["power_flow"].update(self.render_power_flow())
-        layout["soc_bar"].update(self.render_soc_bar())
-        layout["dc_power"].update(self.render_dc_power())
-        layout["ac_power"].update(self.render_ac_power())
-        layout["solar"].update(self.render_solar())
-        layout["lifetime"].update(self.render_lifetime())
-        layout["command_console"].update(self.render_command_console())
-        
-        # Overlay help if shown
+        # If help is shown, replace body with help panel
         if self.show_help:
-            layout["help_overlay"] = Layout(name="help_overlay", size=20)
-            layout["help_overlay"].update(self.render_help())
-            # Split body to show help on top
-            body_layout = Layout(name="body_with_help")
-            body_layout.split_column(
-                Layout(name="help", size=18),
-                layout["body"]
-            )
-            body_layout["help"].update(self.render_help())
-            layout["body"] = body_layout
+            layout["body"].update(self.render_help())
+        else:
+            layout["power_flow"].update(self.render_power_flow())
+            layout["soc_bar"].update(self.render_soc_bar())
+            layout["dc_power"].update(self.render_dc_power())
+            layout["ac_power"].update(self.render_ac_power())
+            layout["solar"].update(self.render_solar())
+            layout["lifetime"].update(self.render_lifetime())
+            layout["command_console"].update(self.render_command_console())
         
         return layout
         
