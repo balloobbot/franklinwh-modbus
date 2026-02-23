@@ -219,6 +219,9 @@ class CLIMonitor:
         self.prompt_mode = None   # 'charge' or 'discharge'
         self.command_log = []     # Recent commands/messages
         self.max_log_lines = 5    # Number of lines to show
+        self.last_key = None      # Last key pressed (for feedback)
+        self.last_key_time = 0    # Timestamp of last key
+        self.show_help = False    # Show help overlay
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -378,6 +381,34 @@ class CLIMonitor:
             }
         except Exception as e:
             return {}
+            
+    def _read_lifetime_energy(self) -> dict:
+        """Read lifetime energy accumulators from Model 715."""
+        try:
+            m715 = self.controller.get_model(715)
+            if not m715:
+                return {}
+            m715.read()
+            
+            # Scale factors
+            sf_wh = self.controller._get_scale_factor(m715, 'TotWhExp_SF')
+            
+            # Read values with fallbacks
+            def get_wh(point_name):
+                pt = getattr(m715, point_name, None)
+                if pt and hasattr(pt, 'value') and pt.value is not None:
+                    return pt.value * (10 ** sf_wh)
+                return 0
+            
+            return {
+                'injected_wh': get_wh('TotWhExp'),      # Exported to grid
+                'absorbed_wh': get_wh('TotWhImp'),      # Imported from grid
+                'discharged_wh': get_wh('TotWhOut'),    # Battery discharged
+                'charged_wh': get_wh('TotWhIn'),        # Battery charged
+                'generated_wh': get_wh('TotWhExp'),     # Solar generated (use export as proxy)
+            }
+        except Exception as e:
+            return {}
         
     def fetch_data(self) -> bool:
         """Fetch all data from the device."""
@@ -470,8 +501,13 @@ class CLIMonitor:
             self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'Cloud API'
             self.data.extension_writable = False
             
-            # Update Lifetime Energy (from accumulators if available)
-            # These would come from M715 or extension registers
+            # Update Lifetime Energy (from M715 accumulators)
+            lifetime = self._read_lifetime_energy()
+            self.data.lifetime_injected = lifetime.get('injected_wh', 0)
+            self.data.lifetime_absorbed = lifetime.get('absorbed_wh', 0)
+            self.data.lifetime_discharged = lifetime.get('discharged_wh', 0)
+            self.data.lifetime_charged = lifetime.get('charged_wh', 0)
+            self.data.lifetime_generated = lifetime.get('generated_wh', 0)
             
             # Add to history for sparkline
             self.data.history.append({
@@ -532,12 +568,24 @@ class CLIMonitor:
         refresh = f"Refresh: {self.config.refresh_rate:.0f}s"
         status = "PAUSED" if self.paused else "LIVE"
         
+        # Keystroke feedback (show for 0.5 seconds)
+        key_feedback = ""
+        if self.last_key and (time.time() - self.last_key_time) < 0.5:
+            key_display = self.last_key
+            if key_display == ' ':
+                key_display = 'SPACE'
+            elif key_display == '\x03':
+                key_display = 'CTRL+C'
+            key_feedback = f" [Key: {key_display}]"
+        
         content = Text()
         content.append(timestamp, style="dim")
         content.append(" | ", style="dim")
         content.append(title, style="bold cyan")
         content.append(f" | {refresh}", style="dim")
         content.append(f" | [{status}]", style="green" if not self.paused else "yellow")
+        if key_feedback:
+            content.append(key_feedback, style="bold yellow")
         
         return Panel(content, box=box.SIMPLE, padding=(0, 1))
         
@@ -673,12 +721,12 @@ class CLIMonitor:
         table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
         table.add_row("", "")  # Spacer
         # Battery activity
-        table.add_row("🔋 Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
-        table.add_row("🔌 Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
+        table.add_row("🔋 Battery Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
+        table.add_row("🔌 Battery Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
         table.add_row("", "")  # Spacer
-        # Grid activity
-        table.add_row("📤 Exported (to Grid)", f"{self.data.lifetime_injected/1e6:.2f} MWh")
-        table.add_row("📥 Imported (from Grid)", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
+        # Grid activity - consistent labeling
+        table.add_row("📤 Grid Exported", f"{self.data.lifetime_injected/1e6:.2f} MWh")
+        table.add_row("📥 Grid Imported", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
         
         return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style="cyan", box=box.ROUNDED)
         
@@ -773,12 +821,35 @@ class CLIMonitor:
             line2.append("[R]", style="bold cyan")
             line2.append("=pause ", style="dim")
             line2.append("[1-9]", style="bold cyan")
-            line2.append("=rate", style="dim")
+            line2.append("=rate ", style="dim")
+            line2.append("[h]", style="bold cyan")
+            line2.append("=help", style="dim")
             
             from rich.console import Group
             content = Group(line1, line2)
             
             return Panel(content, box=box.SIMPLE, padding=(0, 1))
+        
+    def render_help(self) -> Panel:
+        """Render help overlay panel."""
+        help_text = """
+[c] Charge mode      - Enter watts to charge battery
+[d] Discharge mode   - Enter watts to discharge battery
+[s] Standby          - Set to 0W (keep control)
+[r] Release          - Give control back to cloud/app
+[m] Max charge       - Charge at maximum rate
+[M] Max discharge    - Discharge at maximum rate
+[+] Increase power   - Add 100W to current setting
+[-] Decrease power   - Subtract 100W from current setting
+[R] Toggle refresh   - Pause/resume display updates
+[1-9] Set rate       - Change refresh interval (seconds)
+[h] Toggle help      - Show/hide this help
+[q] Quit             - Exit monitor
+        """.strip()
+        
+        content = Text(help_text)
+        return Panel(content, title="[bold]Keyboard Help[/bold] (press h to close)", 
+                    border_style="cyan", box=box.DOUBLE)
         
     def update_display(self) -> Layout:
         """Update all panels and return the layout."""
@@ -794,6 +865,19 @@ class CLIMonitor:
         layout["solar"].update(self.render_solar())
         layout["lifetime"].update(self.render_lifetime())
         layout["command_console"].update(self.render_command_console())
+        
+        # Overlay help if shown
+        if self.show_help:
+            layout["help_overlay"] = Layout(name="help_overlay", size=20)
+            layout["help_overlay"].update(self.render_help())
+            # Split body to show help on top
+            body_layout = Layout(name="body_with_help")
+            body_layout.split_column(
+                Layout(name="help", size=18),
+                layout["body"]
+            )
+            body_layout["help"].update(self.render_help())
+            layout["body"] = body_layout
         
         return layout
         
@@ -831,9 +915,19 @@ class CLIMonitor:
             return self._handle_prompt_key(key)
         
         # Normal mode - command shortcuts
+        # Track keystroke for feedback
+        self.last_key = key
+        self.last_key_time = time.time()
+        
+        # Help toggle
+        if key in 'hH?':
+            self.show_help = not self.show_help
+            return True
+        
         # Number keys 1-9 set refresh rate
         if key in '123456789':
             self.config.refresh_rate = int(key)
+            self._log_command(f"Refresh: {key}s")
             return True
             
         # Quit keys
@@ -843,6 +937,7 @@ class CLIMonitor:
         # Toggle refresh
         if key in 'R':
             self.paused = not self.paused
+            self._log_command("Paused" if self.paused else "Resumed")
             return True
             
         # Standby
