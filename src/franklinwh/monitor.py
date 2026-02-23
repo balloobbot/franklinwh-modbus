@@ -363,9 +363,10 @@ class CLIMonitor:
         table.add_row("├─ Remote 1 (APbox)", f"{solar.remote1_w:,.0f}W")
         table.add_row("└─ Remote 2", f"{solar.remote2_w:,.0f}W")
         
+        # Use a group instead of Text.assemble for mixed content
+        from rich.console import Group
         note = Text("(Extension registers 15502-15505)", style="dim italic")
-        
-        content = Text.assemble(table, "\n", note)
+        content = Group(table, note)
         
         return Panel(content, title="[bold]Solar AC Inputs[/bold]", border_style="bright_yellow", box=box.ROUNDED)
         
