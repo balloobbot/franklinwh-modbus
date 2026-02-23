@@ -12,7 +12,7 @@
 | 1 | Create monitor.py with Rich layout | ✅ **DONE** | 16:05 | 16:15 |
 | 2 | Implement data fetching (all models) | ✅ **DONE** | 16:15 | 16:35 |
 | 3 | Add live refresh (Live render) | ✅ **DONE** | 16:35 | 22:30 |
-| 4 | Add keyboard input handling | ⏸️ **PAUSED** | - | - |
+| 4 | Add keyboard input handling | **IN PROGRESS** | 22:35 | - |
 
 ### Phase 2 Enhancement Ideas
 - **Enhanced SoC Bar**: Embedded reserve marker + ETA to target/reserve

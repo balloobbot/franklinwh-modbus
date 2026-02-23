@@ -29,6 +29,10 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
   - Current power direction and magnitude
   
 ### Phase 2 Enhancements (TODO)
+- [ ] **Quit Key Not Working**
+  - Footer shows `[q]` but only Ctrl+C actually quits
+  - Need to implement proper keyboard handling in Rich Live mode
+  
 - [ ] **Enhanced SoC Bar Chart**
   - Current SOC bar with embedded reserve indicator
   - Show Self Reserve or TOU Reserve (based on current mode)
