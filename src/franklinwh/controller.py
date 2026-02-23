@@ -689,12 +689,10 @@ class FranklinWHController:
             m704.write()
             time.sleep(0.3)
             
-            # 2. CONFIGURE
+            # 2. CONFIGURE - WSetPct ONLY, do not set WSet (causes mode flickering)
             m704.read()
             m704.WSetMod.value = 0
             m704.WSetPct.value = pct_raw
-            wset_sf = self._get_scale_factor(m704, 'WSet_SF')
-            m704.WSet.value = int(command.power_watts / (10 ** wset_sf))
             m704.write()
             time.sleep(0.3)
             

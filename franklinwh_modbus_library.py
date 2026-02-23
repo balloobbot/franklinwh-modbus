@@ -263,8 +263,9 @@ class FranklinWHController:
             
             m704.WSetEna.value = 1
             m704.WSetMod.value = command.mode
+            # WSetPct is the ONLY working control register for FranklinWH
+            # WSet is accepted but causes mode flickering - DO NOT SET
             m704.WSetPct.value = int(pct_raw / (10 ** sf_pct))
-            m704.WSet.value = int(safe_watts / (10 ** sf_w))
             
             m704.write()
             
