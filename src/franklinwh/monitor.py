@@ -505,13 +505,24 @@ class CLIMonitor:
             self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'Cloud API'
             self.data.extension_writable = False
             
-            # Update Lifetime Energy (from M715 accumulators)
-            lifetime = self._read_lifetime_energy()
-            self.data.lifetime_injected = lifetime.get('injected_wh', 0)
-            self.data.lifetime_absorbed = lifetime.get('absorbed_wh', 0)
-            self.data.lifetime_discharged = lifetime.get('discharged_wh', 0)
-            self.data.lifetime_charged = lifetime.get('charged_wh', 0)
-            self.data.lifetime_generated = lifetime.get('generated_wh', 0)
+            # Update Lifetime Energy (from M502 solar and M714 battery)
+            # Solar generated: M502.OutWh (Output Energy)
+            # Battery discharged: M714.DCWhInj (DC Energy Injected)
+            # Battery charged: M714.DCWhAbs (DC Energy Absorbed)
+            m502 = self.controller.get_model(502)
+            m714_energy = self.controller.get_model(714)
+            
+            if m502 and hasattr(m502, 'OutWh') and m502.OutWh.value is not None:
+                self.data.lifetime_generated = m502.OutWh.value  # Already in Wh
+            
+            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:
+                self.data.lifetime_discharged = m714_energy.DCWhInj.value
+            
+            if m714_energy and hasattr(m714_energy, 'DCWhAbs') and m714_energy.DCWhAbs.value is not None:
+                self.data.lifetime_charged = m714_energy.DCWhAbs.value
+            
+            # Grid import/export - not directly available, calculate or leave as 0
+            # For now, these remain 0 until we find the source
             
             # Add to history for sparkline
             self.data.history.append({
@@ -733,15 +744,9 @@ class CLIMonitor:
             # Battery activity
             table.add_row("🔋 Battery Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
             table.add_row("🔌 Battery Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
-            table.add_row("", "")  # Spacer
-            # Grid activity - consistent labeling
-            table.add_row("📤 Grid Exported", f"{self.data.lifetime_injected/1e6:.2f} MWh")
-            table.add_row("📥 Grid Imported", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
         else:
             table.add_row("", "")
             table.add_row("Lifetime data not available", "", style="dim italic")
-            table.add_row("", "")
-            table.add_row("(M715 not accumulator model)", "", style="dim")
         
         return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style="cyan", box=box.ROUNDED)
         
