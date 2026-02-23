@@ -59,6 +59,10 @@ Examples:
   %(prog)s -i 192.168.1.100 --discharge 3000 --duration 3600
   %(prog)s -i 192.168.1.100 --standby
   
+  # Use maximum rated power (from M702 nameplate)
+  %(prog)s -i 192.168.1.100 --max-charge --duration 3600
+  %(prog)s -i 192.168.1.100 --max-discharge --duration 3600
+  
   # Legacy --power with sign
   %(prog)s -i 192.168.1.100 --mode manual --power 3000 --duration 3600   # Charge
   %(prog)s -i 192.168.1.100 --mode manual --power -3000 --duration 3600  # Discharge
@@ -83,6 +87,10 @@ Examples:
                             help='Charge battery at specified watts (import from grid)')
     power_group.add_argument('--discharge', type=float, metavar='WATTS',
                             help='Discharge battery at specified watts (export to grid)')
+    power_group.add_argument('--max-charge', action='store_true',
+                            help='Charge at maximum rated power (from M702 nameplate)')
+    power_group.add_argument('--max-discharge', action='store_true',
+                            help='Discharge at maximum rated power (from M702 nameplate)')
     power_group.add_argument('--standby', action='store_true',
                             help='Set battery to standby (0W)')
     
@@ -477,6 +485,14 @@ def main():
     
     if not ctrl.connect():
         sys.exit(1)
+    
+    # Handle max-charge/max-discharge flags (convert to power values)
+    if args.max_charge:
+        args.power = ctrl.RATED_MAX_CHARGE_W
+        print(f"Using max charge rate: {args.power}W (from M702 nameplate)")
+    elif args.max_discharge:
+        args.power = -ctrl.RATED_MAX_DISCHARGE_W
+        print(f"Using max discharge rate: {abs(args.power)}W (from M702 nameplate)")
     
     try:
         # Health check
