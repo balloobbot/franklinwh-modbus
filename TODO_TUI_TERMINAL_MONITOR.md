@@ -54,6 +54,12 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
   - Footer shows `[q]` but only Ctrl+C actually quits
   - ~~Need to implement proper keyboard handling in Rich Live mode~~
   - Implemented KeyboardInput class with tty.setcbreak()
+
+- [x] **Command Console Output** ✅ FIXED
+  - ~~Commands scroll below CLI line and screen redraws~~
+  - Now: Commands appear in dedicated panel within dashboard
+  - Shows last 5 commands with timestamps
+  - Color-coded by type (charge/discharge/standby/error)
   
 - [ ] **Enhanced SoC Bar Chart**
   - Current SOC bar with embedded reserve indicator
