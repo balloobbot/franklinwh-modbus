@@ -399,14 +399,24 @@ class CLIMonitor:
             solar_total = ext_solar.get('total_solar', abs(solar.get('ac_power_w', 0)))
             
             # Battery DC power (from M714 or fallback)
+            # Note: DCW positive = discharging, negative = charging
             battery_dc = m714_data.get('dc_power', 0)
+            
+            # Grid power: positive = exporting TO grid, negative = importing FROM grid
+            # Flip sign for display: positive = importing (consuming from grid)
+            grid_raw = grid.get('grid_power_w', 0)
+            grid_display = -grid_raw  # Flip: export positive becomes import positive
             
             # Update Power Flow
             self.data.power_flow.solar_w = solar_total
             self.data.power_flow.battery_w = battery_dc
-            self.data.power_flow.grid_w = grid.get('grid_power_w', 0)
-            # Calculate home load: solar + grid_import - battery_charge
-            self.data.power_flow.home_w = solar_total + self.data.power_flow.grid_w - battery_dc
+            self.data.power_flow.grid_w = grid_display
+            
+            # Calculate home load: consumption = solar + battery_discharge + grid_import
+            # battery_dc: positive = discharge (adds), negative = charge (subtracts)
+            # So: home = solar + battery_dc - grid_raw
+            # Where grid_raw positive = export (subtract from home), negative = import (add to home)
+            self.data.power_flow.home_w = solar_total + battery_dc - grid_raw
             
             # Determine battery state
             if battery_dc < -50:
