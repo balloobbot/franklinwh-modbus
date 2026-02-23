@@ -13,6 +13,13 @@
 | 2 | Implement data fetching (all models) | ✅ **DONE** | 16:15 | 16:35 |
 | 3 | Add live refresh (Live render) | ✅ **DONE** | 16:35 | 22:30 |
 | 4 | Add keyboard input handling | ⏸️ **PAUSED** | - | - |
+
+### Phase 2 Enhancement Ideas
+- **Enhanced SoC Bar**: Embedded reserve marker + ETA to target/reserve
+  - Show Self/TOU Reserve inside the bar
+  - Support --min-discharge-soc / --max-charge-soc targets
+  - Calculate ETA based on current power rate
+  - See `TODO_TUI_TERMINAL_MONITOR.md` for spec
 | 5 | Add command interface | pending | - | - |
 | 6 | Add timeline/sparkline | pending | - | - |
 | 7 | Testing & polish | pending | - | - |

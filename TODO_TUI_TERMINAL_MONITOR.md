@@ -15,18 +15,37 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
 
 ## Requirements (as approved)
 
-### Core Features
-- [ ] **Live Power Flow Display**
+### Core Features (Phase 1 - Complete ✅)
+- [x] **Live Power Flow Display**
   - Real-time battery power (charge/discharge)
   - Solar generation
   - Home load
   - Grid import/export
   
-- [ ] **Battery Status Panel**
+- [x] **Battery Status Panel**
   - State of Charge (SoC) with visual bar
   - State of Health (SoH)
   - Temperature
   - Current power direction and magnitude
+  
+### Phase 2 Enhancements (TODO)
+- [ ] **Enhanced SoC Bar Chart**
+  - Current SOC bar with embedded reserve indicator
+  - Show Self Reserve or TOU Reserve (based on current mode)
+  - Optional: --min-discharge-soc / --max-charge-soc targets
+  - ETA estimate to reach reserve or target based on:
+    - Current charge/discharge rate
+    - Battery capacity (rated vs available)
+    - Linear projection: `minutes = (target_soc - current_soc) * capacity_wh / power_w / 60`
+  - Visual markers: `|███▓▓▓░░░|` where ▓ = reserve zone
+  
+  Example:
+  ```
+  SoC: [████████████▓▓▓▓▓▓░░░░░░░░] 50.0%
+        │        Current │ Reserve│ Target │
+        │         50%    │  20%   │  100%  │
+  ETA: +42min to 100% | -31min to 20% reserve
+  ```
 
 - [ ] **System Metrics**
   - AC voltage, frequency
