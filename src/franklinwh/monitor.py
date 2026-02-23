@@ -243,11 +243,16 @@ class CLIMonitor:
             native = self.controller.read_native_mode()
             ext = self._read_extension_registers()
             
+            # Get extension solar data if available
+            ext_solar = solar.get('extension', {})
+            solar_total = ext_solar.get('total_solar', abs(solar.get('ac_power_w', 0)))
+            
             # Update Power Flow
-            self.data.power_flow.solar_w = abs(solar.get('solar_ac_power', 0))
+            self.data.power_flow.solar_w = solar_total
             self.data.power_flow.battery_w = battery.get('dc_power', 0)
             self.data.power_flow.grid_w = ext.get('grid_import_export', grid.get('grid_power_w', 0))
-            self.data.power_flow.home_w = ext.get('home_load', abs(solar.get('solar_ac_power', 0)) - battery.get('dc_power', 0))
+            # Calculate home load: solar + grid - battery (accounting for direction)
+            self.data.power_flow.home_w = solar_total - self.data.power_flow.battery_w + self.data.power_flow.grid_w
             
             # Determine battery state
             if self.data.power_flow.battery_w < -50:
@@ -260,7 +265,7 @@ class CLIMonitor:
             # Update Battery DC
             self.data.soc = battery.get('soc', self.data.soc)
             self.data.soh = battery.get('soh', self.data.soh)
-            self.data.dc_power = abs(battery.get('dc_power', 0))
+            self.data.dc_power = battery.get('dc_power', 0)  # Keep signed value
             self.data.dc_current = battery.get('dc_current', 0)
             self.data.battery_temp = battery.get('battery_temp', 0)
             self.data.available_wh = battery.get('wh_available', 0)
@@ -279,10 +284,10 @@ class CLIMonitor:
             self.data.grid_mode = grid.get('grid_mode', 'Unknown')
             
             # Update Solar (AC-coupled)
-            self.data.solar.total_w = abs(solar.get('solar_ac_power', 0))
-            self.data.solar.proximal_w = ext.get('pv_proximal', solar.get('solar_ac_power', 0))
-            self.data.solar.remote1_w = ext.get('pv_remote1', 0)
-            self.data.solar.remote2_w = ext.get('pv_remote2', 0)
+            self.data.solar.total_w = solar_total
+            self.data.solar.proximal_w = ext_solar.get('pv_proximal', solar_total)
+            self.data.solar.remote1_w = ext_solar.get('pv_remote1', 0)
+            self.data.solar.remote2_w = ext_solar.get('pv_remote2', 0)
             
             # Update Temperatures
             self.data.cabinet_temp = ext.get('cabinet_temp', 0)

@@ -116,6 +116,7 @@ Examples:
     # Info
     parser.add_argument('--status', action='store_true', help='Show system status')
     parser.add_argument('--healthcheck', action='store_true', help='Run health check')
+    parser.add_argument('--monitor', action='store_true', help='Launch interactive terminal dashboard')
     parser.add_argument('--stop', action='store_true', help='Stop control and exit')
     parser.add_argument('--clear-alarms', action='store_true', help='Clear/reset alarms (write to AlarmReset)')
     parser.add_argument('--test-extension-write', action='store_true', help='Test extension register writability (15507-15509)')
@@ -524,6 +525,23 @@ def main():
         if args.status:
             print_status(ctrl)
             sys.exit(0)
+        
+        # Launch monitor dashboard
+        if args.monitor:
+            from franklinwh.monitor import CLIMonitor, MonitorConfig
+            
+            # Disconnect the controller we just connected (monitor will create its own)
+            ctrl.disconnect()
+            
+            config = MonitorConfig(
+                ip_address=args.ip,
+                port=args.port,
+                unit_id=args.unit,
+                refresh_rate=5.0,
+                use_rich=True
+            )
+            monitor = CLIMonitor(config)
+            sys.exit(monitor.run())
         
         # Test extension register writability
         if args.test_extension_write:
