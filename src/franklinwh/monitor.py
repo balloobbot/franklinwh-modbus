@@ -999,7 +999,6 @@ class CLIMonitor:
             self.show_prompt = True
             self.prompt_mode = 'charge'
             self.prompt_buffer = ""
-            self.input_handler.set_blocking(True)  # Blocking for immediate echo
             return True
             
         # Discharge mode - enter prompt mode
@@ -1007,7 +1006,6 @@ class CLIMonitor:
             self.show_prompt = True
             self.prompt_mode = 'discharge'
             self.prompt_buffer = ""
-            self.input_handler.set_blocking(True)  # Blocking for immediate echo
             return True
             
         return True
