@@ -27,6 +27,11 @@ Keyboard Shortcuts:
 import time
 import sys
 import signal
+import threading
+import select
+import tty
+import termios
+import os
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -81,6 +86,62 @@ class SolarData:
     remote1_w: float = 0.0
     remote2_w: float = 0.0
     
+
+class KeyboardInput:
+    """Non-blocking keyboard input handler for terminal."""
+    
+    def __init__(self):
+        self.key_queue = []
+        self.running = False
+        self.thread = None
+        self.old_settings = None
+        
+    def _setup_terminal(self):
+        """Set terminal to raw mode for single key input."""
+        if sys.stdin.isatty():
+            self.old_settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+            
+    def _restore_terminal(self):
+        """Restore terminal to original settings."""
+        if self.old_settings and sys.stdin.isatty():
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
+            
+    def _read_input(self):
+        """Background thread to read keyboard input."""
+        self._setup_terminal()
+        try:
+            while self.running:
+                # Use select for non-blocking check with timeout
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    key = sys.stdin.read(1)
+                    if key:
+                        self.key_queue.append(key)
+        finally:
+            self._restore_terminal()
+            
+    def start(self):
+        """Start the input thread."""
+        self.running = True
+        self.thread = threading.Thread(target=self._read_input, daemon=True)
+        self.thread.start()
+        
+    def stop(self):
+        """Stop the input thread."""
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=0.5)
+            
+    def get_key(self) -> Optional[str]:
+        """Get next key from queue (non-blocking)."""
+        if self.key_queue:
+            return self.key_queue.pop(0)
+        return None
+        
+    def clear(self):
+        """Clear key queue."""
+        self.key_queue.clear()
+
 
 @dataclass
 class SystemData:
@@ -151,6 +212,9 @@ class CLIMonitor:
         self.running = False
         self.paused = False
         self.current_power = 0  # Current commanded power
+        self.input_handler = KeyboardInput()
+        self.command_prompt = ""  # Current command being entered
+        self.show_prompt = False  # Whether to show command input
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -687,6 +751,84 @@ class CLIMonitor:
             print("\n\nExiting...")
             self.disconnect()
             
+    def _handle_key(self, key: str) -> bool:
+        """Handle a single keypress. Returns False if should quit."""
+        # Number keys 1-9 set refresh rate
+        if key in '123456789':
+            self.config.refresh_rate = int(key)
+            return True
+            
+        # Quit keys
+        if key in 'qQ\x03':  # q, Q, or Ctrl+C
+            return False
+            
+        # Toggle refresh
+        if key in 'R':
+            self.paused = not self.paused
+            return True
+            
+        # Standby
+        if key == 's':
+            self._send_command(0)
+            return True
+            
+        # Reset control
+        if key == 'r':
+            if self.controller:
+                self.controller.reset_control_state()
+            return True
+            
+        # Max charge
+        if key == 'm':
+            if self.controller:
+                self._send_command(self.controller.RATED_MAX_CHARGE_W)
+            return True
+            
+        # Max discharge
+        if key == 'M':
+            if self.controller:
+                self._send_command(-self.controller.RATED_MAX_DISCHARGE_W)
+            return True
+            
+        # Increase/decrease power
+        if key == '+':
+            self._adjust_power(100)
+            return True
+        if key == '-':
+            self._adjust_power(-100)
+            return True
+            
+        # Charge mode - enter interactive mode
+        if key == 'c':
+            self.show_prompt = True
+            self.command_prompt = "Charge watts: "
+            return True
+            
+        # Discharge mode - enter interactive mode
+        if key == 'd':
+            self.show_prompt = True
+            self.command_prompt = "Discharge watts: "
+            return True
+            
+        return True
+        
+    def _send_command(self, power_w: int):
+        """Send power command to battery."""
+        if not self.controller:
+            return
+        try:
+            from .types import BatteryCommand
+            cmd = BatteryCommand(power_watts=power_w)
+            self.controller.send_command(cmd)
+            self.current_power = power_w
+        except Exception as e:
+            pass
+            
+    def _adjust_power(self, delta: int):
+        """Adjust current power by delta."""
+        new_power = self.current_power + delta
+        self._send_command(new_power)
+        
     def run(self):
         """Run the monitor with Rich."""
         if not HAS_RICH or not self.config.use_rich:
@@ -696,6 +838,7 @@ class CLIMonitor:
             return 1
             
         self.running = True
+        self.input_handler.start()
         
         try:
             with Live(
@@ -705,14 +848,21 @@ class CLIMonitor:
                 refresh_per_second=1/self.config.refresh_rate
             ) as live:
                 while self.running:
+                    # Check for keyboard input
+                    key = self.input_handler.get_key()
+                    if key is not None:
+                        if not self._handle_key(key):
+                            break
+                            
                     if not self.paused:
                         self.fetch_data()
                         live.update(self.update_display())
-                    time.sleep(self.config.refresh_rate)
+                    time.sleep(0.1)  # Short sleep for responsive input
                     
         except KeyboardInterrupt:
             pass
         finally:
+            self.input_handler.stop()
             self.disconnect()
             
         return 0
