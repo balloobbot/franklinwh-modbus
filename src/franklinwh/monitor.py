@@ -195,15 +195,19 @@ class CLIMonitor:
             
     def _read_extension_registers(self) -> dict:
         """Read FranklinWH extension registers for additional data."""
-        if not self.controller or not self.controller.client:
+        if not self.controller or not hasattr(self.controller, 'dev') or not self.controller.dev:
             return {}
             
         try:
+            client = self.controller.dev.client
+            unit = self.controller.unit_id
+            
             # Solar breakdown (15502-15505)
-            solar_regs = self.controller.client.read_holding_registers(15502, 4, slave=self.controller.unit_id)
-            # Grid power (15506), Cabinet temp (15516), Ambient temp (15517)
-            extra_regs = self.controller.client.read_holding_registers(15506, 2, slave=self.controller.unit_id)
-            temp_regs = self.controller.client.read_holding_registers(15516, 2, slave=self.controller.unit_id)
+            solar_regs = client.read_holding_registers(15502, 4, slave=unit)
+            # Grid power (15506), Home load (15507)
+            extra_regs = client.read_holding_registers(15506, 2, slave=unit)
+            # Cabinet temp (15516), Ambient temp (15517)
+            temp_regs = client.read_holding_registers(15516, 2, slave=unit)
             
             result = {}
             if solar_regs and not solar_regs.isError():
