@@ -1210,9 +1210,10 @@ class FranklinWHController:
         time.sleep(0.3)
 
         # 2. CONFIGURE — WSetPct is the ONLY working control for FranklinWH
+        # NOTE: Invert sign - hardware WSetPct: positive=discharge, negative=charge
         m704.read()
         m704.WSetMod.value = 0  # Absolute W mode
-        m704.WSetPct.value = pct_raw
+        m704.WSetPct.value = -pct_raw  # INVERTED for hardware convention
         # NOTE: Do NOT set WSet - it causes mode flickering (Export↔VPP↔Self-Consumption)
         # WSetPct is the sole working register for FranklinWH control
         m704.write()

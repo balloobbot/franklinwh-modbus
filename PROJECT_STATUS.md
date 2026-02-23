@@ -51,6 +51,7 @@
 - `TODO_POWER_FLOW_CHART.md` - Phase 2 enhancements (dual Y-axis, chart types)
 - `TODO_SYSTEMD_SERVICE.md` - Auto-start service configuration
 - `TODO_WIFI_WARNING.md` - Phase 2+ work (partially complete)
+- `TODO_TUI_TERMINAL_MONITOR.md` - TUI dashboard for terminal (**APPROVED**) ⭐
 
 ### 🟢 LOW PRIORITY / FUTURE
 - `TODO_DATA_RETENTION.md` - For Phase 3 (DB storage)

@@ -690,9 +690,10 @@ class FranklinWHController:
             time.sleep(0.3)
             
             # 2. CONFIGURE - WSetPct ONLY, do not set WSet (causes mode flickering)
+            # NOTE: Invert sign - hardware WSetPct: positive=discharge, negative=charge
             m704.read()
             m704.WSetMod.value = 0
-            m704.WSetPct.value = pct_raw
+            m704.WSetPct.value = -pct_raw  # INVERTED for hardware convention
             m704.write()
             time.sleep(0.3)
             

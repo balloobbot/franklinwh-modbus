@@ -1,4 +1,12 @@
-# In-Flight Work — Updated 2026-02-23 14:30
+# In-Flight Work — Updated 2026-02-23 16:00
+
+## Approved Proposals (Pending Implementation)
+
+| Feature | File | Approved | Priority | Effort |
+|---------|------|----------|----------|--------|
+| TUI Terminal Monitor | `TODO_TUI_TERMINAL_MONITOR.md` | 2026-02-23 | Medium | 4-6 hrs |
+
+---
 
 ## Status: COMPLETED — Library Architecture Implementation
 
