@@ -1,5 +1,24 @@
 # In-Flight Work — Updated 2026-02-23 16:00
 
+## Current Work: CLI Dashboard Monitor
+
+**Status:** IN PROGRESS  
+**Started:** 2026-02-23  
+**Total Stages:** 7  
+**Current Stage:** 1/7
+
+| Stage | Description | Status | Started | Completed |
+|-------|-------------|--------|---------|-----------|
+| 1 | Create monitor.py with Rich layout | **IN PROGRESS** | 16:05 | - |
+| 2 | Implement data fetching (all models) | pending | - | - |
+| 3 | Add live refresh (Live render) | pending | - | - |
+| 4 | Add keyboard input handling | pending | - | - |
+| 5 | Add command interface | pending | - | - |
+| 6 | Add timeline/sparkline | pending | - | - |
+| 7 | Testing & polish | pending | - | - |
+
+---
+
 ## Approved Proposals (Pending Implementation)
 
 | Feature | File | Approved | Priority | Effort |
