@@ -217,6 +217,8 @@ class CLIMonitor:
         self.show_prompt = False  # Whether to show command input
         self.prompt_buffer = ""   # Buffer for numeric input
         self.prompt_mode = None   # 'charge' or 'discharge'
+        self.command_log = []     # Recent commands/messages
+        self.max_log_lines = 5    # Number of lines to show
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -512,7 +514,8 @@ class CLIMonitor:
         layout["right"].split_column(
             Layout(name="ac_power", size=8),
             Layout(name="solar", size=10),
-            Layout(name="lifetime", size=6)
+            Layout(name="lifetime", size=6),
+            Layout(name="command_console", size=5)
         )
         
         return layout
@@ -698,6 +701,29 @@ class CLIMonitor:
             
         return Panel(content, title="[bold]Alarms & Status[/bold]", border_style="red" if self.data.active_alarms else "green", box=box.ROUNDED)
         
+    def render_command_console(self) -> Panel:
+        """Render command console with recent log messages."""
+        if not self.command_log:
+            content = Text("No commands yet. Press c/d/s/m/M to send commands.", style="dim italic")
+        else:
+            content = Text()
+            for i, line in enumerate(self.command_log):
+                if i > 0:
+                    content.append("\n")
+                # Color based on message type
+                if "Error" in line:
+                    content.append(line, style="red")
+                elif "Charge" in line:
+                    content.append(line, style="green")
+                elif "Discharge" in line:
+                    content.append(line, style="yellow")
+                elif "Standby" in line:
+                    content.append(line, style="cyan")
+                else:
+                    content.append(line, style="white")
+                    
+        return Panel(content, title="[bold]Command Console[/bold]", border_style="blue", box=box.ROUNDED)
+        
     def render_footer(self) -> Panel:
         """Render footer with keyboard shortcuts or prompt."""
         if self.show_prompt and self.prompt_mode:
@@ -752,6 +778,7 @@ class CLIMonitor:
         layout["ac_power"].update(self.render_ac_power())
         layout["solar"].update(self.render_solar())
         layout["lifetime"].update(self.render_lifetime())
+        layout["command_console"].update(self.render_command_console())
         
         return layout
         
@@ -812,6 +839,7 @@ class CLIMonitor:
         if key == 'r':
             if self.controller:
                 self.controller.reset_control_state()
+                self._log_command("Released control (cloud mode)")
             return True
             
         # Max charge
@@ -887,6 +915,14 @@ class CLIMonitor:
             
         return True
         
+    def _log_command(self, message: str):
+        """Add a message to the command log."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.command_log.append(f"[{timestamp}] {message}")
+        # Keep only recent lines
+        if len(self.command_log) > self.max_log_lines:
+            self.command_log.pop(0)
+            
     def _send_command(self, power_w: int):
         """Send power command to battery."""
         if not self.controller:
@@ -896,8 +932,17 @@ class CLIMonitor:
             cmd = BatteryCommand(power_watts=power_w)
             self.controller.send_command(cmd)
             self.current_power = power_w
+            
+            # Log the command
+            if power_w > 0:
+                self._log_command(f"Charge: {power_w}W")
+            elif power_w < 0:
+                self._log_command(f"Discharge: {abs(power_w)}W")
+            else:
+                self._log_command("Standby (0W)")
+                
         except Exception as e:
-            pass
+            self._log_command(f"Error: {str(e)[:30]}")
             
     def _adjust_power(self, delta: int):
         """Adjust current power by delta."""
