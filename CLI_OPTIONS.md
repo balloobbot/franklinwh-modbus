@@ -1,8 +1,8 @@
 # FranklinWH Control Standalone - CLI Options Reference
 
-> **Version**: 1.1.0  
-> **Date**: 2026-02-21  
-> **Status**: Pre-library-split (monolithic script)
+> **Version**: 1.2.0  
+> **Date**: 2026-02-23  
+> **Status**: Added --charge, --discharge, --standby flags
 
 ---
 
@@ -12,10 +12,15 @@
 # Health check
 python franklinwh_control_standalone.py -i 192.168.0.110 --healthcheck
 
-# Manual control with SoC limits
+# Manual control - CHARGE at 3000W (new explicit flag)
 python franklinwh_control_standalone.py -i 192.168.0.110 \
-  --reset-on-start --mode manual --power -3000 \
-  --min-discharge-soc 20 --max-charge-soc 95
+  --reset-on-start --mode manual --charge 3000 \
+  --max-charge-soc 95
+
+# Manual control - DISCHARGE at 3000W
+python franklinwh_control_standalone.py -i 192.168.0.110 \
+  --reset-on-start --mode manual --discharge 3000 \
+  --min-discharge-soc 20
 
 # TOU mode with schedule file
 python franklinwh_control_standalone.py -i 192.168.0.110 \
@@ -94,7 +99,9 @@ Skip health check warnings. Use only when you're certain the state is clean.
 **Unit**: Watts  
 **Example**: `--power 3000` (charge), `--power -3000` (discharge)
 
-Direct power control. Positive = charge battery, Negative = discharge battery.
+Direct power control. Positive = charge battery (import from grid), Negative = discharge battery (export to grid).
+
+**⚠️ Legacy**: Use `--charge` or `--discharge` for clarity instead.
 
 **Note**: Actual power may be limited by:
 - Device ratings (from Model 702)
@@ -103,10 +110,43 @@ Direct power control. Positive = charge battery, Negative = discharge battery.
 
 ---
 
+### `--charge`
+**Type**: Float  
+**Unit**: Watts  
+**Example**: `--charge 3000`
+
+Charge battery at specified watts. Imports power from grid.
+
+**Mutually exclusive with**: `--power`, `--discharge`, `--standby`
+
+---
+
+### `--discharge`
+**Type**: Float  
+**Unit**: Watts  
+**Example**: `--discharge 3000`
+
+Discharge battery at specified watts. Exports power to grid.
+
+**Mutually exclusive with**: `--power`, `--charge`, `--standby`
+
+---
+
+### `--standby`
+**Type**: Flag
+
+Set battery to standby (0W). No charging or discharging.
+
+**Mutually exclusive with**: `--power`, `--charge`, `--discharge`
+
+---
+
 ### `--idle`
 **Type**: Flag
 
-Set battery to idle (0W). Equivalent to `--power 0`.
+Set battery to idle (0W). Equivalent to `--standby`.
+
+**Deprecated**: Use `--standby` instead.
 
 ---
 
@@ -144,7 +184,7 @@ Virtual operating mode. Software-implemented battery modes using direct WSetPct 
 
 | Mode | Description | Key Parameters |
 |------|-------------|----------------|
-| `manual` | Direct power control | `--power` |
+| `manual` | Direct power control | `--charge`, `--discharge` |
 | `self_consumption` | Maximize solar self-use | `--reserve` |
 | `emergency_backup` | Keep full for outages | `--target-soc` |
 | `time_of_use` | Price arbitrage | `--schedule-file` |

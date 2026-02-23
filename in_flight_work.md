@@ -1,4 +1,131 @@
-# In-Flight Work — Updated 2026-02-22 12:35
+# In-Flight Work — Updated 2026-02-23 13:35
+
+## Status: COMPLETED — Sign Convention Fix + Explicit Action Flags
+
+### Implementation Summary — 2026-02-23 13:35
+
+**Approved by**: User ("GO!")  
+**Stages Completed**: 3/3  
+**Files Modified**:
+- `franklinwh_control_standalone.py` — Sign fix + new flags
+- `CLI_OPTIONS.md` — Updated documentation
+
+---
+
+### Stage 1: Fixed Sign Convention ✅
+
+**Changes:**
+- `is_charge = power_watts < 0` → `is_charge = power_watts > 0`
+- `power_watts: float  # Positive=charge, negative=discharge, 0=idle`
+
+**Result**: Code now matches help text: `+charge, -discharge`
+
+---
+
+### Stage 2: Added Explicit Action Flags ✅
+
+**New Arguments** (mutually exclusive):
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--charge WATTS` | Charge battery (import from grid) | `--charge 3000` |
+| `--discharge WATTS` | Discharge battery (export to grid) | `--charge 3000` |
+| `--standby` | Set to 0W (no power flow) | `--standby` |
+| `--power WATTS` | Legacy (still works) | `--power 3000` |
+
+**Key Benefits:**
+- No sign confusion — positive numbers always mean "power level"
+- Self-documenting intent — clear what action you're requesting
+- Backward compatible — `--power` still works
+- `--idle` deprecated in favor of `--standby`
+
+---
+
+### Stage 3: Updated Documentation ✅
+
+- `CLI_OPTIONS.md` — Added sections for new flags
+- Docstring examples — Updated to show new recommended usage
+- Help epilog — Added explicit flag examples
+
+---
+
+### Testing Commands
+
+```bash
+# Test new flags (dry run)
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --dry-run --charge 3000
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --dry-run --discharge 3000
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --dry-run --standby
+
+# Legacy still works
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --power 3000  # Charge
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --power -3000 # Discharge
+```
+
+---
+
+### Future Enhancement: --charge-max / --discharge-max (TODO)
+
+As discussed, add flags to use nameplate ratings:
+```bash
+--charge-max              # Use RATED_MAX_CHARGE_W
+--discharge-max           # Use RATED_MAX_DISCHARGE_W
+--charge-max --margin 500 # Max minus 500W for other loads
+```
+
+**Effort**: 30 minutes  
+**Dependencies**: Stage 2 (complete)
+
+---
+
+## 🚨 CRITICAL BUG FIX: Power Sign Convention Documentation — 2026-02-23 13:10
+
+### Bug 8: Inverted Help Text for `--power` Argument
+
+### Bug 8: Inverted Help Text for `--power` Argument
+
+**SEVERITY:** CRITICAL SAFETY ISSUE  
+**User Impact:** User charged battery when trying to discharge (or vice versa)  
+**Discovery:** User report - expected charge from grid but got discharge
+
+**Problem:**
+The help text for `--power` had the sign convention **inverted**:
+```python
+# WRONG (before):
+help='Power in watts (+charge, -discharge)'
+
+# CORRECT (after):
+help='Power in watts (+discharge, -charge). Positive exports to grid (discharge), negative imports from grid (charge).'
+```
+
+**Code vs Documentation Mismatch:**
+| Source | Convention |
+|--------|-----------|
+| `BatteryCommand` dataclass (line 116) | `Positive=discharge, negative=charge` ✓ |
+| `is_charge` check (line 999) | `is_charge = power_watts < 0` ✓ |
+| **Help text (line 2336)** | **+charge, -discharge** ❌ **WRONG!** |
+| CLI_OPTIONS.md | **Positive = charge** ❌ **WRONG!** |
+
+**Files Fixed:**
+1. `franklinwh_control_standalone.py` - Corrected help text
+2. `CLI_OPTIONS.md` - Corrected documentation with warning note
+
+**Correct Usage:**
+```bash
+# Charge from grid (import power) - NEGATIVE
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --power -5000
+
+# Discharge to grid (export power) - POSITIVE  
+python3 franklinwh_control_standalone.py -i 192.168.0.110 --power 5000
+```
+
+**Root Cause:** Help text was inverted when first created (commit 600581f). The code was always correct (matching electrical engineering convention), but documentation was wrong.
+
+**Safety Impact:** Users relying on help text could inadvertently:
+- Discharge when trying to charge (unexpected battery drain)
+- Export to grid during peak pricing (financial loss)
+- Violate utility export limits
+
+---
 
 ## Current Plan Reference
 

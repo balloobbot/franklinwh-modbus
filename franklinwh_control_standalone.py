@@ -14,19 +14,25 @@ Includes:
 - Cloud API placeholder for future integration
 
 Usage:
-    # Direct control
-    python franklinwh_control.py -i 192.168.0.110 --power 3000
+    # Direct control (legacy --power with sign)
+    python franklinwh_control.py -i 192.168.0.110 --power 3000      # Charge
+    python franklinwh_control.py -i 192.168.0.110 --power -2000     # Discharge
+    
+    # Direct control (explicit action flags - RECOMMENDED)
+    python franklinwh_control.py -i 192.168.0.110 --charge 3000     # Charge at 3000W
+    python franklinwh_control.py -i 192.168.0.110 --discharge 2000  # Discharge at 2000W
+    python franklinwh_control.py -i 192.168.0.110 --standby         # Set to 0W
+    
+    # Status and health check
     python franklinwh_control.py -i 192.168.0.110 --status
+    python franklinwh_control.py -i 192.168.0.110 --healthcheck
     
     # Virtual modes
     python franklinwh_control.py -i 192.168.0.110 --mode self_consumption
     python franklinwh_control.py -i 192.168.0.110 --mode emergency_backup --target-soc 90
     
-    # Health check
-    python franklinwh_control.py -i 192.168.0.110 --healthcheck
-    
     # With reset (recommended if zombie state detected)
-    python franklinwh_control.py -i 192.168.0.110 --reset-on-start --mode manual --power 1500
+    python franklinwh_control.py -i 192.168.0.110 --reset-on-start --mode manual --charge 1500
 """
 
 import argparse
@@ -113,7 +119,7 @@ class VirtualMode(Enum):
 @dataclass
 class BatteryCommand:
     """Battery control command."""
-    power_watts: float  # Positive=discharge, negative=charge, 0=idle
+    power_watts: float  # Positive=charge, negative=discharge, 0=idle
     mode: ControlMode = ControlMode.LIMIT_ABS
 
 
@@ -996,10 +1002,10 @@ class FranklinWHController:
 
     def _validate_power(self, power_watts: float) -> float:
         """Safety clamp: ensure requested power doesn't exceed device ratings."""
-        is_charge = power_watts < 0
+        is_charge = power_watts > 0
         limit = self.RATED_MAX_CHARGE_W if is_charge else self.RATED_MAX_DISCHARGE_W
         if abs(power_watts) > limit:
-            clamped = limit if power_watts > 0 else -limit
+            clamped = -limit if power_watts > 0 else limit
             logger.warning(f"SAFETY CLAMP: {power_watts}W exceeds {'charge' if is_charge else 'discharge'} "
                           f"limit {limit}W — clamped to {clamped}W")
             return clamped
@@ -2298,16 +2304,21 @@ Examples:
   # Quick stop — release Modbus control, resume Self-Consumption
   %(prog)s -i 192.168.0.110 --stop
   
-  # Direct control (original functionality)
-  %(prog)s -i 192.168.0.110 --power 3000
-  %(prog)s -i 192.168.0.110 --power -2000 --revert 3600
+  # Direct control (explicit action flags - RECOMMENDED)
+  %(prog)s -i 192.168.0.110 --charge 3000           # Charge at 3000W (import)
+  %(prog)s -i 192.168.0.110 --discharge 2000        # Discharge at 2000W (export)
+  %(prog)s -i 192.168.0.110 --standby               # Set to 0W (idle)
+  
+  # Direct control (legacy --power with sign)
+  %(prog)s -i 192.168.0.110 --power 3000            # Charge at 3000W
+  %(prog)s -i 192.168.0.110 --power -2000 --revert 3600  # Discharge 2000W for 1hr
   %(prog)s -i 192.168.0.110 --status
   
   # Virtual modes with reset (recommended)
   %(prog)s -i 192.168.0.110 --reset-on-start --mode self_consumption
   %(prog)s -i 192.168.0.110 --reset-on-start --mode emergency_backup --target-soc 90
   %(prog)s -i 192.168.0.110 --reset-on-start --mode time_of_use
-  %(prog)s -i 192.168.0.110 --reset-on-start --mode manual --power 1500 --duration 7200
+  %(prog)s -i 192.168.0.110 --reset-on-start --mode manual --charge 1500 --duration 7200
   
   # With custom timeout
   %(prog)s -i 192.168.0.110 -t 15.0 --status
@@ -2331,11 +2342,19 @@ Examples:
     parser.add_argument('--assume-clean-state', action='store_true',
                        help='Skip health check warnings (use with caution)')
     
-    # Direct control (original)
-    parser.add_argument('--power', type=float,
-                       help='Power in watts (+charge, -discharge)')
+    # Direct control (original and explicit action flags)
+    power_group = parser.add_mutually_exclusive_group()
+    power_group.add_argument('--power', type=float,
+                       help='Power in watts (+charge, -discharge). Legacy option, use --charge or --discharge for clarity.')
+    power_group.add_argument('--charge', type=float, metavar='WATTS',
+                       help='Charge battery at specified watts (import from grid). Positive value.')
+    power_group.add_argument('--discharge', type=float, metavar='WATTS',
+                       help='Discharge battery at specified watts (export to grid). Positive value.')
+    power_group.add_argument('--standby', action='store_true',
+                       help='Set battery to standby (0W). Equivalent to --idle.')
+    
     parser.add_argument('--idle', action='store_true',
-                       help='Set to idle (0W)')
+                       help='Set to idle (0W). Deprecated: use --standby instead.')
     parser.add_argument('--stop', action='store_true',
                        help='Release Modbus control (WSetEna=0) and exit. '
                             'Use this to resume normal aGate operation (e.g. Self-Consumption)')
@@ -3021,11 +3040,13 @@ def validate_mode_params(args) -> Tuple[bool, List[str]]:
                 f"not '{mode}'. This parameter will be ignored."
             )
     
-    # power only valid for manual
-    if args.power is not None:
+    # power (or --charge/--discharge) only valid for manual
+    power_provided = args.power is not None or getattr(args, 'charge', None) is not None or getattr(args, 'discharge', None) is not None
+    if power_provided:
         if mode not in PARAM_MODE_MAP['power']:
+            power_val = args.power if args.power is not None else (args.charge if args.charge is not None else -args.discharge)
             warnings.append(
-                f"--power={args.power} is only used by 'manual' mode, "
+                f"Power control ({power_val}W) is only used by 'manual' mode, "
                 f"not '{mode}'. This parameter will be ignored."
             )
     
@@ -3049,6 +3070,19 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
     elif args.quiet:
         logging.getLogger().setLevel(logging.WARNING)
+    
+    # Normalize explicit action flags to power value
+    # Priority: --charge, --discharge, --standby, --idle, then --power
+    if args.charge is not None:
+        args.power = abs(args.charge)  # Positive = charge
+        logger.debug(f"--charge {args.charge}W → power={args.power}W (charge)")
+    elif args.discharge is not None:
+        args.power = -abs(args.discharge)  # Negative = discharge
+        logger.debug(f"--discharge {args.discharge}W → power={args.power}W (discharge)")
+    elif args.standby or args.idle:
+        args.power = 0
+        logger.debug("--standby/--idle → power=0W")
+    # else: args.power remains as set (or None)
     
     # Validate parameter combinations when mode is specified
     if args.mode:
@@ -3380,9 +3414,9 @@ def main():
             
             return
         
-        # Direct control (original functionality)
-        if args.power is not None or args.idle:
-            power = 0.0 if args.idle else args.power
+        # Direct control (original functionality with new explicit flags)
+        if args.power is not None or args.idle or args.standby:
+            power = 0.0 if (args.idle or args.standby) else args.power
             cmd = BatteryCommand(power_watts=power, mode=ControlMode.LIMIT_ABS)
             
             success, msg = ctrl.send_command(cmd, args.revert, args.dry_run)
