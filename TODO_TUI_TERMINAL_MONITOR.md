@@ -60,7 +60,25 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
   - Now: Commands appear in dedicated panel within dashboard
   - Shows last 5 commands with timestamps
   - Color-coded by type (charge/discharge/standby/error)
-  
+
+- [x] **Solar State Display** ✅ FIXED
+  - Was: "0W Producing" when no sun
+  - Now: Shows "Idle" when solar < 50W threshold
+
+- [x] **Header Timestamp Format** ✅ FIXED
+  - Was: No timestamp
+  - Now: "23-Feb-25 14:30" format (DD-Mmm-YY HH:MM)
+
+- [x] **Serial Number in Header** ✅ FIXED
+  - Shows aGate serial instead of IP when available
+  - IP shown as fallback if serial not read yet
+
+- [ ] **Three-Phase AC Display** (Future)
+  - Currently shows Single-Phase (LNV, A, etc.)
+  - For Split/Three-Phase: Should expand to show L1/L2/L3
+  - Per-phase voltage, current, power readings
+  - See M701 PhVphA, PhVphB, PhVphC, AphA, AphB, AphC
+
 - [ ] **Enhanced SoC Bar Chart**
   - Current SOC bar with embedded reserve indicator
   - Show Self Reserve or TOU Reserve (based on current mode)

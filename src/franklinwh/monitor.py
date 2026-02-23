@@ -522,11 +522,19 @@ class CLIMonitor:
         
     def render_header(self) -> Panel:
         """Render the header panel."""
-        title = f"FranklinWH Monitor - {self.config.ip_address}:{self.config.port}"
+        # Format: DD-Mmm-YY HH:MM
+        now = datetime.now()
+        timestamp = now.strftime("%d-%b-%y %H:%M")
+        
+        # Use serial if available, otherwise IP
+        device_id = self.data.serial if self.data.serial else f"{self.config.ip_address}:{self.config.port}"
+        title = f"FranklinWH Monitor - {device_id}"
         refresh = f"Refresh: {self.config.refresh_rate:.0f}s"
         status = "PAUSED" if self.paused else "LIVE"
         
         content = Text()
+        content.append(timestamp, style="dim")
+        content.append(" | ", style="dim")
         content.append(title, style="bold cyan")
         content.append(f" | {refresh}", style="dim")
         content.append(f" | [{status}]", style="green" if not self.paused else "yellow")
@@ -544,8 +552,10 @@ class CLIMonitor:
         pf = self.data.power_flow
         
         # Solar
-        solar_icon = "→" if pf.solar_w > 0 else " "
-        table.add_row("Solar", f"{pf.solar_w:>6.0f}W", "Producing", solar_icon)
+        solar_active = pf.solar_w > 50  # Threshold for "Producing"
+        solar_icon = "→" if solar_active else " "
+        solar_state = "Producing" if solar_active else "Idle"
+        table.add_row("Solar", f"{pf.solar_w:>6.0f}W", solar_state, solar_icon)
         
         # Home
         home_icon = "←" if pf.home_w > 0 else " "
@@ -659,11 +669,16 @@ class CLIMonitor:
         table.add_column("Type", style="cyan")
         table.add_column("Energy", style="white", justify="right")
         
-        table.add_row("Injected (to Grid)", f"{self.data.lifetime_injected/1e6:.2f} MWh")
-        table.add_row("Absorbed (from Grid)", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
-        table.add_row("Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
-        table.add_row("Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
-        table.add_row("Solar Generated", f"{self.data.lifetime_generated/1e6:.2f} MWh")
+        # Solar first (most important for PV owners)
+        table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
+        table.add_row("", "")  # Spacer
+        # Battery activity
+        table.add_row("🔋 Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
+        table.add_row("🔌 Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
+        table.add_row("", "")  # Spacer
+        # Grid activity
+        table.add_row("📤 Exported (to Grid)", f"{self.data.lifetime_injected/1e6:.2f} MWh")
+        table.add_row("📥 Imported (from Grid)", f"{self.data.lifetime_absorbed/1e6:.2f} MWh")
         
         return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style="cyan", box=box.ROUNDED)
         
