@@ -507,20 +507,29 @@ class VirtualModeController:
                 logger.error(f"Control tick failed: {e}")
                 return False
     
-    def run_continuous(self, duration_seconds: Optional[float] = None):
-        """Run controller continuously with graceful shutdown."""
+    def run_continuous(self, duration_seconds: Optional[float] = None,
+                        enable_safety_checks: bool = False):
+        """Run controller continuously with graceful shutdown.
+        
+        Args:
+            duration_seconds: Run for N seconds, or None for indefinite
+            enable_safety_checks: If True, enable alarm/sanity/SoC limit checks
+                                  (adds Modbus overhead, use for automation only)
+        """
         import sys
         
         start_time = time.time()
         tick_interval = 5.0
-        alarm_interval = 30.0  # Check alarms every 30s
-        sanity_check_interval = 10.0  # Verify command execution every 10s
         last_tick = 0
-        last_alarm_check = 0
-        last_sanity_check = 0
-        alarm_check_failures = 0
         consecutive_failures = 0
         max_consecutive_failures = 5
+        
+        # Safety check intervals (only used if enable_safety_checks=True)
+        alarm_interval = 60.0
+        sanity_interval = 30.0
+        last_alarm_check = 0
+        last_sanity_check = 0
+        alarm_failures = 0
         
         def signal_handler(signum, frame):
             logger.info(f"Signal {signum} received, shutting down...")
@@ -528,6 +537,8 @@ class VirtualModeController:
         
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+        
+        logger.info(f"Running continuous control: safety_checks={enable_safety_checks}")
         
         try:
             while True:
@@ -538,67 +549,62 @@ class VirtualModeController:
                     logger.info("Duration expired, stopping...")
                     break
                 
+                # Main control tick (every 5s)
                 if now - last_tick >= tick_interval:
                     success = self.tick()
                     if success:
                         consecutive_failures = 0
                         
-                        # Check SoC limits - exit if reached
-                        status = self.ctrl.read_battery_status()
-                        soc = status.get('soc', 0)
-                        power = self.calculate_power()
-                        
-                        # Check max_charge_soc limit
-                        if power > 0 and soc >= self.max_charge_soc:
-                            logger.info(f"✓ MAX CHARGE SoC REACHED: {soc:.1f}% (limit: {self.max_charge_soc}%)")
-                            logger.info("Exiting as battery is fully charged to limit")
-                            break
-                        
-                        # Check min_discharge_soc limit  
-                        if power < 0 and soc <= self.min_discharge_soc:
-                            logger.info(f"✓ MIN DISCHARGE SoC REACHED: {soc:.1f}% (limit: {self.min_discharge_soc}%)")
-                            logger.info("Exiting as battery is depleted to limit")
-                            break
-                            
+                        # SoC limit check (only if safety checks enabled)
+                        if enable_safety_checks:
+                            try:
+                                status = self.ctrl.read_battery_status()
+                                soc = status.get('soc', 0)
+                                power = self.calculate_power()
+                                
+                                if power > 0 and soc >= self.max_charge_soc:
+                                    logger.info(f"✓ MAX CHARGE SoC REACHED: {soc:.1f}%")
+                                    break
+                                if power < 0 and soc <= self.min_discharge_soc:
+                                    logger.info(f"✓ MIN DISCHARGE SoC REACHED: {soc:.1f}%")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"SoC check failed: {e}")
                     else:
                         consecutive_failures += 1
                         logger.warning(f"Tick failed ({consecutive_failures}/{max_consecutive_failures})")
-                        
                         if consecutive_failures >= max_consecutive_failures:
-                            logger.error("Too many consecutive failures, stopping")
+                            logger.error("Too many failures, stopping")
                             break
                     
                     last_tick = now
                 
-                # Periodic alarm check (skip if we're having connection issues)
-                if now - last_alarm_check >= alarm_interval and consecutive_failures == 0:
-                    last_alarm_check = now
-                    try:
-                        can_operate, blocking = self.ctrl.check_blocking_alarms()
-                        if not can_operate:
-                            logger.error(f"🚨 BLOCKING ALARMS: {', '.join(blocking)}")
-                            logger.error("Stopping for safety - resolve alarms before resuming")
-                            alarm_check_failures += 1
-                            if alarm_check_failures >= 2:
-                                break
-                        else:
-                            alarm_check_failures = 0
-                    except Exception as e:
-                        logger.warning(f"Could not check alarms: {e}")
-                
-                # Periodic sanity check: verify commanded power matches actual
-                if now - last_sanity_check >= sanity_check_interval and consecutive_failures == 0:
-                    last_sanity_check = now
-                    try:
-                        ok, commanded, actual, diff = self.verify_command_execution(tolerance_percent=20.0)
-                        if not ok:
-                            logger.warning(
-                                f"⚠️  COMMAND VERIFICATION: Commanded {commanded:.0f}W but actual {actual:.0f}W "
-                                f"({diff:.1f}% difference)"
-                            )
-                            logger.warning("   Battery may not be responding to commands")
-                    except Exception as e:
-                        logger.debug(f"Could not run sanity check: {e}")
+                # Optional safety checks (for automation mode only)
+                if enable_safety_checks and consecutive_failures == 0:
+                    # Alarm check
+                    if now - last_alarm_check >= alarm_interval:
+                        last_alarm_check = now
+                        try:
+                            can_operate, blocking = self.ctrl.check_blocking_alarms()
+                            if not can_operate:
+                                logger.error(f"🚨 BLOCKING ALARMS: {', '.join(blocking)}")
+                                alarm_failures += 1
+                                if alarm_failures >= 2:
+                                    break
+                            else:
+                                alarm_failures = 0
+                        except Exception as e:
+                            logger.debug(f"Alarm check failed: {e}")
+                    
+                    # Sanity check
+                    if now - last_sanity_check >= sanity_interval:
+                        last_sanity_check = now
+                        try:
+                            ok, commanded, actual, diff = self.verify_command_execution()
+                            if not ok:
+                                logger.warning(f"Command verification: {commanded:.0f}W vs actual {actual:.0f}W")
+                        except Exception as e:
+                            logger.debug(f"Sanity check failed: {e}")
                 
                 time.sleep(0.1)
                 

@@ -670,7 +670,7 @@ def main():
             print(f"  Press Ctrl+C to stop")
             print(f"{'='*60}")
             
-            vmc.run_continuous(duration_seconds=args.duration)
+            vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
             sys.exit(0)
         
         # Direct power control (no mode)
@@ -699,7 +699,7 @@ def main():
                 print(f"  Max charge SoC: {args.max_charge_soc}%")
                 print(f"  Min discharge SoC: {vmc.min_discharge_soc}%")
                 print("Press Ctrl+C to stop")
-                vmc.run_continuous(duration_seconds=args.duration)
+                vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
                 sys.exit(0)
             else:
                 # One-shot command
