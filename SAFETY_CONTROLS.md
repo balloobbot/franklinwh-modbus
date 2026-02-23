@@ -222,3 +222,117 @@ tail -100 data/logs/franklinwh.log | grep -c "ERROR"
 
 **Created**: 2026-02-18
 **Next Review**: 2026-05-18
+
+---
+
+## ⚡ OPERATIONAL SAFETY: Conflict Detection
+
+### Purpose
+Prevent the script from fighting with aGate Cloud API or native operating modes.
+
+### How It Works
+
+The script detects conflicts in two ways:
+
+1. **Modbus Control Detection** (`WSetEna=1`)
+   - Another controller (previous script run, VPP aggregator) is active
+   - We can take over with `--reset-on-start`
+
+2. **Cloud API Detection** (`WSetEna=0` but battery active)
+   - aGate is controlling via FranklinWH Cloud/APP
+   - Battery DC power > 500W (charging or discharging)
+   - Script exits to prevent conflicts
+
+### Conflict Messages
+
+```
+🚨 CONFLICTS DETECTED - aGate is actively controlling:
+   • aGate Self-Consumption actively CHARGING at 5000W
+
+⚠️  Use --reset-on-start to force takeover
+⚠️  Or change aGate mode in vendor app first
+⚠️  Exiting to avoid fighting with aGate control!
+```
+
+### Resolution Options
+
+| Situation | Resolution |
+|-----------|------------|
+| Testing/debugging | Use `--reset-on-start` to force takeover |
+| Production use | Change aGate mode in vendor app first, then run script |
+| VPP/active contract | Do NOT use `--reset-on-start` - may violate contract |
+
+### Target SoC Validation
+
+Script exits with error if target already reached:
+
+```
+❌ CONFIGURATION ERROR: Target SoC 40.0% already reached (current: 48.0%)
+
+Options:
+  1. Lower --target-soc below current SoC
+  2. Wait for battery to discharge naturally
+  3. Use discharge mode to reduce SoC first
+```
+
+This prevents unnecessary grid charging when battery is already above target.
+
+---
+
+## 🔋 BATTERY SAFETY: Alarm Monitoring
+
+### Monitored Alarms
+
+| Source | Register | Critical Alarms |
+|--------|----------|-----------------|
+| System (M701) | 40076 | Ground fault, over temp, grid disconnect |
+| DC Port (M714) | 41044 | Over voltage, under voltage, contactor fault |
+| Battery (M713) | 41039 | FAULT status |
+| Solar (M502) | 41104 | Input over voltage |
+
+### Blocking Behavior
+
+If critical alarms detected:
+- Script prevents operation
+- Logs alarm details
+- Suggests using `--clear-alarms` after resolving faults
+
+### Clearing Alarms
+
+```bash
+# After resolving fault conditions
+python3 franklinwh_cli.py -i 192.168.0.110 --clear-alarms
+```
+
+---
+
+## 🌐 CONNECTION SAFETY: Auto-Reconnection
+
+### Behavior
+
+When connection drops ("Broken pipe", timeout):
+1. Log warning with attempt count
+2. Disconnect and reconnect
+3. Rescan SunSpec models
+4. Resume operation
+
+### Failure Limits
+
+After 5 consecutive failures:
+```
+ERROR - Too many consecutive failures, stopping
+```
+
+Script exits cleanly to prevent endless retry loops.
+
+### Graceful Shutdown
+
+On Ctrl+C (SIGINT):
+1. Attempt to reconnect if connection lost
+2. Reset control state (WSetEna=0)
+3. Log result
+4. Exit cleanly
+
+---
+
+*Last Updated: February 22, 2026*

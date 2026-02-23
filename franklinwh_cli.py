@@ -53,7 +53,15 @@ def create_parser():
 Examples:
   %(prog)s -i 192.168.1.100 --status
   %(prog)s -i 192.168.1.100 --mode self_consumption --target-soc 90
-  %(prog)s -i 192.168.1.100 --mode manual --power -3000 --duration 3600
+  
+  # Explicit action flags (RECOMMENDED)
+  %(prog)s -i 192.168.1.100 --charge 3000 --duration 3600
+  %(prog)s -i 192.168.1.100 --discharge 3000 --duration 3600
+  %(prog)s -i 192.168.1.100 --standby
+  
+  # Legacy --power with sign
+  %(prog)s -i 192.168.1.100 --mode manual --power 3000 --duration 3600   # Charge
+  %(prog)s -i 192.168.1.100 --mode manual --power -3000 --duration 3600  # Discharge
         """
     )
     
@@ -66,7 +74,18 @@ Examples:
     # Control modes
     parser.add_argument('--mode', choices=[m.value for m in VirtualMode],
                        help='Virtual control mode')
-    parser.add_argument('--power', type=float, help='Manual power in watts (negative=charge)')
+    
+    # Power control (mutually exclusive)
+    power_group = parser.add_mutually_exclusive_group()
+    power_group.add_argument('--power', type=float, 
+                            help='Manual power in watts (+charge, -discharge). Legacy, use --charge/--discharge.')
+    power_group.add_argument('--charge', type=float, metavar='WATTS',
+                            help='Charge battery at specified watts (import from grid)')
+    power_group.add_argument('--discharge', type=float, metavar='WATTS',
+                            help='Discharge battery at specified watts (export to grid)')
+    power_group.add_argument('--standby', action='store_true',
+                            help='Set battery to standby (0W)')
+    
     parser.add_argument('--target-soc', type=float, default=100, help='Target SoC (default: 100)')
     parser.add_argument('--reserve', type=int, default=20, help='Reserve percentage (default: 20)')
     parser.add_argument('--threshold', type=int, default=2000, help='Peak shave threshold (default: 2000)')
@@ -410,6 +429,18 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Normalize explicit action flags to power value
+    # Priority: --charge, --discharge, --standby, then --power
+    if args.charge is not None:
+        args.power = abs(args.charge)  # Positive = charge
+        logger.debug(f"--charge {args.charge}W → power={args.power}W")
+    elif args.discharge is not None:
+        args.power = -abs(args.discharge)  # Negative = discharge
+        logger.debug(f"--discharge {args.discharge}W → power={args.power}W")
+    elif args.standby:
+        args.power = 0
+        logger.debug("--standby → power=0W")
+    
     # Schedule file operations (no hardware needed)
     if args.show_schedule:
         try:
@@ -552,7 +583,7 @@ def main():
             # Validate SoC limits before operation
             current_soc = state.get('soc', 0)
             requested_power = args.power or 0
-            is_charge_request = requested_power < 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
+            is_charge_request = requested_power > 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
             is_discharge_request = requested_power > 0 or args.mode == 'peak_shave'
             
             # Check 1: target_soc for charge modes

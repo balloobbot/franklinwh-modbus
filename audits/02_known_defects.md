@@ -11,6 +11,7 @@
 ### DEFECT-001: --target-soc Only Works for emergency_backup Mode
 **Component**: Virtual Mode Controller  
 **Severity**: HIGH  
+**Status**: ✅ **FIXED** in commit `tbd`
 **Impact**: Users expect target_soc to work across modes, but it only applies to emergency_backup
 
 **Evidence**:
@@ -43,10 +44,34 @@ The help says "Emergency backup target SOC" implying it's only for that mode, BU
 | peak_shave | ? | ❌ Ignored |
 | manual | ? | ❌ Ignored |
 
+**Fix Applied**:
+- Added `validate_mode_params()` function that maps parameters to their valid modes
+- Validates all mode-specific parameters:
+  - `--target-soc` → only `emergency_backup`
+  - `--reserve` → only `self_consumption`
+  - `--threshold` → only `peak_shave`
+  - `--power` → only `manual`
+  - `--schedule-file` → only `time_of_use`
+- Warns user with helpful message showing:
+  - Which parameter is incompatible
+  - What mode was selected
+  - What parameters ARE valid for that mode
+- Non-blocking: script continues but user is informed of ignored parameters
+
+**Validation Output Example**:
+```
+⚠️  Parameter/Mode Mismatch Warnings:
+   • --target-soc=90 is only used by 'emergency_backup' mode, not 'self_consumption'. 
+     This parameter will be ignored.
+
+   For mode 'self_consumption', valid parameters are:
+   --reserve (reserve percentage)
+```
+
 **Recommendation**: 
-1. Document which modes support which parameters
-2. Add validation to reject incompatible parameter combinations
-3. Consider unifying target_soc/reserve concepts
+1. ✅ Document which modes support which parameters — DONE in CLI_OPTIONS.md
+2. ✅ Add validation to reject/warn incompatible parameter combinations — DONE
+3. Consider unifying target_soc/reserve concepts — Future enhancement
 
 ---
 
@@ -262,8 +287,8 @@ except Exception as e:
 
 | ID | Defect | Severity | Status |
 |----|--------|----------|--------|
-| DEFECT-001 | --target-soc only for emergency_backup | 🔴 HIGH | Document/Fix |
-| DEFECT-002 | Insufficient CLI output | 🔴 HIGH | Fix |
+| DEFECT-001 | --target-soc only for emergency_backup | 🔴 HIGH | ✅ **FIXED** |
+| DEFECT-002 | Insufficient CLI output | 🔴 HIGH | ✅ **FIXED** |
 | DEFECT-003 | Virtual mode calculations unverified | 🟡 MEDIUM | Test/Verify |
 | DEFECT-004 | --duration unclear | 🟡 MEDIUM | Document/Implement |
 | DEFECT-005 | Inconsistent parameter naming | 🟡 MEDIUM | Refactor |

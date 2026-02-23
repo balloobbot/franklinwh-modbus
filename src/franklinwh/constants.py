@@ -1,0 +1,259 @@
+"""
+FranklinWH Constants File
+Contains all constant values used in franklinwh integration
+"""
+from enum import Enum
+
+
+# Operating Work Modes
+MODE_TIME_OF_USE = "time_of_use"
+MODE_SELF_CONSUMPTION = "self_consumption"
+MODE_EMERGENCY_BACKUP = "emergency_backup"
+
+MODE_MAP = {
+        1: MODE_TIME_OF_USE,
+        2: MODE_SELF_CONSUMPTION,
+        3: MODE_EMERGENCY_BACKUP,
+}
+
+TIME_OF_USE = 1
+SELF_CONSUMPTION = 2
+EMERGENCY_BACKUP = 3
+
+class workModeType(Enum):
+    """Operating mode types"""
+    TIME_OF_USE = 1
+    SELF_CONSUMPTION = 2
+    EMERGENCY_BACKUP = 3
+
+OPERATING_MODES = {
+    1: "Time of Use",
+    2: "Self-Consumption",
+    3: "Emergency Backup",
+    "Time of Use": 1,
+    "Self-Consumption": 2,
+    "Emergency Backup": 3,
+    "time_of_use": 1,
+    "self_consumption": 2,
+    "emergency_backup": 3
+}
+
+# Run mode of Gateway
+RUN_STATUS = {
+    0: "Standby",               # Inactive or Idle
+    1: "Charging",
+    2: "Discharging",
+    3: "Unknown 3",             # To be added
+    4: "Unknown 4",             # To be added
+    5: "Off-Grid Standby",
+    6: "Off-Grid Charging",
+    7: "Off-Grid Discharging",
+    8: "Debug Mode",           # Franklin Remote Support
+    9: "VPP mode"              # Virtual Power Plant mode controlled
+}
+
+
+# Network connectivity options
+NETWORK_TYPES = {
+    1: "Ethernet 1",
+    2: "Ethernet 2",
+    3: "WiFi",
+    4: "4G Mobile"
+}
+
+# aGate Health Status
+AGATE_STATE = {
+    0: "Normal",
+    1: "Fault"
+} 
+# aGate Activity Status
+AGATE_ACTIVE = {
+    0: "Inactive",
+    1: "Active"
+}
+
+COUNTRY_ID = {
+    1: "China",
+    2: "United States",
+    3: "Australia"
+}
+
+# FranklinWH Device Models
+# System ID, Model Designation, SKU and Model Type
+FRANKLINWH_MODELS = {
+    0: {"name": "aPower X", "sku": "APR-05K1V1-US", "model": "aPower X-10", "type": "Battery"},
+    1: {"name": "aPower X", "sku": "APR-05K11V1-US", "model": "aPower X-10", "type": "Battery"},
+    2: {"name": "aPower X", "sku": "APR-05K13V1-AU", "model": "aPower X-01-AU", "type": "Battery"},
+    3: {"name": "aPower 2", "sku": "APR-10K15V2-US", "model": "aPower X-20", "type": "Battery"},
+    4: {"name": "aPower S", "sku": "APRS-10K15V1-US", "model": "aPower S-10", "type": "Battery"},
+    5: {"name": "aPower S", "sku": "APRS-11K15V2-US", "model": "aPower S-10", "type": "Battery"},
+    6: {"name": "aPower X", "sku": "APR-05K15V1-US", "model": "aPower X-10", "type": "Battery"},
+    100: {"name": "aGate X", "sku": "AGT-R1V1-US", "model": "aGate X-10", "type": "Gateway", "coupling": "AC"},
+    101: {"name": "aGate X", "sku": "AGT-R1V2-US", "model": "aGate X-20", "type": "Gateway", "coupling": "AC"},
+    102: {"name": "aGate X", "sku": "AGT-R1V1-AU", "model": "aGate X-01-AU", "type": "Gateway", "coupling": "AC"},
+    103: {"name": "aGate X", "sku": "AGT-R1V3-US", "model": "aGate X 20 (US)", "type": "Gateway", "coupling": "AC"},
+    104: {"name": "aGate X", "sku": "AGT-R1V3-US", "model": "aGate X 20 (US)", "type": "Gateway", "coupling": "AC"}
+}
+
+# Architecture Types
+COUPLING_TYPES = {
+    "AC": "AC-Coupled (Solar via AC inputs)",
+    "DC": "DC-Coupled (Solar via MPPT DC inputs)",
+    "HYBRID": "Hybrid (Both AC and DC solar inputs)"
+}
+
+# aGate X Architecture Note:
+# - AC-coupled battery system
+# - Solar connects via AC inputs (2x 63A circuits on aGate X)
+# - Can also have remote solar via aPbox or aHub accessories
+# - Battery is AC-coupled (inverter built into aGate)
+
+# aPower S Architecture Note:
+# - DC-coupled with 4x MPPT inputs for solar
+# - Also has AC solar inputs (hybrid)
+
+# Accessories
+FRANKLINWH_ACCESSORIES = {
+    301: {"name": "Generator Module", "sku": "ACCY-GENV1-AU", "model": "Generator Module-01-AU", "compatiable": "102"},
+    302: {"name": "Smart Circuits", "sku": "ACCY-SCV1-AU", "model": "Smart Circuits-01-AU", "compatiable": "102"},
+    201: {"name": "Generator Module", "sku": "ACCY-GENV1-US", "model": "Generator Module-01", "compatiable": "100|101"},
+    202: {"name": "Smart Circuits", "sku": "ACCY-SCV1-US", "model": "Smart Circuits-01", "compatiable": "100|101"},
+    203: {"name": "Generator Module", "sku": "ACCY-GENV2-US", "model": "Generator Module-02", "compatiable": "103|104"},
+    204: {"name": "Smart Circuits", "sku": " ACCY-SCV2-US", "model": "Smart Circuits-02", "compatiable": "102|103|104"},
+    251: {"name": "aPbox", "sku": "ACCY-RCV1-US", "model": "aPbox-10", "compatiable": "ALL"},
+    252: {"name": "Split-CT", "sku": "ACCY-CT200V1-US", "model": "Split-CT-US", "compatiable": "ALL"},
+    253: {"name": "aHub", "sku": "ACCY-AHUBV1-US", "model": "aHub-20-04", "compatiable": "4|5"},
+    254: {"name": "Meter Adapter Controller", "sku": "MAC-R1V1-US", "compatiable": "4|5"},
+}
+
+
+# Time-of-Use Dispatch Codes
+class dispatchCodeType(Enum):
+    """Dispatch Codes for TOU scheduling"""
+    HOME = 2
+    HOME_LOADS = 2
+    STANDBY = 3
+    SELF = 6
+    SELF_CONSUMPTION = 6
+    SOLAR = 1
+    SOLAR_CHARGE = 1
+    GRID_CHARGE = 8
+    GRID_IMPORT = 8
+    FORCE_CHARGE = 8
+    GRID_EXPORT = 7
+    GRID_DISCHARGE = 7
+    FORCE_DISCHARGE = 7
+    CUSTOM = 0
+    PREDEFINED = 0
+
+
+valid_tou_modes = [ 
+    "HOME", 
+    "HOME_LOADS", 
+    "STANDBY", 
+    "SOLAR", 
+    "SOLAR_CHARGE", 
+    "SELF", 
+    "SELF_CONSUMPTION", 
+    "GRID_EXPORT", 
+    "GRID_DISCHARGE", 
+    "GRID_IMPORT", 
+    "GRID_DISCHARGE",
+    "FORCE_CHARGE", 
+    "FORCE_DISCHARGE", 
+    "CUSTOM",
+    "PREDEFINED",
+    "JSON"
+]
+
+
+DISPATCH_CODES = {
+    "HOME": 1,
+    "HOME_LOADS": 1,
+    "STANDBY": 2,
+    "SOLAR": 3,
+    "SOLAR_CHARGING": 3,
+    "SELF": 6,
+    "SELF_CONSUMPTION": 6,
+    "GRID_EXPORT": 7,
+    "GRID_DISCHARGE": 7,
+    "FORCE_DISCHARGE": 7,
+    "GRID_CHARGE": 8,
+    "GRID_IMPORT": 8,
+    "FORCE_CHARGE": 8,
+    1: "aPower to home (surplus solar to grid)",
+    2: "aPower on standby (surplus solar to grid)",
+    6: "Self-consumption (surplus solar to grid)",
+    3: "aPower charges from solar",
+    7: "aPower to home/grid",
+    8: "aPower charges from solar/grid",
+}
+
+
+class WaveType(Enum):
+    """Setup WaveType Tariff Codes"""
+    OFF_PEAK = 0
+    MID_PEAK = 1
+    ON_PEAK = 2
+    SUPER_OFF_PEAK = 4
+
+
+WAVE_TYPES = {
+    0: "Off-Peak",
+    1: "Mid-Peak",
+    2: "On-Peak",
+    4: "Super Off-Peak",
+    "OFF_PEAK": 0,
+    "MID_PEAK": 1,
+    "ON_PEAK": 2,
+    "SUPER_OFF_PEAK": 4,
+    "Off-Peak": 0,
+    "Mid-Peak": 1,
+    "On-Peak": 2,
+    "Super Off-Peak": 4
+}
+
+
+# Power Control Settings
+PCS_CONTROL = {
+    "ENABLED": 0.1,
+    "DISABLED": 0,
+    "UNLIMITED": -1.0,
+    "disable_grid_export": 0,
+    "unlimted_grid_export": -1.0,
+    "disable_grid_import": 0,
+    "unlimited_grid_import": -1.0,
+    "custom_power_setting": 0.1,
+}
+
+# Emergency Backup Periods
+EMERGENCY_BACKUP_PERIODS = {
+    "one_day": 1440,
+    "two_day": 2880,
+    "three_day": 4320,
+    "indefinite": 1,
+    "custom": 2,
+}
+
+# Device Architecture Info
+DEVICE_ARCHITECTURE = {
+    "aGate X": {
+        "coupling": "AC",
+        "description": "AC-coupled battery with AC solar inputs",
+        "solar_inputs": "2x 63A AC circuits",
+        "battery_coupling": "AC (internal inverter)",
+        "remote_solar": "Supported via aPbox/aHub",
+    },
+    "aPower S": {
+        "coupling": "Hybrid",
+        "description": "DC-coupled with both AC and DC solar inputs",
+        "solar_inputs": "4x MPPT DC + AC inputs",
+        "battery_coupling": "DC",
+    },
+    "aPower 2": {
+        "coupling": "DC",
+        "description": "DC-coupled battery",
+        "solar_inputs": "MPPT DC inputs",
+        "battery_coupling": "DC",
+    }
+}

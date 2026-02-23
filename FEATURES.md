@@ -1,7 +1,41 @@
 # FranklinWH Battery Manager - Feature Documentation
 
-> **Last Updated:** February 2026  
-> **Version:** 1.2.0
+> **Last Updated:** February 22, 2026  
+> **Version:** 1.3.0
+
+## Recent Updates (v1.3.0)
+
+### ✅ Alarm Monitoring System
+- **System Alarms** (Model 701): Ground fault, over temp, grid disconnect
+- **DC Port Alarms** (Model 714): Over voltage, under voltage, contactor faults  
+- **Battery Status** (Model 713): FAULT detection
+- **Solar Events** (Model 502): Input over voltage monitoring
+- **Auto-detection** at startup, runtime, and shutdown
+- **Blocking alarm detection** prevents operation during critical faults
+- **`--clear-alarms`** CLI option to reset alarms (Model 715 AlarmReset)
+
+### ✅ Conflict Detection & Prevention
+- **Cloud API Detection**: Detects when aGate is controlled via FranklinWH Cloud (WSetEna=0 but battery active)
+- **Native Mode Conflicts**: Warns when aGate Self-Consumption/TOU/Emergency modes are active
+- **Target SoC Validation**: Exits if target already reached (prevents unnecessary grid charging)
+- **Graceful Exit**: Prevents fighting with aGate control - suggests `--reset-on-start` or vendor app changes
+
+### ✅ Connection Resilience
+- **Auto-reconnection**: Recovers from "Broken pipe" and connection drops
+- **Retry Logic**: All operations retry with reconnection on failure
+- **Consecutive Failure Limit**: Stops after 5 failures to prevent endless loops
+
+### ✅ Enhanced Self-Consumption Mode
+- **Vendor-Matching Behavior**: Charges at FULL 5000W when below target (like vendor app)
+- **Grid + Solar Charging**: Uses both sources to reach target SoC quickly
+- **Above Target**: Only uses excess solar (no grid import)
+
+### ✅ Improved Telemetry
+- **SOC Summary Line**: `SoC: 36.0% | Target: 40.0% | Min: 20% | Max: 100% | ETA: +6min`
+- **ETA Calculation**: Estimated time to target based on 5kW charge rate
+- **Home Load Estimation**: Fixed feedback loop in power calculations
+
+---
 
 ---
 
@@ -31,6 +65,10 @@ The FranklinWH Battery Manager is a comprehensive web-based management interface
 | MQTT Bridge | ✅ | Home Assistant auto-discovery |
 | Mock Mode | ✅ | Test without hardware |
 | SunSpec2 Support | ✅ | Models 701-706, 713-715 |
+| **Alarm Monitoring** | ✅ NEW | System, DC port, battery, solar alarms |
+| **Conflict Detection** | ✅ NEW | Cloud API & native mode conflict prevention |
+| **Auto-Reconnection** | ✅ NEW | Survives connection drops with retry logic |
+| **SOC Summary** | ✅ NEW | Single-line status with ETA calculation |
 
 ---
 

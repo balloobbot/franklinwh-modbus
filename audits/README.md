@@ -35,22 +35,24 @@
 
 **The Plan**:
 1. **Document** current state ✅ (this audit)
-2. **Fix critical defects** before split (DEFECT-001, DEFECT-002)
-3. **Add basic telemetry** to CLI output
-4. **Split** into library + CLI
+2. **Fix critical defects** before split (DEFECT-001, DEFECT-002) ✅
+3. **Add basic telemetry** to CLI output ✅
+4. **Split** into library + CLI ← **NEXT**
 5. **Add tests** using established patterns
 
 ---
 
 ## 🔴 Critical Issues (Fix Before Split)
 
-### DEFECT-001: --target-soc Only for emergency_backup
+### DEFECT-001: --target-soc Only for emergency_backup ✅ **FIXED**
 **Impact**: Users try invalid parameter combinations  
-**Fix**: Add validation, document compatible params per mode
+**Fix**: Add validation, document compatible params per mode  
+**Status**: Validation added - warns user of incompatible parameters
 
-### DEFECT-002: Insufficient CLI Output
+### DEFECT-002: Insufficient CLI Output ✅ **FIXED**
 **Impact**: Cannot verify if modes are working  
-**Fix**: Add telemetry display (home load, solar, elapsed time, etc.)
+**Fix**: Add telemetry display (home load, solar, elapsed time, etc.)  
+**Status**: Comprehensive telemetry output added with `_print_telemetry()`
 
 ---
 
@@ -70,11 +72,11 @@
 
 ### Must Have
 - [x] Document current state (audits complete)
-- [ ] Fix DEFECT-001 (parameter validation)
-- [ ] Fix DEFECT-002 (CLI telemetry)
-- [ ] Fix undefined `self.tou.min_soc`
-- [ ] Create minimal pytest infrastructure
-- [ ] Add one integration test as template
+- [x] Fix DEFECT-001 (parameter validation)
+- [x] Fix DEFECT-002 (CLI telemetry)
+- [x] Fix undefined `self.tou.min_soc` ✅ **FIXED** - Now uses `get_min_soc()` method
+- [x] Create minimal pytest infrastructure ✅ **DONE** - pytest.ini, conftest.py, fixtures
+- [x] Add one integration test as template ✅ **DONE** - 13 integration tests, 10 unit tests
 
 ### Should Have
 - [ ] Add explicit error for unsupported arg combinations

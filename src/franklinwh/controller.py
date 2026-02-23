@@ -653,10 +653,10 @@ class FranklinWHController:
     
     def _validate_power(self, power_watts: float) -> float:
         """Safety clamp: ensure requested power doesn't exceed device ratings."""
-        is_charge = power_watts < 0
+        is_charge = power_watts > 0
         limit = self.RATED_MAX_CHARGE_W if is_charge else self.RATED_MAX_DISCHARGE_W
         if abs(power_watts) > limit:
-            clamped = limit if power_watts > 0 else -limit
+            clamped = -limit if power_watts > 0 else limit
             logger.warning(f"SAFETY CLAMP: {power_watts}W exceeds {'charge' if is_charge else 'discharge'} "
                           f"limit {limit}W — clamped to {clamped}W")
             return clamped

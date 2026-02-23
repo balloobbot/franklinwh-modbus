@@ -153,12 +153,19 @@ except SystemExit:
 **Recommendation**: Consider making primary method, document socket approach
 
 ### Virtual Mode: `_calc_time_of_use()`
-**Location**: ~Line 950+  
-**Status**: USES UNDEFINED ATTRIBUTE  
+**Location**: ~Line 1385+  
+**Status**: ✅ **FIXED** - Now uses `self.tou.get_min_soc()` method
+
+**Original Issue**:
 ```python
-if soc > self.tou.min_soc:  # ERROR: min_soc doesn't exist!
+if soc > self.tou.min_soc:  # ERROR: min_soc attribute didn't exist!
 ```
-**Recommendation**: Define `min_soc` in TOUSchedule or fix logic
+
+**Fix Applied**: Uses method calls `get_min_soc()` and `get_max_soc()` which access rules dict:
+```python
+min_soc = self.tou.get_min_soc()  # Returns rules.get('min_soc', 10)
+max_soc = self.tou.get_max_soc()  # Returns rules.get('max_soc', 95)
+```
 
 ### Virtual Mode: `_calc_peak_shave()`
 **Location**: ~Line 1000+  
