@@ -13,7 +13,7 @@
 | 2 | Implement data fetching (all models) | ✅ **DONE** | 16:15 | 16:35 |
 | 3 | Add live refresh (Live render) | ✅ **DONE** | 16:35 | 22:30 |
 | 4 | Add keyboard input handling | ✅ **DONE** | 22:35 | 22:42 |
-| 5 | Add command interface (prompt mode) | **IN PROGRESS** | 22:42 | - |
+| 5 | Add command interface (prompt mode) | ✅ **DONE** | 22:42 | 23:05 |
 
 ### Phase 2 Enhancement Ideas
 - **Enhanced SoC Bar**: Embedded reserve marker + ETA to target/reserve
