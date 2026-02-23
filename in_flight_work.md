@@ -10,7 +10,8 @@
 | Stage | Description | Status | Started | Completed |
 |-------|-------------|--------|---------|-----------|
 | 1 | Create monitor.py with Rich layout | ✅ **DONE** | 16:05 | 16:15 |
-| 2 | Implement data fetching (all models) | **IN PROGRESS** | 16:15 | - |
+| 2 | Implement data fetching (all models) | ✅ **DONE** | 16:15 | 16:35 |
+| 3 | Add live refresh (Live render) | **IN PROGRESS** | 16:35 | - |
 | 3 | Add live refresh (Live render) | pending | - | - |
 | 4 | Add keyboard input handling | pending | - | - |
 | 5 | Add command interface | pending | - | - |
