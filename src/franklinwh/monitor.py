@@ -191,14 +191,123 @@ class CLIMonitor:
                 pass
             self.controller = None
             
+    def _read_extension_registers(self) -> dict:
+        """Read FranklinWH extension registers for additional data."""
+        if not self.controller or not self.controller.client:
+            return {}
+            
+        try:
+            # Solar breakdown (15502-15505)
+            solar_regs = self.controller.client.read_holding_registers(15502, 4, slave=self.controller.unit_id)
+            # Grid power (15506), Cabinet temp (15516), Ambient temp (15517)
+            extra_regs = self.controller.client.read_holding_registers(15506, 2, slave=self.controller.unit_id)
+            temp_regs = self.controller.client.read_holding_registers(15516, 2, slave=self.controller.unit_id)
+            
+            result = {}
+            if solar_regs and not solar_regs.isError():
+                result['pv_total'] = self._uint16_to_int(solar_regs.registers[0])
+                result['pv_proximal'] = self._uint16_to_int(solar_regs.registers[1])
+                result['pv_remote1'] = self._uint16_to_int(solar_regs.registers[2])
+                result['pv_remote2'] = self._uint16_to_int(solar_regs.registers[3])
+                
+            if extra_regs and not extra_regs.isError():
+                result['grid_import_export'] = self._uint16_to_int(extra_regs.registers[0])
+                result['home_load'] = self._uint16_to_int(extra_regs.registers[1])
+                
+            if temp_regs and not temp_regs.isError():
+                result['cabinet_temp'] = temp_regs.registers[0] / 10.0 if temp_regs.registers[0] != 0xFFFF else 0
+                result['ambient_temp'] = temp_regs.registers[1] / 10.0 if temp_regs.registers[1] != 0xFFFF else 0
+                
+            return result
+        except Exception as e:
+            return {}
+            
+    def _uint16_to_int(self, value: int) -> int:
+        """Convert unsigned 16-bit to signed."""
+        if value >= 32768:
+            return value - 65536
+        return value
+        
     def fetch_data(self) -> bool:
         """Fetch all data from the device."""
         if not self.controller:
             return False
             
         try:
-            # This will be implemented in Stage 2
-            # For now, return True to allow layout testing
+            # Read all status methods
+            battery = self.controller.read_battery_status()
+            grid = self.controller.read_grid_status()
+            solar = self.controller.read_solar_status()
+            nameplate = self.controller.read_nameplate()
+            control = self.controller.read_control_status()
+            native = self.controller.read_native_mode()
+            ext = self._read_extension_registers()
+            
+            # Update Power Flow
+            self.data.power_flow.solar_w = abs(solar.get('solar_ac_power', 0))
+            self.data.power_flow.battery_w = battery.get('dc_power', 0)
+            self.data.power_flow.grid_w = ext.get('grid_import_export', grid.get('grid_power_w', 0))
+            self.data.power_flow.home_w = ext.get('home_load', abs(solar.get('solar_ac_power', 0)) - battery.get('dc_power', 0))
+            
+            # Determine battery state
+            if self.data.power_flow.battery_w < -50:
+                self.data.power_flow.battery_state = "CHARGING"
+            elif self.data.power_flow.battery_w > 50:
+                self.data.power_flow.battery_state = "DISCHARGING"
+            else:
+                self.data.power_flow.battery_state = "IDLE"
+                
+            # Update Battery DC
+            self.data.soc = battery.get('soc', self.data.soc)
+            self.data.soh = battery.get('soh', self.data.soh)
+            self.data.dc_power = abs(battery.get('dc_power', 0))
+            self.data.dc_current = battery.get('dc_current', 0)
+            self.data.battery_temp = battery.get('battery_temp', 0)
+            self.data.available_wh = battery.get('wh_available', 0)
+            self.data.rated_wh = battery.get('wh_rating', 0)
+            self.data.reserve_soc = native.get('self_reserve', 20.0)
+            
+            # Update AC Power
+            self.data.ac_voltage = grid.get('voltage_v', 0)
+            self.data.ac_current = grid.get('current_a', 0)
+            self.data.ac_frequency = grid.get('frequency_hz', 0)
+            self.data.ac_pf = grid.get('power_factor', 0)
+            self.data.ac_va = grid.get('grid_va', 0)
+            self.data.ac_var = grid.get('grid_var', 0)
+            self.data.ac_type = grid.get('ac_type', 'Single-Phase')
+            self.data.grid_connected = grid.get('connection_state') == 'Connected'
+            self.data.grid_mode = grid.get('grid_mode', 'Unknown')
+            
+            # Update Solar (AC-coupled)
+            self.data.solar.total_w = abs(solar.get('solar_ac_power', 0))
+            self.data.solar.proximal_w = ext.get('pv_proximal', solar.get('solar_ac_power', 0))
+            self.data.solar.remote1_w = ext.get('pv_remote1', 0)
+            self.data.solar.remote2_w = ext.get('pv_remote2', 0)
+            
+            # Update Temperatures
+            self.data.cabinet_temp = ext.get('cabinet_temp', 0)
+            self.data.ambient_temp = ext.get('ambient_temp', 0)
+            
+            # Update System Info
+            self.data.serial = nameplate.get('serial', '')
+            self.data.model = nameplate.get('model', 'aGate X')
+            self.data.firmware = nameplate.get('version', '')
+            self.data.operating_mode = native.get('mode_name', 'Self-Consumption')
+            self.data.wset_ena = control.get('wset_ena', 0)
+            self.data.control_source = 'Modbus' if control.get('wset_ena') else 'Cloud API'
+            self.data.extension_writable = False  # Would need write test
+            
+            # Update Lifetime Energy (from accumulators if available)
+            # These would come from M715 or extension registers
+            
+            # Add to history for sparkline
+            self.data.history.append({
+                'timestamp': datetime.now(),
+                'battery_w': self.data.power_flow.battery_w,
+                'solar_w': self.data.power_flow.solar_w,
+                'grid_w': self.data.power_flow.grid_w
+            })
+            
             return True
         except Exception as e:
             return False
