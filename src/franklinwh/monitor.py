@@ -230,6 +230,83 @@ class CLIMonitor:
             return value - 65536
         return value
         
+    def _read_model_714(self) -> dict:
+        """Read Model 714 for battery DC data."""
+        try:
+            m714 = self.controller.get_model(714)
+            if not m714:
+                return {}
+            m714.read()
+            
+            sf_w = self.controller._get_scale_factor(m714, 'DCW_SF')
+            sf_a = self.controller._get_scale_factor(m714, 'DCA_SF')
+            sf_tmp = self.controller._get_scale_factor(m714, 'Tmp_SF')
+            
+            return {
+                'dc_power': m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0,
+                'dc_current': m714.DCA.value * (10 ** sf_a) if hasattr(m714, 'DCA') and m714.DCA.value is not None else 0,
+                'battery_temp': m714.Tmp.value * (10 ** sf_tmp) if hasattr(m714, 'Tmp') and m714.Tmp.value is not None else 0,
+            }
+        except Exception as e:
+            return {}
+            
+    def _read_model_701_extra(self) -> dict:
+        """Read extra fields from Model 701 (current, PF)."""
+        try:
+            m701 = self.controller.get_model(701)
+            if not m701:
+                return {}
+            m701.read()
+            
+            sf_a = self.controller._get_scale_factor(m701, 'A_SF')
+            sf_pf = self.controller._get_scale_factor(m701, 'PF_SF')
+            
+            current = 0
+            if hasattr(m701, 'A') and m701.A.value is not None:
+                current = m701.A.value * (10 ** sf_a)
+            elif hasattr(m701, 'AphA') and m701.AphA.value is not None:
+                current = m701.AphA.value * (10 ** sf_a)
+                
+            pf = 0
+            if hasattr(m701, 'PF') and m701.PF.value is not None:
+                pf = m701.PF.value * (10 ** sf_pf)
+                
+            return {
+                'current_a': current,
+                'power_factor': pf,
+            }
+        except Exception as e:
+            return {}
+            
+    def _read_nameplate_strings(self) -> dict:
+        """Read nameplate and extract string values."""
+        try:
+            m1 = self.controller.get_model(1)
+            if not m1:
+                return {}
+            m1.read()
+            
+            def get_point_str(model, point_name):
+                pt = getattr(model, point_name, None)
+                if pt is None:
+                    return ''
+                if hasattr(pt, 'value'):
+                    val = pt.value
+                    if isinstance(val, bytes):
+                        return val.decode('utf-8', errors='ignore').strip('\x00').strip()
+                    return str(val).strip() if val else ''
+                return str(pt).strip() if pt else ''
+                
+            return {
+                'manufacturer': get_point_str(m1, 'Mn'),
+                'model': get_point_str(m1, 'Md'),
+                'serial': get_point_str(m1, 'SN'),
+                'version': get_point_str(m1, 'Vr'),
+                'options': get_point_str(m1, 'Opt'),
+            }
+        except Exception as e:
+            return {}
+        
     def fetch_data(self) -> bool:
         """Fetch all data from the device."""
         if not self.controller:
@@ -240,26 +317,33 @@ class CLIMonitor:
             battery = self.controller.read_battery_status()
             grid = self.controller.read_grid_status()
             solar = self.controller.read_solar_status()
-            nameplate = self.controller.read_nameplate()
             control = self.controller.read_control_status()
             native = self.controller.read_native_mode()
             ext = self._read_extension_registers()
+            
+            # Read additional model data
+            m714_data = self._read_model_714()
+            m701_extra = self._read_model_701_extra()
+            nameplate = self._read_nameplate_strings()
             
             # Get extension solar data if available
             ext_solar = solar.get('extension', {})
             solar_total = ext_solar.get('total_solar', abs(solar.get('ac_power_w', 0)))
             
+            # Battery DC power (from M714 or fallback)
+            battery_dc = m714_data.get('dc_power', 0)
+            
             # Update Power Flow
             self.data.power_flow.solar_w = solar_total
-            self.data.power_flow.battery_w = battery.get('dc_power', 0)
-            self.data.power_flow.grid_w = ext.get('grid_import_export', grid.get('grid_power_w', 0))
-            # Calculate home load: solar + grid - battery (accounting for direction)
-            self.data.power_flow.home_w = solar_total - self.data.power_flow.battery_w + self.data.power_flow.grid_w
+            self.data.power_flow.battery_w = battery_dc
+            self.data.power_flow.grid_w = grid.get('grid_power_w', 0)
+            # Calculate home load: solar + grid_import - battery_charge
+            self.data.power_flow.home_w = solar_total + self.data.power_flow.grid_w - battery_dc
             
             # Determine battery state
-            if self.data.power_flow.battery_w < -50:
+            if battery_dc < -50:
                 self.data.power_flow.battery_state = "CHARGING"
-            elif self.data.power_flow.battery_w > 50:
+            elif battery_dc > 50:
                 self.data.power_flow.battery_state = "DISCHARGING"
             else:
                 self.data.power_flow.battery_state = "IDLE"
@@ -267,18 +351,18 @@ class CLIMonitor:
             # Update Battery DC
             self.data.soc = battery.get('soc', self.data.soc)
             self.data.soh = battery.get('soh', self.data.soh)
-            self.data.dc_power = battery.get('dc_power', 0)  # Keep signed value
-            self.data.dc_current = battery.get('dc_current', 0)
-            self.data.battery_temp = battery.get('battery_temp', 0)
+            self.data.dc_power = battery_dc
+            self.data.dc_current = m714_data.get('dc_current', 0)
+            self.data.battery_temp = m714_data.get('battery_temp', 0)
             self.data.available_wh = battery.get('wh_available', 0)
             self.data.rated_wh = battery.get('wh_rating', 0)
-            self.data.reserve_soc = native.get('self_reserve', 20.0)
+            self.data.reserve_soc = native.get('self_reserve_pct', 20.0)
             
             # Update AC Power
             self.data.ac_voltage = grid.get('voltage_v', 0)
-            self.data.ac_current = grid.get('current_a', 0)
+            self.data.ac_current = m701_extra.get('current_a', 0)
             self.data.ac_frequency = grid.get('frequency_hz', 0)
-            self.data.ac_pf = grid.get('power_factor', 0)
+            self.data.ac_pf = m701_extra.get('power_factor', 0)
             self.data.ac_va = grid.get('grid_va', 0)
             self.data.ac_var = grid.get('grid_var', 0)
             self.data.ac_type = grid.get('ac_type', 'Single-Phase')
@@ -300,9 +384,9 @@ class CLIMonitor:
             self.data.model = nameplate.get('model', 'aGate X')
             self.data.firmware = nameplate.get('version', '')
             self.data.operating_mode = native.get('mode_name', 'Self-Consumption')
-            self.data.wset_ena = control.get('wset_ena', 0)
-            self.data.control_source = 'Modbus' if control.get('wset_ena') else 'Cloud API'
-            self.data.extension_writable = False  # Would need write test
+            self.data.wset_ena = control.get('wset_enabled', 0)
+            self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'Cloud API'
+            self.data.extension_writable = False
             
             # Update Lifetime Energy (from accumulators if available)
             # These would come from M715 or extension registers
