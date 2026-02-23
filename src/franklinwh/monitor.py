@@ -937,7 +937,7 @@ class CLIMonitor:
         
         # Normal mode - command shortcuts
         # Track keystroke for feedback (only printable keys)
-        if key.isprint():
+        if key.isprintable() and len(key) == 1:
             self.last_key = key
             self.last_key_time = time.time()
         
