@@ -1,4 +1,44 @@
-# In-Flight Work — Updated 2026-02-23 13:35
+# In-Flight Work — Updated 2026-02-23 14:30
+
+## Status: COMPLETED — Library Architecture Implementation
+
+### Architecture Cleanup — 2026-02-23 14:30
+
+**User Vision Implemented**: Single-file library + CLI separation  
+**Status**: ✅ Complete
+
+**New File Structure:**
+```
+franklinwh_modbus_library.py      ← NEW: Single-file library (14,871 lines)
+franklinwh_cli.py                  ← CLI (uses library via src/franklinwh/)
+franklinwh_control_standalone.py   ← DEPRECATED (frozen, deprecation warning added)
+```
+
+**Files Created:**
+- `franklinwh_modbus_library.py` — Fork of standalone, library-only (no CLI)
+  - Contains: FranklinWHController, VirtualModeController, TOUSchedule
+  - Exports: BatteryCommand, HealthStatus, ControlMode, VirtualMode
+  - Clean API for import and use
+
+**Files Modified:**
+- `franklinwh_control_standalone.py` — Added deprecation warning
+  - Docstring updated with deprecation notice
+  - Runtime warning prints on every execution
+  - Directs users to franklinwh_cli.py or franklinwh_modbus_library.py
+
+**Usage:**
+```python
+# Library import
+from franklinwh_modbus_library import FranklinWHController, VirtualModeController
+
+ctrl = FranklinWHController('192.168.0.110')
+ctrl.connect()
+
+# CLI usage (recommended)
+python franklinwh_cli.py -i 192.168.0.110 --charge 3000
+```
+
+---
 
 ## Status: COMPLETED — Sign Convention Fix + Explicit Action Flags
 

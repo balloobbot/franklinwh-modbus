@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
-FranklinWH aGate Battery Control Script
+⚠️  DEPRECATED: This script is deprecated and will be removed in a future version.
+    
+    Please use the new CLI instead:
+        python franklinwh_cli.py -i <ip> --charge 3000
+    
+    Or use the library directly:
+        from franklinwh_modbus_library import FranklinWHController
+
+FranklinWH aGate Battery Control Script (DEPRECATED)
 Uses sunspec2 library with model-based addressing
 
 Includes:
@@ -3063,6 +3071,17 @@ def validate_mode_params(args) -> Tuple[bool, List[str]]:
 
 def main():
     """Main entry point."""
+    # Deprecation warning
+    print("\n" + "="*70, file=sys.stderr)
+    print("⚠️  DEPRECATION WARNING", file=sys.stderr)
+    print("="*70, file=sys.stderr)
+    print("This script (franklinwh_control_standalone.py) is deprecated.", file=sys.stderr)
+    print("\nPlease migrate to the new CLI:", file=sys.stderr)
+    print("  python franklinwh_cli.py -i <ip> --charge 3000", file=sys.stderr)
+    print("\nOr use the library directly:", file=sys.stderr)
+    print("  from franklinwh_modbus_library import FranklinWHController", file=sys.stderr)
+    print("="*70 + "\n", file=sys.stderr)
+    
     parser = create_parser()
     args = parser.parse_args()
     
