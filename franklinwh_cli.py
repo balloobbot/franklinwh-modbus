@@ -673,10 +673,21 @@ def main():
         
         # Direct power control (no mode)
         if args.power is not None:
-            cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
-            success, msg = ctrl.send_command(cmd, dry_run=args.dry_run)
-            print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
-            sys.exit(0 if success else 1)
+            # If duration specified, run continuous control
+            if args.duration:
+                from franklinwh import VirtualModeController, VirtualMode
+                vmc = VirtualModeController(ctrl)
+                vmc.set_mode(VirtualMode.MANUAL, manual_power_w=args.power)
+                print(f"Running manual mode: {args.power}W for {args.duration}s")
+                print("Press Ctrl+C to stop")
+                vmc.run_continuous(duration_seconds=args.duration)
+                sys.exit(0)
+            else:
+                # One-shot command
+                cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
+                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run)
+                print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
+                sys.exit(0 if success else 1)
         
         # No action specified
         parser.print_help()
