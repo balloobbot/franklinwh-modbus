@@ -215,6 +215,8 @@ class CLIMonitor:
         self.input_handler = KeyboardInput()
         self.command_prompt = ""  # Current command being entered
         self.show_prompt = False  # Whether to show command input
+        self.prompt_buffer = ""   # Buffer for numeric input
+        self.prompt_mode = None   # 'charge' or 'discharge'
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -697,26 +699,34 @@ class CLIMonitor:
         return Panel(content, title="[bold]Alarms & Status[/bold]", border_style="red" if self.data.active_alarms else "green", box=box.ROUNDED)
         
     def render_footer(self) -> Panel:
-        """Render footer with keyboard shortcuts."""
-        shortcuts = [
-            ("[c]", "charge"),
-            ("[d]", "discharge"),
-            ("[s]", "standby"),
-            ("[+]", "+100W"),
-            ("[-]", "-100W"),
-            ("[m]", "max charge"),
-            ("[M]", "max discharge"),
-            ("[r]", "reset"),
-            ("[R]", "toggle refresh"),
-            ("[q]", "quit")
-        ]
-        
-        content = Text()
-        for key, action in shortcuts:
-            content.append(f"{key}", style="bold cyan")
-            content.append(f"={action} ", style="dim")
+        """Render footer with keyboard shortcuts or prompt."""
+        if self.show_prompt and self.prompt_mode:
+            # Show input prompt
+            prompt_text = f"{self.prompt_mode.capitalize()} watts: {self.prompt_buffer}_"
+            content = Text(prompt_text, style="bold yellow")
+            content.append(" [Enter=send Esc=cancel]", style="dim")
+            return Panel(content, box=box.SIMPLE, padding=(0, 1), border_style="yellow")
+        else:
+            # Show normal shortcuts
+            shortcuts = [
+                ("[c]", "charge"),
+                ("[d]", "discharge"),
+                ("[s]", "standby"),
+                ("[+]", "+100W"),
+                ("[-]", "-100W"),
+                ("[m]", "max charge"),
+                ("[M]", "max discharge"),
+                ("[r]", "reset"),
+                ("[R]", "toggle refresh"),
+                ("[q]", "quit")
+            ]
             
-        return Panel(content, box=box.SIMPLE, padding=(0, 1))
+            content = Text()
+            for key, action in shortcuts:
+                content.append(f"{key}", style="bold cyan")
+                content.append(f"={action} ", style="dim")
+                
+            return Panel(content, box=box.SIMPLE, padding=(0, 1))
         
     def update_display(self) -> Layout:
         """Update all panels and return the layout."""
@@ -763,6 +773,11 @@ class CLIMonitor:
             
     def _handle_key(self, key: str) -> bool:
         """Handle a single keypress. Returns False if should quit."""
+        # Handle prompt mode (accumulating input)
+        if self.show_prompt:
+            return self._handle_prompt_key(key)
+        
+        # Normal mode - command shortcuts
         # Number keys 1-9 set refresh rate
         if key in '123456789':
             self.config.refresh_rate = int(key)
@@ -808,16 +823,55 @@ class CLIMonitor:
             self._adjust_power(-100)
             return True
             
-        # Charge mode - enter interactive mode
+        # Charge mode - enter prompt mode
         if key == 'c':
             self.show_prompt = True
-            self.command_prompt = "Charge watts: "
+            self.prompt_mode = 'charge'
+            self.prompt_buffer = ""
             return True
             
-        # Discharge mode - enter interactive mode
+        # Discharge mode - enter prompt mode
         if key == 'd':
             self.show_prompt = True
-            self.command_prompt = "Discharge watts: "
+            self.prompt_mode = 'discharge'
+            self.prompt_buffer = ""
+            return True
+            
+        return True
+        
+    def _handle_prompt_key(self, key: str) -> bool:
+        """Handle key when in prompt mode."""
+        # Enter - submit command
+        if key in '\r\n':
+            try:
+                watts = int(self.prompt_buffer) if self.prompt_buffer else 0
+                if self.prompt_mode == 'charge':
+                    self._send_command(abs(watts))  # Positive = charge
+                elif self.prompt_mode == 'discharge':
+                    self._send_command(-abs(watts))  # Negative = discharge
+            except ValueError:
+                pass  # Invalid input, ignore
+            # Exit prompt mode
+            self.show_prompt = False
+            self.prompt_buffer = ""
+            self.prompt_mode = None
+            return True
+            
+        # Escape or Ctrl+C - cancel prompt
+        if key in '\x1b\x03':  # Escape or Ctrl+C
+            self.show_prompt = False
+            self.prompt_buffer = ""
+            self.prompt_mode = None
+            return True
+            
+        # Backspace
+        if key in '\x7f\b':  # DEL or Backspace
+            self.prompt_buffer = self.prompt_buffer[:-1]
+            return True
+            
+        # Digits
+        if key.isdigit():
+            self.prompt_buffer += key
             return True
             
         return True
