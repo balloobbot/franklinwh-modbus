@@ -73,11 +73,37 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
   - Shows aGate serial instead of IP when available
   - IP shown as fallback if serial not read yet
 
+- [x] **Keystroke Feedback** ✅ FIXED
+  - Shows "[Key: c]" in header for 0.5s when key pressed
+  - Visual confirmation that input was received
+
+- [x] **Help Panel** ✅ FIXED
+  - Press 'h' to toggle help overlay
+  - Shows all keyboard shortcuts
+
 - [ ] **Three-Phase AC Display** (Future)
   - Currently shows Single-Phase (LNV, A, etc.)
   - For Split/Three-Phase: Should expand to show L1/L2/L3
   - Per-phase voltage, current, power readings
   - See M701 PhVphA, PhVphB, PhVphC, AphA, AphB, AphC
+
+- [ ] **Heartbeat/Command Status Indicator**
+  - Show communication status when sending commands
+  - States: Idle | Sending... | Ack | Nack | Fault
+  - Visual indicator (dot color or spinner)
+  - Ensure no performance impact
+
+- [ ] **Battery Capacity Bar Chart**
+  - Similar to SoC bar but showing max capacity
+  - Visual: Max capacity bar with available embedded
+  - Show percentage available
+  - Layout: [████████████░░░░░░░░] 67% available
+
+- [ ] **Inverter Power Utilization Bar**
+  - Next to Power Flow Summary Battery row
+  - Shows % of max inverter power being used
+  - Scale: 0-100% with current indicator
+  - Helps visualize headroom
 
 - [ ] **Enhanced SoC Bar Chart**
   - Current SOC bar with embedded reserve indicator
