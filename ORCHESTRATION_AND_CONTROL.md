@@ -88,3 +88,28 @@ graph TD
     I --> J[FranklinWHController];
     J --> K(Execute Hardware Sequence);
 ```
+
+---
+
+## 4. Operational Entry Points & Orchestration Mapping
+
+The following table maps user-facing actions to their underlying orchestration and hardware sequences.
+
+| User Action | Entry Point | Controller Call | Hardware Sequence (Model 704) |
+| :--- | :--- | :--- | :--- |
+| **CLI/TUI Charge** (`--charge W` or 'c') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=-W (Charge) <br> 4. 317=1 (Enable) |
+| **CLI/TUI Discharge** (`--discharge W` or 'd') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=+W (Discharge) <br> 4. 317=1 (Enable) |
+| **CLI/TUI Standby** (`--standby` or 's') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(0)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=0 (Standby) <br> 4. 317=1 (Enable) |
+| **CLI/TUI Stop / Release** (`--stop` or 'r') | `franklinwh_cli.py` / `monitor.py` | `ctrl.reset_control_state()` | 1. 317=0 (Disable Control) <br> 2. 318=0 (Set Normal) <br> 3. 319=0 (Zero Power) |
+| **Function Call** (Python API) | `controller.py` | `send_command(W)` | Direct register writes to 704 via sequence |
+| **Virtual Mode** (`--mode X`) | `modes.py` -> `set_mode` | `ctrl.send_command(...)` | Repeated updates based on SoC/Target logic |
+
+---
+## 5. Register Reference (Model 704)
+
+| Register | PDU Address | Name | Type | Unit | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 40318 | 317 | `WSetEna` | uint16 | Enum | 1=Local Control Enabled, 0=Disabled |
+| 40319 | 318 | `WSetMod` | uint16 | Enum | 0=Normal/VPP Mode |
+| 40320 | 319 | `WSetPct` | int16 | %/W | Power (+Discharge, -Charge) |
+| 40327 | 326 | `WSetRvrtTms` | uint32 | sec | Reversion Timeout (0 to disable) |
