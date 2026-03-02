@@ -348,10 +348,20 @@ class FranklinWHController:
         return model
     
     def _get_scale_factor(self, model, sf_name: str) -> int:
-        """Get scale factor value, default to 0."""
+        """Get scale factor value, default to 0.
+
+        SunSpec scale factors are always in range [-10, 10].
+        Values outside this range (e.g. -32768 / 0x8000) indicate
+        corrupt register data and are clamped to 0 to prevent
+        OverflowError in 10**sf arithmetic.
+        """
         sf_point = getattr(model, sf_name, None)
         if sf_point and hasattr(sf_point, 'value'):
-            return sf_point.value
+            val = sf_point.value
+            if val is not None and -10 <= val <= 10:
+                return val
+            if val is not None:
+                logger.warning(f"Corrupt scale factor {sf_name}={val}, using 0")
         return 0
     
     def read_battery_status(self) -> dict:
@@ -617,6 +627,200 @@ class FranklinWHController:
         except Exception as e:
             logger.debug(f"Native mode read failed: {e}")
         return {}
+    
+    # =========================================================================
+    # RESERVE SOC VALIDATION (GAP-1, GAP-2 SAFETY FEATURES)
+    # =========================================================================
+    
+    SAFETY_MARGIN_PCT = 5  # Minimum 5% buffer above reserve level
+    ABSOLUTE_MIN_SOC = 5   # Absolute minimum SoC for any operation
+    ABSOLUTE_MAX_SOC = 99  # Absolute maximum SoC for any operation
+    
+    def get_effective_reserve_level(self) -> Tuple[Optional[int], str]:
+        """Get the effective reserve level based on current aGate mode.
+        
+        Returns:
+            Tuple of (reserve_pct, source) where source describes which
+            reserve setting is active ('self', 'tou', 'none', 'unknown').
+        """
+        native = self.read_native_mode()
+        if not native:
+            return None, 'unknown'
+        
+        mode_raw = native.get('mode_raw', -1)
+        
+        # Mode mapping: 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual
+        if mode_raw == 2:  # Self-Consumption
+            reserve = native.get('self_reserve_pct', 20)
+            return reserve, 'self'
+        elif mode_raw == 1:  # Time of Use
+            reserve = native.get('tou_reserve_pct', 20)
+            return reserve, 'tou'
+        elif mode_raw == 0:  # Emergency Backup
+            # Emergency backup typically uses self_reserve
+            reserve = native.get('self_reserve_pct', 20)
+            return reserve, 'self'
+        elif mode_raw == 3:  # Manual
+            # Manual mode may not enforce reserve, but we still check
+            return None, 'none'
+        else:
+            return None, 'unknown'
+    
+    def validate_target_soc(
+        self,
+        target_soc: float,
+        operation: str  # 'charge' or 'discharge'
+    ) -> Tuple[bool, str, dict]:
+        """Validate target SoC against reserve levels and safety margins.
+        
+        Implements GAP-1 (reserve conflict detection) and GAP-2 (safety margin).
+        
+        Args:
+            target_soc: Target SoC percentage (0-100)
+            operation: 'charge' or 'discharge'
+            
+        Returns:
+            Tuple of (is_valid, message, details) where details contains:
+            - target_soc: The requested target
+            - effective_reserve: Current reserve level (if applicable)
+            - min_allowed: Minimum allowed SoC for this operation
+            - max_allowed: Maximum allowed SoC for this operation
+            - safety_margin: Applied safety margin
+        """
+        details = {
+            'target_soc': target_soc,
+            'operation': operation,
+            'effective_reserve': None,
+            'reserve_source': 'unknown',
+            'min_allowed': self.ABSOLUTE_MIN_SOC,
+            'max_allowed': self.ABSOLUTE_MAX_SOC,
+            'safety_margin': self.SAFETY_MARGIN_PCT,
+        }
+        
+        # Basic range check
+        if not (self.ABSOLUTE_MIN_SOC <= target_soc <= self.ABSOLUTE_MAX_SOC):
+            return (
+                False,
+                f"E001: Target SoC {target_soc:.1f}% outside absolute safe range "
+                f"({self.ABSOLUTE_MIN_SOC}-{self.ABSOLUTE_MAX_SOC}%)",
+                details
+            )
+        
+        # Get effective reserve level
+        reserve, source = self.get_effective_reserve_level()
+        details['effective_reserve'] = reserve
+        details['reserve_source'] = source
+        
+        if reserve is not None:
+            # GAP-2: Apply safety margin above reserve
+            min_with_margin = reserve + self.SAFETY_MARGIN_PCT
+            details['min_allowed'] = max(min_with_margin, self.ABSOLUTE_MIN_SOC)
+            
+            # GAP-1: Check for reserve conflicts
+            if operation == 'discharge':
+                # Discharging: target must not go below reserve + margin
+                if target_soc < min_with_margin:
+                    return (
+                        False,
+                        f"E002: Target SoC {target_soc:.1f}% conflicts with reserve "
+                        f"({reserve}% from {source}) + safety margin ({self.SAFETY_MARGIN_PCT}%). "
+                        f"Minimum allowed: {min_with_margin:.1f}%",
+                        details
+                    )
+            elif operation == 'charge':
+                # Charging: target should not be below reserve (warn, don't block)
+                if target_soc < reserve:
+                    details['warning'] = (
+                        f"W001: Target SoC {target_soc:.1f}% below configured reserve "
+                        f"({reserve}% from {source}). Battery may not charge as expected."
+                    )
+        
+        # Operation-specific validation
+        if operation == 'discharge':
+            # For discharge, target must be below current SoC (checked elsewhere)
+            pass
+        elif operation == 'charge':
+            # For charge, target must be above current SoC (checked elsewhere)
+            pass
+        
+        return True, "Target SoC validated successfully", details
+    
+    def validate_soc_safety(
+        self,
+        target_soc: float,
+        current_soc: float,
+        operation: str
+    ) -> Tuple[bool, str, dict]:
+        """Comprehensive SoC safety validation before operation.
+        
+        Combines reserve validation with current SoC sanity checks.
+        
+        Args:
+            target_soc: Target SoC to reach
+            current_soc: Current battery SoC
+            operation: 'charge' or 'discharge'
+            
+        Returns:
+            Tuple of (is_safe, message, details)
+        """
+        # First, validate target against reserves
+        is_valid, msg, details = self.validate_target_soc(target_soc, operation)
+        
+        if not is_valid:
+            return is_valid, msg, details
+        
+        # Add current SoC to details
+        details['current_soc'] = current_soc
+        
+        # Validate target vs current based on operation
+        if operation == 'discharge':
+            # Target must be below current for discharge
+            if target_soc >= current_soc:
+                return (
+                    False,
+                    f"E003: Discharge target {target_soc:.1f}% must be below "
+                    f"current SoC {current_soc:.1f}%",
+                    details
+                )
+            # Check if we're already at or below target
+            if current_soc <= target_soc + 1.0:  # 1% tolerance
+                return (
+                    False,
+                    f"E004: Already at or below target SoC (current: {current_soc:.1f}%, "
+                    f"target: {target_soc:.1f}%)",
+                    details
+                )
+                
+        elif operation == 'charge':
+            # Target must be above current for charge
+            if target_soc <= current_soc:
+                return (
+                    False,
+                    f"E005: Charge target {target_soc:.1f}% must be above "
+                    f"current SoC {current_soc:.1f}%",
+                    details
+                )
+            # Check if we're already at or above target
+            if current_soc >= target_soc - 1.0:  # 1% tolerance
+                return (
+                    False,
+                    f"E006: Already at or above target SoC (current: {current_soc:.1f}%, "
+                    f"target: {target_soc:.1f}%)",
+                    details
+                )
+        
+        # Check reserve boundary proximity (warning only for discharge)
+        reserve, source = self.get_effective_reserve_level()
+        if reserve is not None and operation == 'discharge':
+            reserve_distance = current_soc - reserve
+            if reserve_distance <= self.SAFETY_MARGIN_PCT + 2:
+                details['proximity_warning'] = (
+                    f"W002: Current SoC {current_soc:.1f}% is only {reserve_distance:.1f}% "
+                    f"above reserve ({reserve}% from {source}). "
+                    f"Discharge will stop with minimal margin."
+                )
+        
+        return True, "SoC safety validation passed", details
     
     # Default fallback ratings
     RATED_MAX_W = 5000
@@ -893,11 +1097,22 @@ class FranklinWHController:
             else:
                 result['battery_activity'] = 'IDLE (no control)'
             
-            # Native mode
+            # Native mode and reserve levels
             native = self.read_native_mode()
             if native:
                 result['ongrid_mode'] = native.get('mode_name', 'Unknown')
                 result['ongrid_mode_raw'] = native.get('mode_raw', -1)
+                result['self_reserve_pct'] = native.get('self_reserve_pct', 20)
+                result['tou_reserve_pct'] = native.get('tou_reserve_pct', 20)
+                
+                # Add effective reserve info
+                reserve, source = self.get_effective_reserve_level()
+                if reserve is not None:
+                    result['effective_reserve'] = {
+                        'level': reserve,
+                        'source': source,
+                        'min_operational': reserve + self.SAFETY_MARGIN_PCT,
+                    }
             
             # Check alarms
             can_operate, blocking = self.check_blocking_alarms()
@@ -927,17 +1142,73 @@ class FranklinWHController:
             is_active_charging = battery_dc_power < -500 or actual_power < -100
             is_active_discharging = battery_dc_power > 500 or actual_power > 100
             
+            # =========================================================================
+            # BAND-AID FIX: Context-aware conflict detection (Phase 3 pre-work)
+            # Reduces false positives by considering solar/load/grid context
+            # Full intent-based detection (Option 2) will replace this in Phase 3
+            # =========================================================================
+            
+            # Read energy context for smarter conflict detection
+            ext = self._read_extension_solar()
+            solar_power = ext.get('total_solar', 0) if ext else 0
+            home_load = ext.get('home_load_ext', 0) if ext else 0
+            grid_power = result.get('grid_power', 0)
+            
+            # Add energy context to result for display
+            result['energy_context'] = {
+                'solar_w': solar_power,
+                'home_load_w': home_load,
+                'battery_dc_w': battery_dc_power,
+                'grid_w': grid_power,
+            }
+            
             if wset_ena == 1 or is_active_charging or is_active_discharging:
                 if native_mode == 'Self-Consumption':
                     if is_active_charging:
-                        result['conflicts'].append(
-                            f"aGate Self-Consumption actively CHARGING at {abs(battery_dc_power or actual_power):.0f}W "
-                            f"(reserve set to {result.get('self_reserve_pct', 'unknown')}%, current SoC {result['soc']:.1f}%)"
-                        )
+                        # Charging: Check if importing from grid (conflict) or excess solar (natural)
+                        is_importing = grid_power > 500
+                        is_night = solar_power < 100
+                        
+                        if is_importing and is_night:
+                            # DEFINITE CONFLICT: Importing grid power at night to charge
+                            result['conflicts'].append(
+                                f"aGate importing {grid_power:.0f}W from grid to charge battery at night "
+                                f"({abs(battery_dc_power or actual_power):.0f}W charge, SoC {result['soc']:.1f}%)"
+                            )
+                        elif is_importing:
+                            # CONFLICT: Importing from grid when we might want to discharge
+                            result['conflicts'].append(
+                                f"aGate importing {grid_power:.0f}W to charge battery "
+                                f"({abs(battery_dc_power or actual_power):.0f}W charge, solar {solar_power}W, load {home_load}W)"
+                            )
+                        else:
+                            # Natural: Charging from excess solar - still report as info
+                            result['conflicts'].append(
+                                f"INFO: aGate charging {abs(battery_dc_power or actual_power):.0f}W from excess solar "
+                                f"(solar {solar_power}W > load {home_load}W) - This is NORMAL Self-Consumption behavior"
+                            )
+                            
                     elif is_active_discharging:
-                        result['conflicts'].append(
-                            f"aGate Self-Consumption actively DISCHARGING at {battery_dc_power or actual_power:.0f}W"
-                        )
+                        # Discharging: Check if serving load (natural) or wasting energy (conflict)
+                        if solar_power > home_load + 500:
+                            # CONFLICT: Discharging despite excess solar (should be charging)
+                            result['conflicts'].append(
+                                f"aGate discharging {battery_dc_power or actual_power:.0f}W despite excess solar "
+                                f"(solar {solar_power}W > load {home_load}W)"
+                            )
+                        elif home_load > solar_power + 500:
+                            # Natural: Serving excess load - report as info, not conflict
+                            result['conflicts'].append(
+                                f"INFO: aGate discharging {battery_dc_power or actual_power:.0f}W to serve home load "
+                                f"(load {home_load}W > solar {solar_power}W) - This is NORMAL Self-Consumption behavior"
+                            )
+                        else:
+                            # Ambiguous: Balanced conditions - mild warning
+                            result['conflicts'].append(
+                                f"aGate Self-Consumption discharging {battery_dc_power or actual_power:.0f}W "
+                                f"(solar {solar_power}W, load {home_load}W)"
+                            )
+                            
                 elif native_mode == 'Emergency Backup' and is_active_charging:
                     result['conflicts'].append(
                         f"aGate Emergency Backup actively charging at {abs(battery_dc_power or actual_power):.0f}W"
@@ -1019,11 +1290,29 @@ class FranklinWHController:
         checks['grid_mode'] = grid.get('grid_mode', 'Unknown')
         checks['inverter_state'] = grid.get('inverter_state', 'Unknown')
         
-        # 6. Native mode
+        # 6. Native mode and reserve levels
         native = self.read_native_mode()
         if native:
             checks['ongrid_mode'] = native.get('mode_raw', -1)
             checks['ongrid_mode_name'] = native.get('mode_name', 'Unknown')
+            checks['self_reserve_pct'] = native.get('self_reserve_pct', 20)
+            checks['tou_reserve_pct'] = native.get('tou_reserve_pct', 20)
+            
+            # Add effective reserve with safety margin info
+            reserve, source = self.get_effective_reserve_level()
+            if reserve is not None:
+                checks['effective_reserve'] = reserve
+                checks['reserve_source'] = source
+                checks['min_operational_soc'] = reserve + self.SAFETY_MARGIN_PCT
+                
+                # Warn if current SoC is close to reserve
+                soc = checks.get('soc', 0)
+                reserve_distance = soc - reserve
+                if reserve_distance <= self.SAFETY_MARGIN_PCT:
+                    recommendations.append(
+                        f"⚠️  RESERVE WARNING: Current SoC {soc}% is only {reserve_distance:.1f}% "
+                        f"above {source} reserve ({reserve}%). Discharge operations limited."
+                    )
         
         # 7. Nameplate info (Model 1)
         nameplate = self.read_nameplate()
