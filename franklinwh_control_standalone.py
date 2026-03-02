@@ -429,9 +429,25 @@ class FranklinWHController:
     def disconnect(self):
         """Close connection."""
         if self.dev:
-            self.dev.close()
+            try:
+                self.dev.close()
+            except Exception:
+                pass
             self.dev = None
             logger.info("Disconnected")
+
+    def reconnect(self) -> bool:
+        """Reconnect after socket failure.
+
+        Cleanly tears down the existing connection and re-establishes it.
+        Clients control when/how often to call this (backoff is their concern).
+
+        Returns:
+            True if reconnection succeeded.
+        """
+        logger.info(f"Reconnecting to {self.ip_address}:{self.port}...")
+        self.disconnect()
+        return self.connect()
     
     def get_model(self, model_id: int):
         """Get model instance, handling list wrapper."""
@@ -672,10 +688,20 @@ class FranklinWHController:
         }
     
     def _get_scale_factor(self, model, sf_name: str) -> int:
-        """Get scale factor value, default to 0."""
+        """Get scale factor value, default to 0.
+
+        SunSpec scale factors are always in range [-10, 10].
+        Values outside this range (e.g. -32768 / 0x8000) indicate
+        corrupt register data and are clamped to 0 to prevent
+        OverflowError in 10**sf arithmetic.
+        """
         sf_point = getattr(model, sf_name, None)
         if sf_point and hasattr(sf_point, 'value'):
-            return sf_point.value
+            val = sf_point.value
+            if val is not None and -10 <= val <= 10:
+                return val
+            if val is not None:
+                logger.warning(f"Corrupt scale factor {sf_name}={val}, using 0")
         return 0
     
     def healthcheck(self) -> HealthStatus:
