@@ -3,6 +3,7 @@
 **Last Updated:** 2026-03-07  
 **Current Phase:** Phase 2 — Core Library Stabilization  
 **Branch:** `fix/modbus-stability`
+**Strategic Priority:** Library-first for PyPi — web app on indefinite hold
 
 ---
 
@@ -27,10 +28,16 @@
 
 ## Next Priorities
 
-1. Verify CLI/TUI/web server startup on macOS (non-hardware checks)
-2. Merge `fix/modbus-stability` → `develop`
+1. **Library extraction & cleanup** — separate `src/franklinwh/` from web app code in `src/`
+2. Optimize Modbus TCP reads/writes (direct pymodbus where SunSpec API adds overhead)
 3. Virtual Mode hardware testing (requires aGate network access)
-4. Phase 3: Intent-based conflict detection
+4. PyPi packaging (`setup.py`, versioning, CI/CD)
+5. Phase 3: Intent-based conflict detection
+
+## On Hold
+
+- **Web app** (`src/main.py`, `src/web_server.py`, 77 endpoints) — indefinite hold
+- **TUI Monitor** — parked until library stable
 
 ## Blockers
 
