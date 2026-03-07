@@ -1,7 +1,7 @@
-# AI Agent Development Guide — FranklinWH Modbus Battery Manager
+# AI Agent Development Guide — franklinwh-modbus
 
 > **Project**: `/Users/davidhona/dev/modbus/`
-> **Port**: 8080 (FastAPI)
+> **Package**: `franklinwh-modbus` v0.9.0 (import as `from franklinwh import ...`)
 > **Created**: 2026-02-18
 
 > **🛡️ See**: [SAFETY_CONTROLS.md](./docs/SAFETY_CONTROLS.md) for all safety rules (10 rules)  
@@ -9,6 +9,15 @@
 > **🧪 MANDATORY**: See [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md) for REQUIRED hardware testing process
 
 > **🔒 CRITICAL**: ALL agents MUST follow the approved plan in order (Rule #8), maintain `in_flight_work.md`, pass zero-error gates, persist test evidence, and **USE THE HARDWARE TEST TOOL for any battery control modifications**.
+
+---
+
+## ⚠️ Package Naming
+
+- **Distribution name:** `franklinwh-modbus` (`pip install franklinwh-modbus`)
+- **Python import:** `from franklinwh import ...` (import name stays `franklinwh`)
+- **NOT** `franklinwh` — that name is taken by the Cloud API package
+- Always refer to this library as `franklinwh-modbus` in docs and conversations
 
 ---
 
@@ -32,64 +41,26 @@ python franklinwh_cli.py -i 192.168.0.110 --status
 python franklinwh_cli.py -i 192.168.0.110 --healthcheck
 
 # STEP 2: Run read-only tests (always safe)
-python run_hardware_tests.py --read-only
+PYTHONPATH=src:. python -m pytest tests/ --tb=short
 
-# STEP 3: Get user approval for write tests
+# STEP 3: Run proof-of-life smoke test
+python3 tests/test_smoke_proof_of_life.py
+
+# STEP 4: Get user approval for write tests
 # DO NOT proceed without explicit "go" from user
 
-# STEP 4: Run low-power write tests (if approved)
-python run_hardware_tests.py --low-power
+# STEP 5: Run low-power write tests (if approved)
+python franklinwh_cli.py -i 192.168.0.110 --mode manual --power 500
 
-# STEP 5: MANDATORY - Release control
+# STEP 6: MANDATORY - Release control
 python franklinwh_cli.py -i 192.168.0.110 --stop
 
-# STEP 6: MANDATORY - Verify release
+# STEP 7: MANDATORY - Verify release
 python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
 python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
 
-# STEP 7: Record results in in_flight_work.md
-ls -lt data/test_results_*.json | head -1
+# STEP 8: Record results in in_flight_work.md
 ```
-
-### Test Results Recording
-
-**EVERY test run MUST be recorded in `in_flight_work.md`:**
-
-```markdown
-## Test Results - YYYY-MM-DD HH:MM
-
-| Test | Status | Results File |
-|------|--------|--------------|
-| Read-Only | ✅ Passed | data/test_results_YYYYMMDD_HHMMSS.json |
-| Charge 500W | ✅ Passed | Same file |
-| Release | ✅ Verified | WSetEna=0, zombie_state=OK |
-
-**Pre-Test State:**
-- SoC: 70%
-- Control: Cloud API
-
-**Post-Test State:**
-- SoC: 70.1%
-- Control: Cloud API (released)
-- Zombie State: OK
-```
-
-### What Constitutes "Testing"
-
-**NOT ACCEPTABLE:**
-- ❌ "Code looks correct"
-- ❌ "Should work based on logic"
-- ❌ "Matches documentation"
-- ❌ Unit tests only (without hardware validation)
-- ❌ "Ran script, no errors"
-
-**REQUIRED:**
-- ✅ Actual commands sent to aGate
-- ✅ Pre/post state comparison
-- ✅ Validation of expected behavior
-- ✅ Results recorded in JSON
-- ✅ Control released and verified
-- ✅ Documentation in `in_flight_work.md`
 
 ### Safety Checklist (Before ANY Write Test)
 
@@ -106,7 +77,6 @@ ls -lt data/test_results_*.json | head -1
 - [ ] Status shows "Cloud API" or "Idle"
 - [ ] Health check shows "zombie_state: OK"
 - [ ] No alarms triggered
-- [ ] Results saved to JSON
 - [ ] `in_flight_work.md` updated
 
 ### Emergency Release Commands
@@ -114,14 +84,11 @@ ls -lt data/test_results_*.json | head -1
 **If tests are interrupted or fail:**
 
 ```bash
-# Quick release
-python run_hardware_tests.py --release
-
-# Or via CLI
+# Quick release via CLI
 python franklinwh_cli.py -i 192.168.0.110 --stop
 
-# Verify
-python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+# Or via library
+python -c "from franklinwh import FranklinWHController; c=FranklinWHController('192.168.0.110'); c.connect(); c.reset_control_state(); c.disconnect()"
 ```
 
 **Reference:** [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md), [TEST_QUICK_REFERENCE.md](./docs/TEST_QUICK_REFERENCE.md)
@@ -151,27 +118,14 @@ Each git commit should do one thing. Don't bundle unrelated changes.
 ### 3. Project Boundary
 This project is `/Users/davidhona/dev/modbus/` ONLY.
 - ❌ Never touch other projects outside this directory
-- ❌ Never kill processes on port 5000
 - ✅ Only modify files under `/Users/davidhona/dev/modbus/`
-- ✅ Only kill/restart processes on port 8080
 
 ### 4. Git-First Development
 No file changes without git tracking. Verify clean state before starting, commit working features.
 
-### 5. Process Safety
-This web app runs on port **8080**. fhp_demo runs on port **5000**.
-```bash
-# ✅ Safe restart (this project only):
-lsof -ti:8080 | xargs kill 2>/dev/null; sleep 2; tools/run.sh -q &
-
-# ❌ NEVER use:
-pkill python
-pkill -f app
-```
-
-### 6. In-Flight Work
+### 5. In-Flight Work
 `in_flight_work.md` is the source of truth for current work state. Read it at session start, update it after each completed item.
 
 ---
 
-*Last Updated: 2026-03-07 — Fixed paths for macOS migration, removed deprecated file references*
+*Last Updated: 2026-03-07 — Removed web app references, updated for franklinwh-modbus*

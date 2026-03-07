@@ -1,14 +1,13 @@
 # Documentation
 
-Curated, current documentation for the FranklinWH Modbus Battery Manager.
+Curated, current documentation for `franklinwh-modbus`.
 
-## Reference
+## Library Reference
 - [ARCHITECTURE.md](ARCHITECTURE.md) — AC/DC coupling, system overview
-- [CONFIGURATION.md](CONFIGURATION.md) — App configuration guide
-- [FEATURES.md](FEATURES.md) — Feature documentation
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware-specific SunSpec quirks
 - [ORCHESTRATION_AND_CONTROL.md](ORCHESTRATION_AND_CONTROL.md) — Control logic and command sequences
 - [SAFETY_CONTROLS.md](SAFETY_CONTROLS.md) — 10 safety rules for development
+- [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — VPP Mode behavior with mobile app screenshots
 - [UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx](UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx) — SunSpec certification PICS
 
 ## Development
@@ -21,4 +20,4 @@ Curated, current documentation for the FranklinWH Modbus Battery Manager.
 - [TODO_INTENT_BASED_CONFLICT_DETECTION.md](TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Phase 3 TODO
 
 ## Archived
-Historical documentation, resolved defect reports, and deprecated code are in `../archive/`.
+Historical documentation, resolved defect reports, web app docs, and deprecated code are in `../archive/`.

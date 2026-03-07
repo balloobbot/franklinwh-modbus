@@ -1,13 +1,13 @@
-# FranklinWH Modbus Controller - Phases & Roadmap
+# franklinwh-modbus — Phases & Roadmap
 
 **Last Updated:** 2026-03-07  
 **Current Phase:** Phase 2 — Core Library Stabilization  
-**Next Milestone:** Library extraction for PyPi publication
+**Next Milestone:** Virtual mode hardware testing → PyPi publication
 
 > [!IMPORTANT]
-> **Strategic Decision (2026-03-07):** Web app is on **indefinite hold**. Priority is
-> developing the core `franklinwh` Modbus TCP library as a standalone, PyPi-publishable
-> package. The web app will be refactored/rebuilt later to consume the library.
+> **Strategic Decision (2026-03-07):** Web app is **archived** (`archive/webapp/`).
+> Priority is the core `franklinwh-modbus` library as a standalone, PyPi-publishable
+> package. Distribution name: `franklinwh-modbus`, import: `from franklinwh import ...`
 
 ---
 
@@ -17,9 +17,9 @@
 |-------|-------|--------|------------------|
 | **Phase 0** | Discovery & Research | ✅ Complete | Protocol docs, register maps |
 | **Phase 1** | Basic Control | ✅ Complete | Manual mode, CLI, core library |
-| **Phase 2** | Core Library Stabilization | 🟡 **IN PROGRESS** | Virtual modes, SoC validation, PyPi-ready |
+| **Phase 2** | Core Library Stabilization | 🟡 **IN PROGRESS** | API fixes, v0.9.0, virtual mode testing |
 | **Phase 3** | Enhanced Conflict Detection | 🟢 QUEUED | Intent-based detection |
-| **Phase 4** | Web App / Ecosystem | ⏸️ **ON HOLD** | Web UI rebuild on library |
+| **Phase 4** | PyPi Publication & Ecosystem | ⏳ FUTURE | PyPi, LICENSE, CI/CD |
 
 ---
 
@@ -119,13 +119,23 @@
 **Documents:**
 - [CONFLICT_DETECTION_ANALYSIS.md](./docs/CONFLICT_DETECTION_ANALYSIS.md)
 
+#### 2.5 Library API Stabilization ✅ COMPLETE (2026-03-07)
+- ✅ Decoupled signal handling from `run_continuous()` — uses `stop_event`
+- ✅ New `run_with_signal_handling()` wrapper for CLI
+- ✅ Replaced `print()` with `logger.warning()` in library code
+- ✅ Removed duplicate mode enums from `constants.py`
+- ✅ Added `pymodbus` to `install_requires`
+- ✅ Added `rich` as optional `[monitor]` extra
+- ✅ Distribution renamed: `franklinwh` → `franklinwh-modbus`
+- ✅ Version set to `0.9.0` (pre-release)
+- ✅ Proof-of-life smoke test: 47/47 pass
+- ✅ Safety docs: prerequisites, VPP Mode reference, network requirements
+
 #### 2.4 TUI Monitor 🟡 PARKED
 - ✅ Implemented with Rich library
 - ✅ 5 themes, keyboard controls
 - ✅ Auto-quiet mode
 - ⚠️ **PARKED** - Waiting for user validation
-
-**Document:** [TODO_TUI_TERMINAL_MONITOR.md](./archive/docs/TODO_TUI_TERMINAL_MONITOR.md)
 
 ---
 
@@ -161,27 +171,25 @@ Implement intent-based conflict detection to eliminate false positives.
 
 ---
 
-### Phase 4: Web App / Ecosystem ⏸️
+### Phase 4: PyPi Publication & Ecosystem ⏳
 
-**Timeline:** After library published on PyPi  
-**Status:** ON HOLD — Library must be stable and published first
+**Timeline:** After library stable and tested  
+**Status:** FUTURE — Library must be stable and hardware-tested first
 
-> **Decision (2026-03-07):** The web app (`src/main.py`, `src/web_server.py`, 77 endpoints)
-> is on indefinite hold. It mixes web framework concerns with library code in `src/`.
-> When resumed, it will be rebuilt/refactored to consume the `franklinwh` library as
-> an external dependency, not by sharing the `src/` directory.
+**Deliverables:**
+- PyPi publication (`pip install franklinwh-modbus`)
+- LICENSE file (MIT)
+- pyproject.toml migration from setup.py
+- CI/CD (GitHub Actions: lint, test, publish)
+- FranklinWH Energy Manager integration
 
-**Potential Features (future):**
-- Web dashboard (historical data)
+**Future Features (separate projects):**
+- Web dashboard (rebuilt on `franklinwh-modbus`)
 - Home Assistant integration
 - Cloud API bridge
 - Multi-device support
 
-**Documents:** (in `archive/docs/` — future planning)
-- TODO_DATA_RETENTION.md
-- TODO_MULTI_AGATE.md
-- TODO_PRICING_APIS.md
-- TODO_SCHEDULE_LIBRARY.md
+**Web app design preserved:** `archive/webapp/README.md`
 
 ---
 
@@ -189,8 +197,10 @@ Implement intent-based conflict detection to eliminate false positives.
 
 | Date | Decision | Context | Status |
 |------|----------|---------|--------|
-| 2026-03-07 | **Web app on hold** | Library-first: stabilize `franklinwh` for PyPi, rebuild web app later | STRATEGIC |
-| 2026-03-07 | **Library-first for PyPi** | Extract `src/franklinwh/` as standalone package, optimize Modbus reads/writes | IN PROGRESS |
+| 2026-03-07 | **Rename to franklinwh-modbus** | Avoid conflict with Cloud API `franklinwh` package | ✅ DONE |
+| 2026-03-07 | **Library v0.9.0 stabilized** | Signal handling, print→logger, setup.py deps, smoke test | ✅ DONE |
+| 2026-03-07 | **Web app archived** | Moved to `archive/webapp/`, design elements preserved | ✅ DONE |
+| 2026-03-07 | **Library-first for PyPi** | `franklinwh-modbus` as standalone package | IN PROGRESS |
 | 2026-03-01 | **Select Option 2** for conflict detection | Intent-based most accurate; requires virtual mode testing first | QUEUED for Phase 3 |
 | 2026-03-01 | **Park TUI Monitor** | Implemented but needs user validation; focus on core features | PARKED |
 | 2026-03-01 | **Complete SoC Validation** | GAP-1, GAP-2 implemented and tested | ✅ COMPLETE |
@@ -200,17 +210,18 @@ Implement intent-based conflict detection to eliminate false positives.
 
 ## Current Work Queue
 
-### This Week (Priority)
-1. **Virtual Mode Testing** - Self-Consumption mode hardware test
-2. **Documentation** - Update mode behavior docs based on testing
+### Immediate (Blocked)
+1. **Virtual Mode Hardware Testing** — Self-Consumption, Emergency Backup, TOU, Peak Shave
+   - Requires aGate network access from macOS host
 
-### Next (After Virtual Mode Testing)
-1. **Intent-Based Conflict Detection** - Phase 3 implementation
-2. **Energy Context Display** - Solar/load/grid in status output
+### Next (Not Blocked)
+1. **FEM Integration Test** — verify `franklinwh-modbus` works from `franklinwh-energy-manager`
+2. **PyPi Publication Prep** — LICENSE, pyproject.toml, CI/CD
 
 ### Future
-1. **TUI Monitor** - Unpark and validate
-2. **Phase 4 Features** - Web UI, integrations
+1. **Phase 3: Intent-Based Conflict Detection** — after hardware testing
+2. **TUI Monitor** — unpark and validate on macOS
+3. **Phase 4: PyPi publication + ecosystem**
 
 ---
 
