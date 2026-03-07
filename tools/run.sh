@@ -1,8 +1,8 @@
 #!/bin/bash
 # FranklinWH Battery Manager - Startup Script
 
-# Get the directory where this script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Get the project root (parent of tools/ where this script lives)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$SCRIPT_DIR"
 
 # Parse arguments
