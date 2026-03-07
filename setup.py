@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Setup script for FranklinWH Modbus Battery Manager
+Setup script for franklinwh-modbus
+
+Note: Distribution name is 'franklinwh-modbus' (pip install franklinwh-modbus)
+but the Python import name is 'franklinwh' (from franklinwh import ...).
+This avoids conflict with the 'franklinwh' Cloud API package on PyPi.
 """
 
 from setuptools import setup, find_packages
@@ -14,9 +18,9 @@ if os.path.exists(readme_path):
         long_description = f.read()
 
 setup(
-    name='franklinwh',
+    name='franklinwh-modbus',
     version='0.9.0',
-    description='FranklinWH aGate Battery Control Library — Modbus TCP + SunSpec',
+    description='FranklinWH aGate Modbus TCP library — SunSpec + extension registers',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='David Hona',

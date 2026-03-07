@@ -1,6 +1,10 @@
-# FranklinWH Library & CLI Usage Guide
+# franklinwh-modbus — Library & CLI Usage Guide
 
-Complete guide for using the `franklinwh` library and CLI.
+Complete guide for using the `franklinwh-modbus` library and CLI.
+
+> **Package name:** `pip install franklinwh-modbus`  
+> **Python import:** `from franklinwh import ...`  
+> Not to be confused with `franklinwh-python` (Cloud API).
 
 ---
 
@@ -38,7 +42,7 @@ pip install -e ".[dev,monitor]"
 pip install -e /path/to/franklinwh-modbus
 
 # Or when published to PyPi (future)
-pip install franklinwh
+pip install franklinwh-modbus
 ```
 
 ### Import Patterns
@@ -62,9 +66,9 @@ except ImportError:
 
 | Extra | Packages | Install |
 |-------|----------|---------|
-| Core | pysunspec2, pymodbus | `pip install franklinwh` |
-| `[monitor]` | rich | `pip install franklinwh[monitor]` |
-| `[dev]` | pytest, pytest-mock | `pip install franklinwh[dev]` |
+| Core | pysunspec2, pymodbus | `pip install franklinwh-modbus` |
+| `[monitor]` | rich | `pip install franklinwh-modbus[monitor]` |
+| `[dev]` | pytest, pytest-mock | `pip install franklinwh-modbus[dev]` |
 
 ---
 

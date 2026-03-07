@@ -1,10 +1,14 @@
-# FranklinWH Modbus Library
+# franklinwh-modbus
 
 [![Modbus TCP](https://img.shields.io/badge/modbus-tcp-orange.svg)](https://modbus.org)
 [![SunSpec](https://img.shields.io/badge/sunspec-2.0-yellow.svg)](https://sunspec.org)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 
 A Python library for controlling FranklinWH battery storage systems via Modbus TCP, optimized for the aGate gateway with SunSpec model support and FranklinWH extension registers.
+
+> **Note:** This is the Modbus TCP library (`pip install franklinwh-modbus`).  
+> For the Cloud API, see [franklinwh-python](https://pypi.org/project/franklinwh-python/).  
+> Python import: `from franklinwh import FranklinWHController`
 
 > **Status:** Core library under active development, targeting PyPi publication.
 
