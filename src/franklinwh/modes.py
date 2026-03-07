@@ -7,6 +7,7 @@ This module provides software-based battery mode control for FranklinWH aGate.
 import logging
 import signal
 import time
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable, Tuple
 
@@ -508,16 +509,18 @@ class VirtualModeController:
                 return False
     
     def run_continuous(self, duration_seconds: Optional[float] = None,
-                        enable_safety_checks: bool = False):
-        """Run controller continuously with graceful shutdown.
+                        enable_safety_checks: bool = False,
+                        stop_event: Optional[threading.Event] = None):
+        """Run controller continuously.
         
         Args:
             duration_seconds: Run for N seconds, or None for indefinite
             enable_safety_checks: If True, enable alarm/sanity/SoC limit checks
                                   (adds Modbus overhead, use for automation only)
+            stop_event: Optional threading.Event to signal shutdown.
+                        If None, runs until duration expires or failure limit hit.
+                        For CLI usage, use run_with_signal_handling() instead.
         """
-        import sys
-        
         start_time = time.time()
         tick_interval = 5.0
         last_tick = 0
@@ -531,17 +534,15 @@ class VirtualModeController:
         last_sanity_check = 0
         alarm_failures = 0
         
-        def signal_handler(signum, frame):
-            logger.info(f"Signal {signum} received, shutting down...")
-            sys.exit(0)
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
         logger.info(f"Running continuous control: safety_checks={enable_safety_checks}")
         
         try:
             while True:
+                # Check stop signal
+                if stop_event and stop_event.is_set():
+                    logger.info("Stop event received, shutting down...")
+                    break
+                
                 now = time.time()
                 elapsed = now - start_time
                 
@@ -608,8 +609,6 @@ class VirtualModeController:
                 
                 time.sleep(0.1)
                 
-        except SystemExit:
-            pass
         finally:
             # Cleanup - try to reset control state
             cleanup_ok = False
@@ -630,6 +629,46 @@ class VirtualModeController:
                 logger.error(f"Cleanup failed: {e}")
             
             if not cleanup_ok:
-                print("\n⚠️  WARNING: Could not release Modbus control!")
-                print("   Run this to ensure control is released:")
-                print(f"   python3 franklinwh_cli.py -i {self.ctrl.ip_address} --stop")
+                logger.warning(
+                    f"Could not release Modbus control! "
+                    f"Manually run: franklinwh_cli.py -i {self.ctrl.ip_address} --stop"
+                )
+
+
+def run_with_signal_handling(
+    controller: 'VirtualModeController',
+    duration_seconds: Optional[float] = None,
+    enable_safety_checks: bool = False,
+):
+    """Run a VirtualModeController with SIGINT/SIGTERM signal handling.
+    
+    This is a CLI convenience wrapper around run_continuous(). Library consumers
+    should call run_continuous() directly with a stop_event instead.
+    
+    Args:
+        controller: Configured VirtualModeController instance
+        duration_seconds: Run for N seconds, or None for indefinite
+        enable_safety_checks: If True, enable alarm/sanity/SoC limit checks
+    """
+    stop = threading.Event()
+    
+    def signal_handler(signum, frame):
+        logger.info(f"Signal {signum} received, shutting down...")
+        stop.set()
+    
+    old_sigint = signal.getsignal(signal.SIGINT)
+    old_sigterm = signal.getsignal(signal.SIGTERM)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        controller.run_continuous(
+            duration_seconds=duration_seconds,
+            enable_safety_checks=enable_safety_checks,
+            stop_event=stop,
+        )
+    finally:
+        # Restore original signal handlers
+        signal.signal(signal.SIGINT, old_sigint)
+        signal.signal(signal.SIGTERM, old_sigterm)

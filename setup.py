@@ -15,13 +15,13 @@ if os.path.exists(readme_path):
 
 setup(
     name='franklinwh',
-    version='1.0.0',
-    description='FranklinWH aGate Battery Control Library',
+    version='0.9.0',
+    description='FranklinWH aGate Battery Control Library — Modbus TCP + SunSpec',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    author='',
-    author_email='',
-    url='',
+    author='David Hona',
+    author_email='david.hona@gmail.com',
+    url='https://github.com/david2069/franklinwh-modbus',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     py_modules=['franklinwh_cli'],
@@ -32,11 +32,15 @@ setup(
     },
     install_requires=[
         'pysunspec2>=1.1.0',
+        'pymodbus>=3.0.0',
     ],
     extras_require={
         'dev': [
             'pytest>=7.0.0',
             'pytest-mock>=3.0.0',
+        ],
+        'monitor': [
+            'rich>=13.0.0',
         ],
     },
     python_requires='>=3.8',
