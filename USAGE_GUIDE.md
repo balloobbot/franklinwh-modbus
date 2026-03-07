@@ -10,12 +10,73 @@ Complete guide for using the `franklinwh-modbus` library and CLI.
 
 ## Table of Contents
 
-1. [Installation & Setup](#installation--setup)
-2. [CLI Quick Reference](#cli-quick-reference)
-3. [Library Usage Examples](#library-usage-examples)
-4. [Common Operations](#common-operations)
-5. [Advanced Features](#advanced-features)
-6. [API Reference](#api-reference)
+1. [Prerequisites & Safety](#prerequisites--safety)
+2. [Installation & Setup](#installation--setup)
+3. [CLI Quick Reference](#cli-quick-reference)
+4. [Library Usage Examples](#library-usage-examples)
+5. [Common Operations](#common-operations)
+6. [Advanced Features](#advanced-features)
+7. [API Reference](#api-reference)
+
+---
+
+## Prerequisites & Safety
+
+### Extension Register Write Access
+
+FranklinWH extension registers (15507–15509) control the aGate operating mode and reserve levels. These registers are **readable by default**, but **write access must be provisioned by FranklinWH Support**.
+
+| Register | Address | Default Access | With Provisioning |
+|----------|---------|---------------|-------------------|
+| OnGridMode | 15507 | Read-only | Read/Write |
+| SelfReserve | 15508 | Read-only | Read/Write |
+| TOUReserve | 15509 | Read-only | Read/Write |
+
+**Already provisioned:** If your aGate is connected to a **SPAN Panel** or **Lumin Panel** via Modbus TCP, write access is already enabled — you have full operational control.
+
+**Not provisioned?** Contact FranklinWH Support to request Modbus TCP write access. Without it, `send_command()` and mode changes will fail silently.
+
+### Mobile App Conflicts
+
+> [!CAUTION]
+> **Do not use the FranklinWH mobile app to send commands** (charge, discharge, or schedule events) while this library is actively controlling the aGate. Conflicting commands cause unpredictable behavior and may damage equipment.
+
+**Before starting library control:**
+1. Set your aGate to **Emergency Backup** or **Self-Consumption** mode in the mobile app
+2. Avoid scheduling any events in the mobile app
+3. Do not manually trigger charge/discharge from the app
+
+### VPP Mode Indicator
+
+While `franklinwh-modbus` is actively controlling or polling the aGate (i.e. the Modbus TCP keep-alive is active), the FranklinWH mobile app will display the operating mode as:
+
+> **"VPP Mode"** (Virtual Power Plant)
+
+This replaces the normal mode display (Self-Consumption, Time-of-Use, or Emergency Backup). **This is normal and expected** — it confirms that a Modbus TCP client has direct control of the aGate.
+
+### Releasing Control
+
+> [!IMPORTANT]
+> **Always release control when done.** If control is not released, the aGate remains in VPP Mode until the Modbus keep-alive times out (typically 60–120 seconds).
+
+**Via CLI:**
+```bash
+python3 franklinwh_cli.py -i 192.168.0.110 --stop
+```
+
+**Via library:**
+```python
+ctrl.reset_control_state()   # Sends WSetEna=0 to release control
+ctrl.disconnect()             # Close Modbus TCP connection
+```
+
+**After failure or crash:**
+```bash
+# Reconnect and force release
+python3 franklinwh_cli.py -i 192.168.0.110 --stop --reset-on-start
+```
+
+If `--stop` fails (e.g. network unreachable), the aGate will automatically revert to its previous mode after the keep-alive timeout.
 
 ---
 
