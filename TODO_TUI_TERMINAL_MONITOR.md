@@ -50,6 +50,12 @@ A Terminal User Interface (TUI) for real-time battery monitoring and control. Pr
   - Current power direction and magnitude
   
 ### Phase 2 Enhancements (TODO)
+
+- [x] **Help Screen** ✅ FIXED
+  - All keyboard shortcuts documented including +/-, R, 1-9
+  - Clean two-column layout in footer
+  - Full help overlay on 'h' key
+
 - [x] **Quit Key Not Working** ✅ FIXED
   - Footer shows `[q]` but only Ctrl+C actually quits
   - ~~Need to implement proper keyboard handling in Rich Live mode~~
@@ -246,6 +252,91 @@ python franklinwh_tui.py -i 192.168.0.110 --refresh 5
 - [ ] Alarm history panel
 - [ ] Export data to CSV from TUI
 - [ ] Multi-device view (if multi-agate support added)
+
+---
+
+## Phase 3: Target SoC Control & Visual Themes
+
+### Target SoC Auto-Stop Command ✅ IMPLEMENTED (CLI)
+**CLI Flag:** `--target-soc-auto PCT`
+
+**Usage:**
+```bash
+# Charge until 95% SoC, then auto-stop
+python franklinwh_cli.py -i 192.168.0.110 --charge 3000 --target-soc-auto 95
+
+# Discharge until 30% SoC, then auto-stop
+python franklinwh_cli.py -i 192.168.0.110 --discharge 3000 --target-soc-auto 30
+```
+
+**Workflow:**
+1. Validates target SoC is achievable (higher than current for charge, lower for discharge)
+2. Starts charging/discharging at specified power
+3. Monitors SoC every 5 seconds
+4. Auto-stops when target reached
+5. Releases control to cloud
+
+**Output:**
+```
+============================================================
+  TARGET SoC MODE
+============================================================
+  Power: 3000W
+  Target SoC: 95.0%
+  Current SoC: 89.0%
+  Will stop when SoC >= 95.0%
+
+  Press Ctrl+C to stop manually
+============================================================
+
+  [30s] SoC: 91.5% (target: 95.0%)
+  [35s] SoC: 92.0% (target: 95.0%)
+
+🎯 TARGET REACHED!
+   SoC: 95.1% (target: 95.0%)
+
+  Releasing control...
+  ✓ Control released
+```
+
+**TUI Key:** `t` (pending TUI implementation)
+
+Interactive workflow (TUI):
+```
+[t] pressed → Prompt: "Target SoC % (10-100):"
+              → Validate range
+              → Prompt: "[c]harge or [d]ischarge?"
+                 → Invalid entry: ignore/cancel
+                 → 'c': Start charging, stop at target SoC
+                 → 'd': Start discharging, stop at target SoC
+              → Show in Command Console: "Target set: charge to 80%"
+              → Background monitor watches SoC
+              → When SoC >= target: auto-send standby (0W)
+              → Log: "Target 80% reached - standby"
+```
+
+**Parameters:**
+- `--target-soc-auto <pct>` - Target SoC for charge/discharge auto-stop ✅ CLI
+- `--min-discharge-soc <pct>` - Stop discharging at this SoC (safety)
+- `--max-charge-soc <pct>` - Stop charging at this SoC (safety)
+
+**Validation:**
+- Range: 10-100%
+- Must be > current SoC for charge
+- Must be < current SoC for discharge
+
+### Visual Themes
+**New Flag:** `--theme <name>`
+
+| Theme | Description |
+|-------|-------------|
+| `dark` | Current default (dark background, colored accents) |
+| `green` | Green phosphor CRT style (green on black) |
+| `amber` | Amber phosphor CRT style (amber on black) |
+| `white` | White text on black (high contrast) |
+| `paper` | Black text on white background (light mode) |
+
+Implementation: Color palette config passed to all render methods.
 
 ---
 

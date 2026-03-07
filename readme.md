@@ -35,6 +35,9 @@ python3 franklinwh_cli.py -i 192.168.0.110 --healthcheck
 # View current status including alarms
 python3 franklinwh_cli.py -i 192.168.0.110 --status
 
+# Detailed alarm check
+python3 franklinwh_cli.py -i 192.168.0.110 --check-alarms
+
 # Self-consumption mode (charges at 5000W like vendor app)
 python3 franklinwh_cli.py -i 192.168.0.110 --mode self_consumption --target-soc 90
 
@@ -43,6 +46,9 @@ python3 franklinwh_cli.py -i 192.168.0.110 --mode emergency_backup --target-soc 
 
 # Manual control (charge at 3000W for 1 hour)
 python3 franklinwh_cli.py -i 192.168.0.110 --mode manual --power 3000 --duration 3600
+
+# Charge with auto-revert (safety timer - releases control after 2 hours)
+python3 franklinwh_cli.py -i 192.168.0.110 --charge 3000 --revert 7200
 
 # Stop control and release aGate
 python3 franklinwh_cli.py -i 192.168.0.110 --stop

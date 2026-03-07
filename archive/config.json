@@ -1,0 +1,7 @@
+{
+  "points": [
+    {"model": 704, "point": "WMaxLimPct", "value": 600},
+    {"model": 704, "point": "WMaxLimPctRvrtTms", "value": 300},
+    {"model": 715, "point": "ControllerHb", "value": 1}
+  ]
+}

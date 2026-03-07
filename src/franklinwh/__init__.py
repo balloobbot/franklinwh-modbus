@@ -32,6 +32,15 @@ from .controller import FranklinWHController
 
 from .modes import VirtualModeController
 
+# Optional monitor import (requires rich dependency)
+try:
+    from .monitor import CLIMonitor, MonitorConfig
+    HAS_MONITOR = True
+except ImportError:
+    HAS_MONITOR = False
+    CLIMonitor = None
+    MonitorConfig = None
+
 __all__ = [
     # Types
     'ControlMode',
@@ -46,4 +55,8 @@ __all__ = [
     'FranklinWHController',
     # Modes
     'VirtualModeController',
+    # Monitor (optional)
+    'CLIMonitor',
+    'MonitorConfig',
+    'HAS_MONITOR',
 ]

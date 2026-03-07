@@ -5,9 +5,130 @@
 > **Created**: 2026-02-18
 
 > **🛡️ See**: [SAFETY_CONTROLS.md](./SAFETY_CONTROLS.md) for all safety rules (10 rules)  
-> **📋 CRITICAL**: See [.agent/workflows/staged-execution.md](./.agent/workflows/staged-execution.md) for MANDATORY staged work process
+> **📋 CRITICAL**: See [.agent/workflows/staged-execution.md](./.agent/workflows/staged-execution.md) for MANDATORY staged work process  
+> **🧪 MANDATORY**: See [HARDWARE_TEST_GUIDE.md](./HARDWARE_TEST_GUIDE.md) for REQUIRED hardware testing process
 
-> **🔒 CRITICAL**: ALL agents MUST follow the approved plan in order (Rule #8), maintain `in_flight_work.md`, pass zero-error gates, and persist test evidence. See also: `.agent/workflows/`
+> **🔒 CRITICAL**: ALL agents MUST follow the approved plan in order (Rule #8), maintain `in_flight_work.md`, pass zero-error gates, persist test evidence, and **USE THE HARDWARE TEST TOOL for any battery control modifications**.
+
+---
+
+## ⚠️ MANDATORY: Hardware Test Tool Usage
+
+### When MUST Use the Hardware Test Tool
+
+**ANY agent modifying the following MUST run hardware tests:**
+
+- `franklinwh_modbus_library.py` (battery control library)
+- `franklinwh_cli.py` (CLI tool)
+- `franklinwh_control_standalone.py` (deprecated but still used)
+- `src/franklinwh/` package (controller, modes, types)
+- Any Modbus register write sequences
+- Power calculation logic
+- Safety limit validation code
+
+### Testing Process (MANDATORY)
+
+```bash
+# STEP 1: Read current state
+python franklinwh_cli.py -i 192.168.0.110 --status
+python franklinwh_cli.py -i 192.168.0.110 --healthcheck
+
+# STEP 2: Run read-only tests (always safe)
+python run_hardware_tests.py --read-only
+
+# STEP 3: Get user approval for write tests
+# DO NOT proceed without explicit "go" from user
+
+# STEP 4: Run low-power write tests (if approved)
+python run_hardware_tests.py --low-power
+
+# STEP 5: MANDATORY - Release control
+python franklinwh_cli.py -i 192.168.0.110 --stop
+
+# STEP 6: MANDATORY - Verify release
+python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
+
+# STEP 7: Record results in in_flight_work.md
+ls -lt data/test_results_*.json | head -1
+```
+
+### Test Results Recording
+
+**EVERY test run MUST be recorded in `in_flight_work.md`:**
+
+```markdown
+## Test Results - YYYY-MM-DD HH:MM
+
+| Test | Status | Results File |
+|------|--------|--------------|
+| Read-Only | ✅ Passed | data/test_results_YYYYMMDD_HHMMSS.json |
+| Charge 500W | ✅ Passed | Same file |
+| Release | ✅ Verified | WSetEna=0, zombie_state=OK |
+
+**Pre-Test State:**
+- SoC: 70%
+- Control: Cloud API
+
+**Post-Test State:**
+- SoC: 70.1%
+- Control: Cloud API (released)
+- Zombie State: OK
+```
+
+### What Constitutes "Testing"
+
+**NOT ACCEPTABLE:**
+- ❌ "Code looks correct"
+- ❌ "Should work based on logic"
+- ❌ "Matches documentation"
+- ❌ Unit tests only (without hardware validation)
+- ❌ "Ran script, no errors"
+
+**REQUIRED:**
+- ✅ Actual commands sent to aGate
+- ✅ Pre/post state comparison
+- ✅ Validation of expected behavior
+- ✅ Results recorded in JSON
+- ✅ Control released and verified
+- ✅ Documentation in `in_flight_work.md`
+
+### Safety Checklist (Before ANY Write Test)
+
+- [ ] SoC between 10-95%
+- [ ] Grid connected
+- [ ] Voltage 200-270V
+- [ ] No critical alarms
+- [ ] User explicitly approved
+- [ ] Rollback plan ready
+
+### Post-Test Checklist (After ANY Test)
+
+- [ ] Control released (`--stop` executed)
+- [ ] Status shows "Cloud API" or "Idle"
+- [ ] Health check shows "zombie_state: OK"
+- [ ] No alarms triggered
+- [ ] Results saved to JSON
+- [ ] `in_flight_work.md` updated
+
+### Emergency Release Commands
+
+**If tests are interrupted or fail:**
+
+```bash
+# Quick release
+python run_hardware_tests.py --release
+
+# Or via CLI
+python franklinwh_cli.py -i 192.168.0.110 --stop
+
+# Verify
+python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+```
+
+**Reference:** [HARDWARE_TEST_GUIDE.md](./HARDWARE_TEST_GUIDE.md), [TEST_QUICK_REFERENCE.md](./TEST_QUICK_REFERENCE.md)
+
+---
 
 ## ⚠️ MANDATORY: Staged Execution Process
 
@@ -52,3 +173,7 @@ pkill -f app
 
 ### 6. In-Flight Work
 `in_flight_work.md` is the source of truth for current work state. Read it at session start, update it after each completed item.
+
+---
+
+*Last Updated: 2026-02-28 - Added mandatory hardware testing requirements*

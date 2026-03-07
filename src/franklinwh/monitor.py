@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations  # Postpone type hint evaluation (allows import without rich)
 """
 FranklinWH CLI Dashboard Monitor
 
@@ -32,6 +33,7 @@ import select
 import tty
 import termios
 import os
+import logging
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -55,6 +57,101 @@ from .types import BatteryCommand, ControlMode
 
 
 @dataclass
+class ThemeConfig:
+    """Color theme configuration."""
+    name: str
+    bg_color: str = "default"
+    text_color: str = "white"
+    accent_color: str = "cyan"
+    success_color: str = "green"
+    warning_color: str = "yellow"
+    error_color: str = "red"
+    solar_color: str = "yellow"
+    battery_color: str = "magenta"
+    grid_color: str = "blue"
+    home_color: str = "green"
+    header_style: str = "bold cyan"
+    border_style: str = "blue"
+    
+    @classmethod
+    def get_theme(cls, name: str) -> "ThemeConfig":
+        """Get theme by name."""
+        themes = {
+            "dark": cls(
+                name="dark",
+                text_color="white",
+                accent_color="cyan",
+                success_color="green",
+                warning_color="yellow",
+                error_color="red",
+                solar_color="yellow",
+                battery_color="magenta",
+                grid_color="blue",
+                home_color="green",
+                header_style="bold cyan",
+                border_style="blue",
+            ),
+            "green": cls(
+                name="green",
+                text_color="#00ff00",
+                accent_color="#00ff00",
+                success_color="#00ff00",
+                warning_color="#80ff00",
+                error_color="#ff0000",
+                solar_color="#00ff00",
+                battery_color="#00ff00",
+                grid_color="#00ff00",
+                home_color="#00ff00",
+                header_style="bold #00ff00",
+                border_style="#00ff00",
+            ),
+            "amber": cls(
+                name="amber",
+                text_color="#ffb000",
+                accent_color="#ffb000",
+                success_color="#ffb000",
+                warning_color="#ff8000",
+                error_color="#ff0000",
+                solar_color="#ffb000",
+                battery_color="#ffb000",
+                grid_color="#ffb000",
+                home_color="#ffb000",
+                header_style="bold #ffb000",
+                border_style="#ffb000",
+            ),
+            "white": cls(
+                name="white",
+                text_color="white",
+                accent_color="white",
+                success_color="white",
+                warning_color="white",
+                error_color="white",
+                solar_color="white",
+                battery_color="white",
+                grid_color="white",
+                home_color="white",
+                header_style="bold white",
+                border_style="white",
+            ),
+            "paper": cls(
+                name="paper",
+                text_color="white",
+                accent_color="white",
+                success_color="white",
+                warning_color="white",
+                error_color="red",
+                solar_color="white",
+                battery_color="white",
+                grid_color="white",
+                home_color="white",
+                header_style="bold white",
+                border_style="white",
+            ),
+        }
+        return themes.get(name, themes["dark"])
+
+
+@dataclass
 class MonitorConfig:
     """Configuration for the monitor."""
     ip_address: str
@@ -63,8 +160,9 @@ class MonitorConfig:
     timeout: float = 10.0
     refresh_rate: float = 5.0
     use_rich: bool = True
-    theme: str = "dark"  # dark, light
+    theme: str = "dark"  # dark, green, amber, white, paper
     max_history: int = 720  # 60 minutes at 5s intervals
+    quiet: bool = False  # Suppress non-error output
 
 
 @dataclass
@@ -208,7 +306,8 @@ class CLIMonitor:
     
     def __init__(self, config: MonitorConfig):
         self.config = config
-        self.console = Console(theme=self._get_theme()) if HAS_RICH else None
+        self.theme = ThemeConfig.get_theme(config.theme)
+        self.console = Console(theme=self._get_rich_theme()) if HAS_RICH else None
         self.controller: Optional[FranklinWHController] = None
         self.data = SystemData()
         self.running = False
@@ -220,7 +319,7 @@ class CLIMonitor:
         self.prompt_buffer = ""   # Buffer for numeric input
         self.prompt_mode = None   # 'charge' or 'discharge'
         self.command_log = []     # Recent commands/messages
-        self.max_log_lines = 5    # Number of lines to show
+        self.max_log_lines = 8    # Number of lines to show
         self.last_key = None      # Last key pressed (for feedback)
         self.last_key_time = 0    # Timestamp of last key
         self.show_help = False    # Show help overlay
@@ -228,12 +327,29 @@ class CLIMonitor:
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         
-    def _get_theme(self):
+    def _get_rich_theme(self):
         """Get Rich theme based on config."""
-        if self.config.theme == "dark":
-            return None  # Default is dark
-        # Could add custom theme here
-        return None
+        from rich.theme import Theme
+        if self.config.theme in ("green", "amber", "white"):
+            # Monochrome themes use the accent color for everything
+            accent = self.theme.accent_color
+            return Theme({
+                "info": accent,
+                "success": self.theme.success_color,
+                "warning": self.theme.warning_color,
+                "error": self.theme.error_color,
+            })
+        return None  # Default dark theme
+        
+    def _get_border_style(self, functional_color: str = "blue") -> str:
+        """Get border color based on theme.
+        
+        For monochrome themes (green, amber, white, paper), use the theme accent color.
+        For dark theme, use functional colors to distinguish panel types.
+        """
+        if self.config.theme in ("green", "amber", "white", "paper"):
+            return self.theme.accent_color
+        return functional_color
         
     def _signal_handler(self, signum, frame):
         """Handle Ctrl+C gracefully."""
@@ -245,6 +361,9 @@ class CLIMonitor:
         
     def connect(self) -> bool:
         """Connect to the FranklinWH device."""
+        # Suppress logging if quiet mode
+        if self.config.quiet:
+            logging.getLogger().setLevel(logging.WARNING)
         try:
             self.controller = FranklinWHController(
                 ip_address=self.config.ip_address,
@@ -321,18 +440,30 @@ class CLIMonitor:
             
             sf_w = self.controller._get_scale_factor(m714, 'DCW_SF')
             sf_a = self.controller._get_scale_factor(m714, 'DCA_SF')
+            sf_v = self.controller._get_scale_factor(m714, 'DCV_SF')
             sf_tmp = self.controller._get_scale_factor(m714, 'Tmp_SF')
             
+            dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0
+            
+            # Read DCA if available, otherwise calculate from DCW/DCV (P/V = I)
+            dc_current = 0
+            if hasattr(m714, 'DCA') and m714.DCA.value is not None and m714.DCA.value != 0:
+                dc_current = m714.DCA.value * (10 ** sf_a)
+            elif hasattr(m714, 'DCV') and m714.DCV.value is not None and m714.DCV.value != 0:
+                dc_voltage = m714.DCV.value * (10 ** sf_v)
+                if dc_voltage > 0:
+                    dc_current = dc_power / dc_voltage
+            
             return {
-                'dc_power': m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0,
-                'dc_current': m714.DCA.value * (10 ** sf_a) if hasattr(m714, 'DCA') and m714.DCA.value is not None else 0,
+                'dc_power': dc_power,
+                'dc_current': dc_current,
                 'battery_temp': m714.Tmp.value * (10 ** sf_tmp) if hasattr(m714, 'Tmp') and m714.Tmp.value is not None else 0,
             }
         except Exception as e:
             return {}
             
     def _read_model_701_extra(self) -> dict:
-        """Read extra fields from Model 701 (current, PF)."""
+        """Read extra fields from Model 701 (current, PF, temperatures)."""
         try:
             m701 = self.controller.get_model(701)
             if not m701:
@@ -341,6 +472,7 @@ class CLIMonitor:
             
             sf_a = self.controller._get_scale_factor(m701, 'A_SF')
             sf_pf = self.controller._get_scale_factor(m701, 'PF_SF')
+            sf_tmp = self.controller._get_scale_factor(m701, 'Tmp_SF')
             
             current = 0
             if hasattr(m701, 'A') and m701.A.value is not None:
@@ -352,9 +484,20 @@ class CLIMonitor:
             if hasattr(m701, 'PF') and m701.PF.value is not None:
                 pf = m701.PF.value * (10 ** sf_pf)
                 
+            # Temperatures from Model 701 (FranklinWH implements these)
+            ambient_temp = 0
+            if hasattr(m701, 'TmpAmb') and m701.TmpAmb.value is not None:
+                ambient_temp = m701.TmpAmb.value * (10 ** sf_tmp)
+            
+            cabinet_temp = 0
+            if hasattr(m701, 'TmpCab') and m701.TmpCab.value is not None:
+                cabinet_temp = m701.TmpCab.value * (10 ** sf_tmp)
+            
             return {
                 'current_a': current,
                 'power_factor': pf,
+                'ambient_temp': ambient_temp,
+                'cabinet_temp': cabinet_temp,
             }
         except Exception as e:
             return {}
@@ -447,21 +590,23 @@ class CLIMonitor:
             # Note: DCW positive = discharging, negative = charging
             battery_dc = m714_data.get('dc_power', 0)
             
-            # Grid power: positive = exporting TO grid, negative = importing FROM grid
-            # Flip sign for display: positive = importing (consuming from grid)
+            # Grid power from controller: positive = importing FROM grid, negative = exporting TO grid
+            # (verified against controller.py and CLI output)
             grid_raw = grid.get('grid_power_w', 0)
-            grid_display = -grid_raw  # Flip: export positive becomes import positive
             
-            # Update Power Flow
+            # Store grid directly - display logic handles sign interpretation
             self.data.power_flow.solar_w = solar_total
             self.data.power_flow.battery_w = battery_dc
-            self.data.power_flow.grid_w = grid_display
+            self.data.power_flow.grid_w = grid_raw
             
-            # Calculate home load: consumption = solar + battery_discharge + grid_import
-            # battery_dc: positive = discharge (adds), negative = charge (subtracts)
-            # So: home = solar + battery_dc - grid_raw
-            # Where grid_raw positive = export (subtract from home), negative = import (add to home)
-            self.data.power_flow.home_w = solar_total + battery_dc - grid_raw
+            # Calculate home load using power balance equation:
+            # Home Consumption = Solar Production + Battery Discharge + Grid Import
+            # 
+            # Sign conventions:
+            # - battery_dc: positive = discharge (supplies home)
+            # - grid_raw: positive = import (supplies home), negative = export (consumes from home)
+            # - solar_total: always positive when generating
+            self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
             
             # Determine battery state
             if battery_dc < -50:
@@ -498,9 +643,9 @@ class CLIMonitor:
             self.data.solar.remote1_w = ext_solar.get('pv_remote1', 0)
             self.data.solar.remote2_w = ext_solar.get('pv_remote2', 0)
             
-            # Update Temperatures
-            self.data.cabinet_temp = ext.get('cabinet_temp', 0)
-            self.data.ambient_temp = ext.get('ambient_temp', 0)
+            # Update Temperatures from Model 701 (FranklinWH implements TmpAmb, TmpCab)
+            self.data.cabinet_temp = m701_extra.get('cabinet_temp', 0)
+            self.data.ambient_temp = m701_extra.get('ambient_temp', 0)
             
             # Update System Info
             self.data.serial = nameplate.get('serial', '')
@@ -562,16 +707,16 @@ class CLIMonitor:
         
         # Left column
         layout["left"].split_column(
-            Layout(name="power_flow", size=8),
+            Layout(name="power_flow", size=9),
             Layout(name="soc_bar", size=5),
-            Layout(name="dc_power", size=10)
+            Layout(name="dc_power", size=11)
         )
         
         # Right column
         layout["right"].split_column(
             Layout(name="ac_power", size=8),
-            Layout(name="solar", size=10),
-            Layout(name="lifetime", size=6),
+            Layout(name="solar", size=7),
+            Layout(name="lifetime", size=5),
             Layout(name="command_console", size=5)
         )
         
@@ -606,11 +751,12 @@ class CLIMonitor:
         content = Text()
         content.append(timestamp, style="dim")
         content.append(" | ", style="dim")
-        content.append(title, style="bold cyan")
+        content.append(title, style=self.theme.header_style)
         content.append(f" | {refresh}", style="dim")
-        content.append(f" | [{status}]", style="green" if not self.paused else "yellow")
+        status_color = self.theme.success_color if not self.paused else self.theme.warning_color
+        content.append(f" | [{status}]", style=status_color)
         if key_feedback:
-            content.append(key_feedback, style="bold yellow")
+            content.append(key_feedback, style=f"bold {self.theme.warning_color}")
         
         return Panel(content, box=box.SIMPLE, padding=(0, 1))
         
@@ -636,7 +782,10 @@ class CLIMonitor:
         
         # Battery
         battery_state = pf.battery_state
-        battery_style = "green" if battery_state == "CHARGING" else "yellow" if battery_state == "DISCHARGING" else "dim"
+        if self.config.theme in ("green", "amber", "white", "paper"):
+            battery_style = self.theme.accent_color
+        else:
+            battery_style = "green" if battery_state == "CHARGING" else "yellow" if battery_state == "DISCHARGING" else "dim"
         battery_icon = "↓" if battery_state == "CHARGING" else "↑" if battery_state == "DISCHARGING" else "○"
         table.add_row("Battery", f"{abs(pf.battery_w):>6.0f}W", f"[{battery_style}]{battery_state}[/{battery_style}]", battery_icon)
         
@@ -645,7 +794,24 @@ class CLIMonitor:
         grid_icon = "←" if pf.grid_w < 0 else "→" if pf.grid_w > 0 else "○"
         table.add_row("Grid", f"{abs(pf.grid_w):>6.0f}W", grid_state, grid_icon)
         
-        return Panel(table, title="[bold]Power Flow Summary[/bold]", border_style="blue", box=box.ROUNDED)
+        # Inverter Utilization Bar (if controller available)
+        if self.controller:
+            max_w = self.controller.RATED_MAX_W
+            battery_abs = abs(pf.battery_w)
+            util_pct = min(100, (battery_abs / max_w) * 100) if max_w > 0 else 0
+            bar_width = 15
+            filled = int((util_pct / 100) * bar_width)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            # Utilization bar always uses functional colors for readability
+            bar_color = "green" if util_pct < 70 else "yellow" if util_pct < 90 else "red"
+            table.add_row(
+                "Inverter", 
+                f"{util_pct:>5.0f}%", 
+                f"[{bar_color}]{bar}[/{bar_color}]",
+                ""
+            )
+        
+        return Panel(table, title="[bold]Power Flow Summary[/bold]", border_style=self._get_border_style("blue"), box=box.ROUNDED)
         
     def render_soc_bar(self) -> Panel:
         """Render SoC bar with reserve indicator."""
@@ -659,13 +825,17 @@ class CLIMonitor:
         reserve_pos = int((reserve / 100) * bar_width)
         
         bar_text = Text()
+        is_mono = self.config.theme in ("green", "amber", "white", "paper")
         for i in range(bar_width):
             if i < reserve_pos:
                 char = "█" if i < filled else "░"
-                style = "red" if i < filled else "dim red"
+                if is_mono:
+                    style = self.theme.accent_color if i < filled else "dim"
+                else:
+                    style = "red" if i < filled else "dim red"
             elif i < filled:
                 char = "█"
-                style = "green"
+                style = self.theme.accent_color if is_mono else "green"
             else:
                 char = "░"
                 style = "dim"
@@ -673,14 +843,15 @@ class CLIMonitor:
             
         # Info line
         info = Text()
-        info.append(f"SoC: {soc:.1f}%", style="bold cyan")
+        info.append(f"SoC: {soc:.1f}%", style=self.theme.header_style)
         info.append(f" | Reserve: {reserve:.0f}%", style="dim")
         info.append(f" | Target: {target:.0f}%", style="dim")
-        info.append(f" | Mode: {self.data.operating_mode}", style="yellow")
+        mode_color = self.theme.accent_color if is_mono else "yellow"
+        info.append(f" | Mode: {self.data.operating_mode}", style=mode_color)
         
         content = Text.assemble(bar_text, "\n", info)
         
-        return Panel(content, title="[bold]Battery State of Charge[/bold]", border_style="green", box=box.ROUNDED)
+        return Panel(content, title="[bold]Battery State of Charge[/bold]", border_style=self._get_border_style("green"), box=box.ROUNDED)
         
     def render_dc_power(self) -> Panel:
         """Render DC Power (Battery) panel."""
@@ -693,11 +864,12 @@ class CLIMonitor:
         table.add_row("Current", f"{self.data.dc_current:.1f}", "A")
         table.add_row("SoC", f"{self.data.soc:.1f}", "%")
         table.add_row("SoH", f"{self.data.soh:.1f}", "%")
-        table.add_row("Temperature", f"{self.data.battery_temp:.1f}", "°C")
+        table.add_row("Ambient Temp", f"{self.data.ambient_temp:.1f}", "°C")
+        table.add_row("Cabinet Temp", f"{self.data.cabinet_temp:.1f}", "°C")
         table.add_row("Available", f"{self.data.available_wh/1000:.1f}", "kWh")
         table.add_row("Rated", f"{self.data.rated_wh/1000:.1f}", "kWh")
         
-        return Panel(table, title="[bold]DC Power (Battery)[/bold]", border_style="magenta", box=box.ROUNDED)
+        return Panel(table, title="[bold]DC Power (Battery)[/bold]", border_style=self._get_border_style("magenta"), box=box.ROUNDED)
         
     def render_ac_power(self) -> Panel:
         """Render AC Power panel."""
@@ -714,7 +886,7 @@ class CLIMonitor:
         table.add_row("Reactive Power", f"{self.data.ac_var:.0f}", "VAR")
         table.add_row("Type", self.data.ac_type, "")
         
-        return Panel(table, title=f"[bold]AC Power ({self.data.ac_type})[/bold]", border_style="yellow", box=box.ROUNDED)
+        return Panel(table, title=f"[bold]AC Power ({self.data.ac_type})[/bold]", border_style=self._get_border_style("yellow"), box=box.ROUNDED)
         
     def render_solar(self) -> Panel:
         """Render Solar AC Inputs panel."""
@@ -729,12 +901,7 @@ class CLIMonitor:
         table.add_row("├─ Remote 1 (APbox)", f"{solar.remote1_w:,.0f}W")
         table.add_row("└─ Remote 2", f"{solar.remote2_w:,.0f}W")
         
-        # Use a group instead of Text.assemble for mixed content
-        from rich.console import Group
-        note = Text("(Extension registers 15502-15505)", style="dim italic")
-        content = Group(table, note)
-        
-        return Panel(content, title="[bold]Solar AC Inputs[/bold]", border_style="bright_yellow", box=box.ROUNDED)
+        return Panel(table, title="[bold]Solar AC Inputs[/bold]", border_style=self._get_border_style("bright_yellow"), box=box.ROUNDED)
         
     def render_lifetime(self) -> Panel:
         """Render Lifetime Energy panel."""
@@ -750,21 +917,19 @@ class CLIMonitor:
         if has_data:
             # Solar first (most important for PV owners)
             table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
-            table.add_row("", "")  # Spacer
-            # Battery activity
-            table.add_row("🔋 Battery Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
-            table.add_row("🔌 Battery Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
+            # Battery activity (compact, no spacer)
+            table.add_row("🔋 Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
+            table.add_row("🔌 Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
         else:
-            table.add_row("", "")
             table.add_row("Lifetime data not available", "", style="dim italic")
         
-        return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style="cyan", box=box.ROUNDED)
+        return Panel(table, title="[bold]Lifetime Energy[/bold]", border_style=self._get_border_style("cyan"), box=box.ROUNDED)
         
     def render_timeline(self) -> Optional[Panel]:
         """Render timeline sparkline (placeholder for Stage 6)."""
         # Will be implemented in Stage 6
         content = Text("Timeline chart coming in Stage 6", style="dim")
-        return Panel(content, title="[bold]Power Timeline (60 min)[/bold]", border_style="blue", box=box.ROUNDED)
+        return Panel(content, title="[bold]Power Timeline (60 min)[/bold]", border_style=self._get_border_style("blue"), box=box.ROUNDED)
         
     def render_system_info(self) -> Panel:
         """Render System Info panel."""
@@ -780,7 +945,7 @@ class CLIMonitor:
         table.add_row("Cabinet Temp", f"{self.data.cabinet_temp:.1f}°C")
         table.add_row("Ambient Temp", f"{self.data.ambient_temp:.1f}°C")
         
-        return Panel(table, title="[bold]Device Info[/bold]", border_style="white", box=box.ROUNDED)
+        return Panel(table, title="[bold]Device Info[/bold]", border_style=self._get_border_style("white"), box=box.ROUNDED)
         
     def render_alarms(self) -> Panel:
         """Render Alarms panel."""
@@ -792,7 +957,9 @@ class CLIMonitor:
         if not self.data.extension_writable:
             content.append("\n⚠️  Extension: READ-ONLY (requires installer unlock)", style="yellow")
             
-        return Panel(content, title="[bold]Alarms & Status[/bold]", border_style="red" if self.data.active_alarms else "green", box=box.ROUNDED)
+        return Panel(content, title="[bold]Alarms & Status[/bold]", 
+                    border_style=self.theme.error_color if self.data.active_alarms else self._get_border_style("green"), 
+                    box=box.ROUNDED)
         
     def render_command_console(self) -> Panel:
         """Render command console with recent log messages."""
@@ -815,7 +982,7 @@ class CLIMonitor:
                 else:
                     content.append(line, style="white")
                     
-        return Panel(content, title="[bold]Command Console[/bold]", border_style="blue", box=box.ROUNDED)
+        return Panel(content, title="[bold]Command Console[/bold]", border_style=self._get_border_style("blue"), box=box.ROUNDED)
         
     def render_footer(self) -> Panel:
         """Render footer with keyboard shortcuts or prompt."""
@@ -824,7 +991,7 @@ class CLIMonitor:
             prompt_text = f"{self.prompt_mode.capitalize()} watts: {self.prompt_buffer}_"
             content = Text(prompt_text, style="bold yellow")
             content.append(" [Enter=send Esc=cancel]", style="dim")
-            return Panel(content, box=box.SIMPLE, padding=(0, 1), border_style="yellow")
+            return Panel(content, box=box.SIMPLE, padding=(0, 1), border_style=self._get_border_style("yellow"))
         else:
             # Show normal shortcuts - organized by function
             line1 = Text()
@@ -879,7 +1046,7 @@ class CLIMonitor:
         
         content = Text(help_text)
         return Panel(content, title="[bold]Keyboard Help[/bold] (press h to close)", 
-                    border_style="cyan", box=box.DOUBLE)
+                    border_style=self._get_border_style("cyan"), box=box.DOUBLE)
         
     def update_display(self) -> Layout:
         """Update all panels and return the layout."""
@@ -888,8 +1055,9 @@ class CLIMonitor:
         layout["header"].update(self.render_header())
         layout["footer"].update(self.render_footer())
         
-        # If help is shown, replace body with help panel
+        # If help is shown, unsplit body and show help full-screen
         if self.show_help:
+            layout["body"].unsplit()
             layout["body"].update(self.render_help())
         else:
             layout["power_flow"].update(self.render_power_flow())
