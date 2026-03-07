@@ -1,0 +1,122 @@
+{
+  "sites": {
+    "default": {
+      "id": "default",
+      "name": "Home",
+      "description": "Default local site",
+      "is_local": true,
+      "remote_host": "",
+      "remote_port": 502,
+      "created_at": "",
+      "updated_at": ""
+    }
+  },
+  "devices": [
+    {
+      "id": "default",
+      "name": "Primary aGate",
+      "host": "192.168.0.110",
+      "port": 502,
+      "unit_id": 1,
+      "base_address": 40000,
+      "timeout": 10.0,
+      "enabled": true,
+      "description": "",
+      "site_id": "default",
+      "manufacturer": "FranklinWH Technologies Co., Ltd",
+      "model": "aGate X",
+      "serial_number": "FWH123456789",
+      "firmware_version": "V10R01B04D00",
+      "device_address": 0,
+      "last_connected": "2026-03-07T15:30:25.076756",
+      "first_discovered": "2026-03-07T15:30:25.076756",
+      "mqtt_publish_enabled": true,
+      "mqtt_publish_state": "setup"
+    }
+  ],
+  "modbus": {
+    "host": "192.168.0.110",
+    "port": 502,
+    "unit_id": 1,
+    "base_address": 40000,
+    "timeout": 10.0
+  },
+  "mqtt": {
+    "host": "192.168.0.109",
+    "port": 1883,
+    "username": "mqttuser",
+    "password": "mqttuser",
+    "client_id": "franklinwh_modbus",
+    "enabled": false,
+    "qos": 0,
+    "site_name": "Home",
+    "site_id": "default",
+    "site_description": "",
+    "is_remote_site": false,
+    "discovery_prefix": "homeassistant",
+    "state_prefix": "franklinwh",
+    "ha_device_name": "",
+    "unique_id_prefix": "fhp_modbus",
+    "retain_discovery": false,
+    "publish_device_ids": [],
+    "publish_devices": {},
+    "publish_battery": false,
+    "publish_inverter": false,
+    "publish_solar": false,
+    "publish_home_loads": false,
+    "publish_capacity": false,
+    "publish_controls": false
+  },
+  "theme": {
+    "mode": "dark",
+    "primary_color": "#3b82f6",
+    "secondary_color": "#10b981",
+    "accent_color": "#f59e0b",
+    "background_color": "#ffffff",
+    "surface_color": "#f3f4f6",
+    "text_color": "#111827"
+  },
+  "auto_refresh": true,
+  "refresh_interval": 30,
+  "log_level": "INFO",
+  "log_retention_days": 30,
+  "mock_mode": true,
+  "widgets": {
+    "soc": {
+      "enabled": true,
+      "position": 0,
+      "refresh_interval": 30,
+      "color": "#3b82f6",
+      "expanded": true,
+      "title": "State of Charge",
+      "icon": "fa-battery-full"
+    },
+    "power": {
+      "enabled": true,
+      "position": 1,
+      "refresh_interval": 30,
+      "color": "#f59e0b",
+      "expanded": true,
+      "title": "Power",
+      "icon": "fa-bolt"
+    },
+    "health": {
+      "enabled": true,
+      "position": 2,
+      "refresh_interval": 30,
+      "color": "#10b981",
+      "expanded": true,
+      "title": "System Health",
+      "icon": "fa-heartbeat"
+    },
+    "mode": {
+      "enabled": true,
+      "position": 3,
+      "refresh_interval": 30,
+      "color": "#8b5cf6",
+      "expanded": true,
+      "title": "Operating Mode",
+      "icon": "fa-sliders-h"
+    }
+  }
+}

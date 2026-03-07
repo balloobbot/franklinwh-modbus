@@ -1,92 +1,112 @@
-# FranklinWH Battery Manager
+# FranklinWH Modbus Library
 
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://docker.com)
-[![Home Assistant](https://img.shields.io/badge/home%20assistant-add--on-green.svg)](https://home-assistant.io)
 [![Modbus TCP](https://img.shields.io/badge/modbus-tcp-orange.svg)](https://modbus.org)
 [![SunSpec](https://img.shields.io/badge/sunspec-2.0-yellow.svg)](https://sunspec.org)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)]()
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
+
+A Python library for controlling FranklinWH battery storage systems via Modbus TCP, optimized for the aGate gateway with SunSpec model support and FranklinWH extension registers.
+
+> **Status:** Core library under active development, targeting PyPi publication.
 
 ## Quick Links
 
+- [📖 Library & CLI Usage Guide](./USAGE_GUIDE.md)
 - [📚 Documentation](./docs/README.md)
-- [📖 CLI & Library Usage Guide](./USAGE_GUIDE.md)
 - [🧪 Hardware Test Guide](./docs/HARDWARE_TEST_GUIDE.md)
+- [🗺️ Phases & Roadmap](./PHASES_AND_ROADMAP.md)
 
-## Quick Start - Command Line
+## Installation
 
 ```bash
-# Check system health and detect conflicts
-python3 franklinwh_cli.py -i 192.168.0.110 --healthcheck
+git clone git@github.com:david2069/franklinwh-modbus.git
+cd franklinwh-modbus
+python3 -m venv venv && source venv/bin/activate
+pip install -e ".[dev]"
+```
 
-# View current status including alarms
+## Library Usage
+
+```python
+from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+
+# Connect to aGate
+ctrl = FranklinWHController('192.168.0.110')
+ctrl.connect()
+
+# Read battery status
+status = ctrl.read_battery_status()
+print(f"SoC: {status['soc']:.1f}%")
+
+# Charge at 3000W
+from franklinwh import BatteryCommand
+cmd = BatteryCommand(power_watts=3000)
+ctrl.send_command(cmd)
+
+# Release control
+ctrl.reset_control_state()
+ctrl.disconnect()
+```
+
+## CLI Quick Start
+
+```bash
+# System status
 python3 franklinwh_cli.py -i 192.168.0.110 --status
 
-# Detailed alarm check
-python3 franklinwh_cli.py -i 192.168.0.110 --check-alarms
+# Health check with conflict detection
+python3 franklinwh_cli.py -i 192.168.0.110 --healthcheck
 
-# Self-consumption mode (charges at 5000W like vendor app)
-python3 franklinwh_cli.py -i 192.168.0.110 --mode self_consumption --target-soc 90
-
-# Emergency backup mode
-python3 franklinwh_cli.py -i 192.168.0.110 --mode emergency_backup --target-soc 95
-
-# Manual control (charge at 3000W for 1 hour)
-python3 franklinwh_cli.py -i 192.168.0.110 --mode manual --power 3000 --duration 3600
-
-# Charge with auto-revert (safety timer - releases control after 2 hours)
+# Charge at 3000W with auto-revert after 2 hours
 python3 franklinwh_cli.py -i 192.168.0.110 --charge 3000 --revert 7200
 
-# Stop control and release aGate
+# Self-consumption mode
+python3 franklinwh_cli.py -i 192.168.0.110 --mode self_consumption --target-soc 90
+
+# Terminal UI monitor (requires `rich`)
+python3 franklinwh_cli.py -i 192.168.0.110 --monitor
+
+# Release control
 python3 franklinwh_cli.py -i 192.168.0.110 --stop
-
-# Clear alarms after resolving faults
-python3 franklinwh_cli.py -i 192.168.0.110 --clear-alarms
 ```
 
-### Conflict Prevention
-
-The CLI automatically detects conflicts with aGate Cloud API:
-
-```
-🚨 CONFLICTS DETECTED - aGate is actively controlling:
-   • aGate Self-Consumption actively CHARGING at 5000W
-
-⚠️  Use --reset-on-start to force takeover
-⚠️  Or change aGate mode in vendor app first
-⚠️  Exiting to avoid fighting with aGate control!
-```
-
-Use `--reset-on-start` only when you're sure you want to override Cloud API control.
-
-## Overview
-
-FranklinWH Battery Manager provides real-time monitoring and control of FranklinWH battery storage systems using Modbus TCP communication. It bridges the gap between proprietary battery protocols and modern home automation platforms.
-
-### Key Capabilities
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| **Real-time Monitoring** | SOC, SOH, power flow, temperature, cycles |
-| **Operating Modes** | Standby, Normal, Backup Reserve, Self-Consumption, Time-of-Use |
-| **Reserve Management** | Configurable SOC reserves for backup power |
-| **Power Control** | Set charge/discharge limits in kW, amps, or percentage |
-| **Home Assistant** | Auto-discovery via MQTT with 50+ entities |
-| **Web Interface** | Modern, responsive UI with dark/light themes |
-| **Raw Register Access** | Explore non-standard FranklinWH extensions |
-| **Docker/Add-on** | Run as container or Home Assistant add-on |
-| **🚨 Alarm Monitoring** | System, DC port, battery, solar alarm detection |
-| **⚡ Conflict Detection** | Prevents fighting with Cloud API/native modes |
-| **🔄 Auto-Reconnection** | Survives connection drops with retry logic |
-| **🎯 Target Validation** | Exits if target SoC already reached |
-| **📊 SOC Summary** | Single-line status: `SoC: 36% | Target: 40% | ETA: +6min` |
+| **Modbus TCP** | Direct register read/write via pymodbus |
+| **SunSpec Models** | Models 1, 701-706, 713-715 |
+| **FranklinWH Extensions** | Registers 15507-15509 (OnGridMode, reserves) |
+| **Virtual Modes** | Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual |
+| **Conflict Detection** | Detects aGate Cloud API activity before taking control |
+| **SoC Safety** | Reserve validation, target checking, safety margins |
+| **Alarm Monitoring** | System, DC port, battery, solar alarms |
+| **Auto-Revert** | Safety timer releases control automatically |
+
+## Project Structure
+
+```
+franklinwh-modbus/
+├── src/franklinwh/          # Core library (the package)
+│   ├── controller.py        # FranklinWHController — Modbus interface
+│   ├── modes.py             # VirtualModeController — control modes
+│   ├── types.py             # BatteryCommand, VirtualMode, enums
+│   ├── schedule.py          # TOUSchedule — time-of-use
+│   ├── monitor.py           # CLIMonitor — TUI (optional, needs rich)
+│   └── constants.py         # Register addresses, limits
+├── franklinwh_cli.py        # CLI tool (consumes the library)
+├── tests/                   # Unit + integration + hardware tests
+├── docs/                    # Current documentation
+├── tools/                   # Utility scripts
+├── schedules/               # TOU schedule definitions
+└── archive/                 # Historical docs, deprecated code, web app
+```
 
 ## Supported Hardware
 
 | Model | Status | Notes |
 |-------|--------|-------|
-| FranklinWH aPower | ✅ Full Support | All features |
+| FranklinWH aPower | ✅ Full Support | Battery storage |
 | FranklinWH aGate | ✅ Full Support | Communication gateway |
-| SunSpec Compliant Inverters | ⚠️ Partial | Basic monitoring only |
 
 ## SunSpec Model Support
 
@@ -103,7 +123,7 @@ FranklinWH Battery Manager provides real-time monitoring and control of Franklin
 | 714 | DER Storage Status | ✅ | ❌ |
 | 715 | DER Storage Controls | ✅ | ✅ |
 
-## FranklinWH Extensions
+## FranklinWH Extension Registers
 
 | Register | Address | Access | Description |
 |----------|---------|--------|-------------|
@@ -111,6 +131,6 @@ FranklinWH Battery Manager provides real-time monitoring and control of Franklin
 | Self Reserve SOC | 15508 | RW | Self-consumption reserve percentage (0-100) |
 | TOU Reserve SOC | 15509 | RW | Time-of-Use reserve percentage (0-100) |
 
-## Architecture
+## License
 
-See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for details on AC-coupled vs DC-coupled systems.
+See [LICENSE](./LICENSE).
