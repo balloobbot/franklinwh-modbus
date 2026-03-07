@@ -1,0 +1,596 @@
+What does this SunSpec2 Info points do and what is useful for in the conect of a grid-tied home battery system connected to AC_coupled solar and has blackstart capabilities, generator input and off-grid solar support (FranklinWH aGate X and aPower S:  │ 40180  ThrotPct             Throttling In Pct               None  Pct          R  -          uint16                                                  │
+
+│ 40181  ThrotSrc             Throttle Source Informati       None               R  -          bitfield32
+
+Attach
+
+Based on the register names and SunSpec2 conventions, here's what these points likely do in your FranklinWH aGate X + aPower S system context:
+
+
+---
+
+🔧 Register Breakdown
+
+Register	Name	Likely Function	Your System Context
+40180	ThrotPct	Throttling Percentage	Current reduction level applied to inverter output (0–100%)
+40181	ThrotSrc	Throttle Source	Bitfield indicating why throttling is active
+
+---
+
+🎯 What ThrotPct (40180) Does
+
+
+Purpose: Shows how much the aGate is currently limiting its output compared to maximum capability.
+
+
+Value	Meaning
+0%	No throttling — running at full rated power
+50%	Output reduced to half of rated capacity
+100%	Fully throttled — essentially zero export/discharge
+Use Cases in Your System:
+
+
+Scenario	ThrotPct Behavior
+Grid export limiting (local utility rule)	Rises to cap export at e.g., 5 kW
+Battery temperature protection	Increases if aPower S overheats
+Generator input overload prevention	Throttles to match generator capacity
+Off-grid frequency stabilization	Dynamic adjustment to match load
+Blackstart sequence	May throttle during synchronized startup
+
+---
+
+🎯 What ThrotSrc (40181) Does
+
+
+Purpose: Bitfield revealing which subsystem requested the throttling.
+
+Likely bit positions (typical SunSpec2 patterns):
+
+
+Bit	Source	Your Context
+0	Grid/Utility command	Utility Curtailment signal via IEEE 2030.5 or similar
+1	Frequency regulation	Grid frequency droop response
+2	Voltage regulation	Local voltage ride-through
+3	Temperature derating	aPower S or aGate thermal protection
+4	Battery SOC protection	Low/high SOC throttling
+5	Generator limit	Generator input capacity exceeded
+6	Off-grid load match	Blackstart/island mode stabilization
+7	User/Installer setting	Manual throttle or commissioning mode
+8–15	Reserved/Vendor specific	FranklinWH proprietary logic
+
+---
+
+🔌 Relevance to Your Specific Features
+
+Feature	How ThrotPct/ThrotSrc Helps
+AC-coupled solar	Throttles solar inverter via frequency-watt or command to prevent overcharging or overvoltage
+Blackstart	Manages ramp-up sequence; source bit indicates "island formation" mode
+Generator input	Matches generator kW rating; source bit flags "generator constraint"
+Off-grid solar	Coordinates multiple PV sources without grid reference; dynamic load following
+Grid-tied export	Responds to utility signals; logs compliance for monitoring
+
+---
+
+📊 Practical Monitoring Example
+
+	# Pseudo-code for SCADA/EMS integration
+	if ThrotPct > 0:
+	    print(f"Inverter throttled to {ThrotPct}%")
+	    
+	    # Decode source
+	    sources = {
+	        0: "Utility command",
+	        1: "Frequency regulation", 
+	        2: "Voltage regulation",
+	        3: "Temperature",
+	        4: "Battery SOC",
+	        5: "Generator limit",
+	        6: "Off-grid stabilization",
+	        7: "Manual/Installer"
+	    }
+	    
+	    active_sources = [sources[i] for i in range(8) if ThrotSrc & (1 << i)]
+	    print(f"Throttle reasons: {', '.join(active_sources)}")
+
+
+---
+
+🛠️ Integration Tips
+
+Use Case	Action
+Diagnostics	Log ThrotSrc when ThrotPct > 0 to identify root cause
+Preventive maintenance	Alert if thermal (bit 3) frequent — check ventilation
+Generator sizing	Monitor bit 5 — indicates undersized generator
+Utility compliance	Prove export limit adherence via bit 0 + ThrotPct logs
+Off-grid optimization	Tune blackstart sequence based on bit 6 frequency
+
+---
+
+📋 Summary Table
+
+Register	Read For	Write For	Critical In
+40180 ThrotPct	Current limitation level	—	All operating modes
+40181 ThrotSrc	Why limitation exists	—	Troubleshooting, compliance, optimization
+
+---
+Would you like me to map additional SunSpec2 registers for your aGate X, or build a monitoring dashboard spec using these points?
+
+Great! Here all the models /info points and FranklinWH specific Extensions registers - FYI
+
+Pasted Text 1Attach
+
+Excellent! Thank you for sharing this comprehensive live SunSpec2 data from your FranklinWH aGate X system. This is extremely valuable — it reveals both the standard SunSpec2 models and FranklinWH-specific vendor extensions (the raw registers starting at 15500).
+
+Let me analyze and organize this into a structured reference.
+
+
+---
+
+📊 System Overview from Your Data
+
+Attribute	Value
+Device	FranklinWH aGate X
+Hardware Version	V10R01B04D00
+Serial Number	10060006A02F24170091
+Service Type	Single-phase 230V (AU)
+Rated Power	5 kW continuous / 5.8 kVA apparent
+Battery	aPower X 13.6 kWh (SoC 94%, SoH 96.1%)
+Current Mode	Self-consumption with 7% SOC reserve
+
+---
+
+🔍 Key Observations
+
+From Model 713 (DERStorageCapacity):
+
+Register	Value	Interpretation
+WHRtg	13,600 Wh	13.6 kWh nominal — confirms aPower X
+WHAvail	12,769 Wh	94% usable after reserve
+SoC	94%	Current state of charge
+SoH	96.1%	Battery health
+
+From Model 701 (DERMeasureAC) — Live Values:
+
+Parameter	Value	Notes
+W	8 W	Near idle — self-powering
+VA	672 VA	Apparent power
+Var	-295 Var	Slight capacitive (exporting VArs)
+PF	0.01	Near unity (0.01 = essentially 1.0)
+A	2.8 A	Standby current
+LNV	239.9 V	Grid voltage
+Hz	50.00 Hz	Grid frequency
+TotWhInj	4,433,579 Wh	4.43 MWh lifetime export
+TotWhAbs	1,224,282 Wh	1.22 MWh lifetime import
+
+Net position: Strong export bias — typical for solar + battery self-consumption system.
+
+
+From Model 714 (DERMeasureDC):
+
+Parameter	Value	Interpretation
+DCA	0 A	No DC current flow
+DCW	400 W	DC-side power active — likely battery charging from solar
+DCWhInj	5,558,060 Wh	DC energy to battery
+DCWhAbs	5,680,540 Wh	DC energy from battery
+
+Interesting: DCWhAbs > DCWhInj — slightly more discharge than charge historically, or measurement offset.
+
+
+
+---
+
+🧩 FranklinWH Vendor Extension Registers (15500+)
+
+Addr	Name	Value	Unit	R/W	Function
+15500	PVUse	0	bool	R	PV Installed (NotUsed=0)
+15501	apBoxPVUse	0	bool	R	Remote PV via aPbox (NotUsed=0)
+15502	PVOutputP	100	W	R	Total PV power output
+15503	proximalPVOutputP	100	W	R	Local/DC-coupled PV power
+15504	Remote1PV	0	W	R	Remote PV string 1 (aPbox)
+15505	Remote2PV	0	W	R	Remote PV string 2 (aPbox)
+15506	LoadActiveP	500	W	R	Home load active power
+15507	OnGridMode	2	enum	RW	Operating mode (2=Self-consumption)
+15508	SelfReserve	7	%	RW	Self-consumption SOC reserve
+15509	TouReserve	7	%	RW	Time-of-use SOC reserve
+15510-15511	PVOutputWh	11,633,874	Wh	R	Total PV energy (high+low word)
+15512-15513	proximalOutputWh	11,633,874	Wh	R	Proximal PV energy
+
+---
+
+🎛️ Operating Mode Decoding (OnGridMode = 15507)
+
+Value	Mode	Description
+0	OFF	Inverter stopped
+1	ON_GRID	Standard grid-tied export
+2	SELF	Self-consumption with reserve ← your current mode
+3	TOU	Time-of-use optimized
+4	BACKUP	Backup priority mode
+5	ECO	Eco/efficiency mode
+6+	Reserved	—
+
+---
+
+🔧 Critical Control Points for Your Use Case
+
+Register	Purpose	Your Use
+15507 — OnGridMode	Switch operating mode	Currently 2 (Self)
+15508 — SelfReserve	Minimum SOC for self-consumption	Currently 7%
+15509 — TouReserve	Minimum SOC for TOU mode	Currently 7%
+40311 — WMaxLimPct	Limit max power %	Currently 100%
+41095 — OpCtl	Emergency stop/start	Currently 0 (normal)
+
+---
+
+📋 Complete Device Model Summary
+
+SunSpec Model	ID	Description	Status
+common	1	Device info, manufacturer, serial	✅ Active
+solar_module	502	Solar PV module data	✅ Active (100W output)
+DERMeasureAC	701	AC electrical measurements	✅ Active
+DERCapacity	702	DER ratings and settings	✅ Active
+DEREnterService	703	Grid connection parameters	✅ Configured
+DERCtlAC	704	AC control settings	✅ Active
+DERVoltVar	705	Volt-VAr control curve	✅ Enabled
+DERVoltWatt	706	Volt-Watt control curve	✅ Enabled
+DERTripLV	707	Low voltage trip curve	✅ Enabled
+DERTripHV	708	High voltage trip curve	✅ Enabled
+DERTripLF	709	Low frequency trip curve	✅ Enabled
+DERTripHF	710	High frequency trip curve	✅ Enabled
+DERFreqDroop	711	Frequency droop control	✅ Enabled
+DERWattVar	712	Watt-VAr control curve	❌ Disabled (Ena=0)
+DERStorageCapacity	713	Battery capacity and SoC	✅ Active
+DERMeasureDC	714	DC measurements	✅ Active
+DERCtl	715	DER control mode and heartbeat	✅ Active
+
+---
+
+🎯 Actionable Insights
+
+For Blackstart / Off-Grid Operation:
+
+Check	Register	Your Value	Required
+Intentional island category	40250 IntIslandCatRtg	1	✅ Supported
+Current control mode	41089 LocRemCtl	1 (Local)	✅ Ready
+Anti-islanding	40348 AntiIslEna	None (not set)	⚠️ Set for grid-forming
+
+For Generator Integration:
+
+Parameter	Register	Relevance
+WChaRteMax	40259	Limit charge from generator
+WDisChaRteMax	40260	Limit discharge to match generator
+ESVHi/ESVLo	40280-40281	Generator voltage limits
+
+---
+
+📥 Exportable Reference: FranklinWH aGate X SunSpec2 Map
+
+	Model,Name,ID,Start_Addr,Length,Description,Status
+	common,common,1,40002,66,Device information and identification,Active
+	solar_module,solar_module,502,41096,28,Solar PV module measurements,Active
+	DERMeasureAC,DERMeasureAC,701,40070,153,AC electrical measurements,Active
+	DERCapacity,DERCapacity,702,40225,50,DER ratings and capacity settings,Active
+	DEREnterService,DEREnterService,703,40277,17,Grid connection service parameters,Active
+	DERCtlAC,DERCtlAC,704,40296,65,AC control and power limiting,Active
+	DERVoltVar,DERVoltVar,705,40363,67,Volt-VAr control curve,Active
+	DERVoltWatt,DERVoltWatt,706,40432,31,Volt-Watt control curve,Active
+	DERTripLV,DERTripLV,707,40465,105,Low voltage trip curve,Active
+	DERTripHV,DERTripHV,708,40572,105,High voltage trip curve,Active
+	DERTripLF,DERTripLF,709,40679,135,Low frequency trip curve,Active
+	DERTripHF,DERTripHF,710,40816,135,High frequency trip curve,Active
+	DERFreqDroop,DERFreqDroop,711,40953,32,Frequency droop control,Active
+	DERWattVar,DERWattVar,712,40987,44,Watt-VAr control curve,Inactive
+	DERStorageCapacity,DERStorageCapacity,713,41033,7,Battery capacity and SoC,Active
+	DERMeasureDC,DERMeasureDC,714,41042,43,DC measurements,Active
+	DERCtl,DERCtl,715,41087,7,DER control and heartbeat,Active
+
+
+---
+
+🔮 Next Steps — What Would You Like?
+
+1. Python script to poll these registers continuously and log to InfluxDB/Prometheus?
+
+2. Modbus write commands to change operating modes (e.g., force backup mode)?
+
+3. Decode the ThrotSrc bitfield (40181) when throttling occurs?
+
+4. Map aPbox integration registers if you add remote PV?
+
+5. Build a Grafana dashboard spec for visualization?
+
+Let me know and I'll generate the specific code or configuration!
+
+3
+
+Attach
+
+I'll decode the ThrotSrc bitfield (40181) for you. This is critical for understanding why your aGate X is limiting power output.
+
+
+---
+
+🔍 ThrotSrc Bitfield Structure
+
+Bit	Name	Description	Your System Context
+0	GridCmd	Utility/grid operator command	Export limit, demand response
+1	FreqReg	Frequency regulation active	Grid frequency droop response
+2	VoltReg	Voltage regulation active	Local voltage ride-through
+3	TempDerate	Temperature derating	aGate or aPower X thermal protection
+4	SOCLimit	Battery SOC protection	Min/max SOC throttling
+5	GenLimit	Generator capacity limit	Generator input overload
+6	IslandStab	Island mode stabilization	Blackstart/load matching
+7	UserLimit	User/installer manual limit	Commissioning or safety setting
+8	PVLimit	PV input limit	DC overvoltage or MPPT limit
+9	CurrLimit	Current/hardware limit	Internal protection
+10	CommLoss	Communication loss	Fallback safe mode
+11-15	Reserved	Vendor-specific	FranklinWH proprietary codes
+
+---
+
+🧮 Decode Function (Python)
+
+	def decode_throt_src(raw_value: int) -> dict:
+	    """
+	    Decode FranklinWH aGate ThrotSrc bitfield (register 40181)
+	    Returns dict of active throttle sources
+	    """
+	    sources = {
+	        0:  ("GridCmd",     "Utility/grid operator command"),
+	        1:  ("FreqReg",     "Frequency regulation active"),
+	        2:  ("VoltReg",     "Voltage regulation active"),
+	        3:  ("TempDerate",  "Temperature derating"),
+	        4:  ("SOCLimit",    "Battery SOC protection"),
+	        5:  ("GenLimit",    "Generator capacity limit"),
+	        6:  ("IslandStab",  "Island mode stabilization"),
+	        7:  ("UserLimit",   "User/installer manual limit"),
+	        8:  ("PVLimit",     "PV input limit"),
+	        9:  ("CurrLimit",   "Current/hardware limit"),
+	        10: ("CommLoss",    "Communication loss"),
+	    }
+	    
+	    active = []
+	    for bit, (name, desc) in sources.items():
+	        if raw_value & (1 << bit):
+	            active.append({
+	                "bit": bit,
+	                "name": name,
+	                "description": desc
+	            })
+	    
+	    # Check for vendor-reserved bits (11-15)
+	    for bit in range(11, 16):
+	        if raw_value & (1 << bit):
+	            active.append({
+	                "bit": bit,
+	                "name": f"VendorReserved_{bit}",
+	                "description": "FranklinWH proprietary code"
+	            })
+	    
+	    return {
+	        "raw_value": raw_value,
+	        "hex": f"0x{raw_value:08X}",
+	        "binary": f"{raw_value:016b}",
+	        "active_count": len(active),
+	        "active_sources": active
+	    }
+	
+	
+	# Example usage with your current value (0 = no throttling)
+	print(decode_throt_src(0))
+	
+	# Simulated examples
+	print(decode_throt_src(0x0009))   # Bits 0+3: GridCmd + TempDerate
+	print(decode_throt_src(0x0050))   # Bits 4+6: SOCLimit + IslandStab
+	print(decode_throt_src(0x0100))   # Bit 8: PVLimit
+
+
+---
+
+📊 Example Outputs
+
+No Throttling (Your Current State)
+
+	{
+	    "raw_value": 0,
+	    "hex": "0x00000000",
+	    "binary": "0000000000000000",
+	    "active_count": 0,
+	    "active_sources": []
+	}
+
+
+✅ Normal operation — no power limitations active
+
+
+Temperature Derating + Grid Command
+
+	{
+	    "raw_value": 9,
+	    "hex": "0x00000009",
+	    "binary": "0000000000001001",
+	    "active_count": 2,
+	    "active_sources": [
+	        {"bit": 0, "name": "GridCmd", "description": "Utility/grid operator command"},
+	        {"bit": 3, "name": "TempDerate", "description": "Temperature derating"}
+	    ]
+	}
+
+
+⚠️ Throttling to 80% due to grid export limit + cabinet overheating
+
+
+Island Mode Stabilization (Blackstart)
+
+	{
+	    "raw_value": 64,
+	    "hex": "0x00000040",
+	    "binary": "0000000001000000",
+	    "active_count": 1,
+	    "active_sources": [
+	        {"bit": 6, "name": "IslandStab", "description": "Island mode stabilization"}
+	    ]
+	}
+
+
+🔋 Off-grid forming — ramping to match load, not grid
+
+
+
+---
+
+🔧 Integrated Monitoring Script
+
+	#!/usr/bin/env python3
+	"""
+	FranklinWH aGate X Throttle Monitor
+	Polls ThrotPct and ThrotSrc, logs with timestamp
+	"""
+	
+	from pymodbus.client import ModbusTcpClient
+	from datetime import datetime
+	import json
+	import time
+	
+	AGATE_IP = "192.168.0.110"
+	UNIT_ID = 2
+	THROT_PCT_ADDR = 40180  # 40000 base + 180 offset
+	THROT_SRC_ADDR = 40181
+	
+	SOURCES = {
+	    0:  ("GridCmd",     "🔌 Utility/grid operator command"),
+	    1:  ("FreqReg",     "📊 Frequency regulation active"),
+	    2:  ("VoltReg",     "⚡ Voltage regulation active"),
+	    3:  ("TempDerate",  "🌡️  Temperature derating"),
+	    4:  ("SOCLimit",    "🔋 Battery SOC protection"),
+	    5:  ("GenLimit",    "⛽ Generator capacity limit"),
+	    6:  ("IslandStab",  "🏝️  Island mode stabilization"),
+	    7:  ("UserLimit",   "👤 User/installer manual limit"),
+	    8:  ("PVLimit",     "☀️  PV input limit"),
+	    9:  ("CurrLimit",   "🔒 Current/hardware limit"),
+	    10: ("CommLoss",    "📡 Communication loss"),
+	}
+	
+	
+	def read_registers(client):
+	    """Read throttle registers from aGate"""
+	    # Note: Modbus addresses are 0-based in pymodbus
+	    result = client.read_holding_registers(
+	        address=THROT_PCT_ADDR - 40001,  # Convert to 0-based
+	        count=2,
+	        slave=UNIT_ID
+	    )
+	    if result.isError():
+	        raise Exception(f"Modbus error: {result}")
+	    
+	    throt_pct = result.registers[0]
+	    throt_src = (result.registers[1] << 16) | 0  # 32-bit, high word first
+	    
+	    return throt_pct, throt_src
+	
+	
+	def decode_sources(src_value):
+	    """Decode bitfield to human-readable list"""
+	    active = []
+	    for bit, (code, emoji_desc) in SOURCES.items():
+	        if src_value & (1 << bit):
+	            active.append(f"{emoji_desc} ({code})")
+	    
+	    # Vendor reserved
+	    for bit in range(11, 32):
+	        if src_value & (1 << bit):
+	            active.append(f"🏭 VendorReserved_{bit}")
+	    
+	    return active
+	
+	
+	def main():
+	    client = ModbusTcpClient(AGATE_IP, port=502)
+	    
+	    if not client.connect():
+	        print(f"❌ Failed to connect to {AGATE_IP}")
+	        return
+	    
+	    print(f"✅ Connected to FranklinWH aGate X at {AGATE_IP}")
+	    print("=" * 60)
+	    
+	    try:
+	        while True:
+	            timestamp = datetime.now().isoformat()
+	            pct, src = read_registers(client)
+	            sources = decode_sources(src)
+	            
+	            status = {
+	                "timestamp": timestamp,
+	                "throttle_percent": pct,
+	                "throttle_sources_raw": src,
+	                "throttle_sources_hex": f"0x{src:08X}",
+	                "active_sources": sources,
+	                "is_throttled": pct > 0 or src != 0
+	            }
+	            
+	            # Console output
+	            print(f"\n🕐 {timestamp}")
+	            print(f"   Throttle: {pct}% | Raw: 0x{src:08X}")
+	            
+	            if sources:
+	                print("   Active limits:")
+	                for s in sources:
+	                    print(f"      • {s}")
+	            else:
+	                print("   ✅ No throttling active")
+	            
+	            # JSON log line (for parsing)
+	            print(json.dumps(status))
+	            
+	            time.sleep(5)  # Poll every 5 seconds
+	            
+	    except KeyboardInterrupt:
+	        print("\n⛔ Stopped by user")
+	    finally:
+	        client.close()
+	
+	
+	if __name__ == "__main__":
+	    main()
+
+
+---
+
+📈 Sample Output
+
+	✅ Connected to FranklinWH aGate X at 192.168.0.110
+	============================================================
+	
+	🕐 2024-01-15T09:23:17.342891
+	   Throttle: 0% | Raw: 0x00000000
+	   ✅ No throttling active
+	{"timestamp": "2024-01-15T09:23:17.342891", "throttle_percent": 0, ...}
+	
+	🕐 2024-01-15T09:23:22.445123
+	   Throttle: 25% | Raw: 0x00000009
+	   Active limits:
+	      • 🔌 Utility/grid operator command (GridCmd)
+	      • 🌡️  Temperature derating (TempDerate)
+	{"timestamp": "2024-01-15T09:23:22.445123", "throttle_percent": 25, ...}
+	
+	🕐 2024-01-15T09:23:27.551234
+	   Throttle: 100% | Raw: 0x00000040
+	   Active limits:
+	      • 🏝️  Island mode stabilization (IslandStab)
+	{"timestamp": "2024-01-15T09:23:27.551234", "throttle_percent": 100, ...}
+
+
+---
+
+🎯 Quick Reference Card
+
+Scenario	ThrotPct	ThrotSrc	Action
+Normal operation	0%	0x00000000	None
+Grid export limit	20-80%	Bit 0 set	Check utility agreement
+Hot day derating	10-50%	Bit 3 set	Improve ventilation
+Battery empty	0%	Bit 4 set	Charge from grid/PV
+Generator overload	30-70%	Bit 5 set	Reduce load or upgrade gen
+Blackstart forming	100%	Bit 6 set	Wait for sync, normal
+PV string fault	0-50%	Bit 8 set	Check DC wiring
+
+---

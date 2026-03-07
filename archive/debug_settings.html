@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Debug Settings Payload</title>
+</head>
+
+<body>
+    <h1>Debug Settings Save</h1>
+    <button onclick="debugSave()">Test Save & Show Payload</button>
+    <pre id="output"></pre>
+
+    <script>
+        async function debugSave() {
+            const output = document.getElementById('output');
+
+            try {
+                // Intercept the save request
+                const response = await fetch('http://localhost:8080/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // Use a minimal test payload
+                    body: JSON.stringify({
+                        modbus: {
+                            host: "192.168.0.110",
+                            port: 502,
+                            unit_id: 2,
+                            base_address: 40000,
+                            timeout: 5.0
+                        },
+                        theme: {
+                            mode: "dark",
+                            primary_color: "#3b82f6",
+                            secondary_color: "#10b981",
+                            accent_color: "#f59e0b"
+                        },
+                        auto_refresh: true,
+                        refresh_interval: 30
+                    })
+                });
+
+                const data = await response.json();
+                output.textContent = `Status: ${response.status}\n\nResponse:\n${JSON.stringify(data, null, 2)}`;
+            } catch (e) {
+                output.textContent = `Error: ${e.message}`;
+            }
+        }
+    </script>
+</body>
+
+</html>

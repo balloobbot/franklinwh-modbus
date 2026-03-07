@@ -85,6 +85,13 @@ class TestVirtualModeControllerIntegration:
             'tou_reserve_pct': 15,
         }
         
+        # Mock check_state to return no conflicts (required by set_mode())
+        ctrl.check_state.return_value = {
+            'conflicts': [],
+            'soc': 75.0,
+            'battery_activity': 'IDLE',
+        }
+        
         # Mock send_command to return success
         ctrl.send_command.return_value = (True, "Command sent: 1500W")
         
@@ -102,15 +109,14 @@ class TestVirtualModeControllerIntegration:
     
     def test_self_consumption_mode_solar_excess(self, vmc, mock_controller):
         """
-        Test self_consumption mode when solar exceeds home load.
+        Test self_consumption mode when SoC is below target.
         
-        Scenario: Solar producing 3500W, home using 2000W
-        Expected: Charge excess 1500W to battery
+        Scenario: SoC at 75% (below default target of 100%)
+        Expected: Full power charge from grid (-5000W) per vendor-matching behavior
         
-        NOTE: VirtualModeController uses opposite convention from BatteryCommand:
-        - VMC: Positive=charge, negative=discharge
-        - BatteryCommand: Positive=discharge, negative=charge
-        This is a known issue that should be fixed in the library split.
+        NOTE: _calc_self_consumption returns -max_charge when SoC < target,
+        matching the vendor app behavior of charging at full power to reach reserve.
+        Negative = charge from grid (BatteryCommand convention).
         """
         # Set up status with solar > home load
         mock_controller.read_solar_status.return_value = {
@@ -126,8 +132,8 @@ class TestVirtualModeControllerIntegration:
         # Execute self-consumption mode
         vmc.set_mode(VirtualMode.SELF_CONSUMPTION, self_reserve_pct=20)
         
-        # Calculate expected power (should charge with excess)
-        status = vmc.read_status()
+        # Calculate expected power
+        # SoC 75% < target 100% → full power charge from grid
         power = vmc._calc_self_consumption(
             solar=3500,
             home=2000,
@@ -135,10 +141,9 @@ class TestVirtualModeControllerIntegration:
             soc=75.0
         )
         
-        # In VMC: Positive=charge, negative=discharge
-        # Excess solar should result in charging (positive power)
-        assert power >= 0, f"Expected charging (positive power in VMC), got {power}W"
-        assert power <= 1500, f"Should not exceed excess solar: {power}W"
+        # When SoC < target: returns -max_charge (negative = charging from grid)
+        assert power < 0, f"Expected charging (negative power = charge from grid), got {power}W"
+        assert power == -5000, f"Expected full-rate charge (-5000W), got {power}W"
     
     def test_self_consumption_mode_grid_import(self, vmc, mock_controller):
         """

@@ -31,7 +31,7 @@ setup(
         ],
     },
     install_requires=[
-        'sunspec2>=1.0.0',
+        'pysunspec2>=1.1.0',
     ],
     extras_require={
         'dev': [

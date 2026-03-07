@@ -1,0 +1,51 @@
+#!/bin/bash
+# FranklinWH Battery Manager - Startup Script
+
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Parse arguments
+QUIET=false
+if [[ "$1" == "-q" ]] || [[ "$1" == "--quiet" ]]; then
+    QUIET=true
+    shift
+fi
+
+# Activate virtual environment
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+else
+    echo "Virtual environment not found. Please run setup first:"
+    echo "  python3 -m venv venv"
+    echo "  source venv/bin/activate"
+    echo "  pip install -r requirements.txt"
+    exit 1
+fi
+
+# Set default environment variables
+export MODBUS_HOST="${MODBUS_HOST:-192.168.0.110}"
+export MODBUS_PORT="${MODBUS_PORT:-502}"
+export MODBUS_UNIT=1
+export MQTT_HOST="${MQTT_HOST:-192.168.0.109}"
+export MQTT_PORT="${MQTT_PORT:-1883}"
+# Note: MQTT_ENABLED is NOT set here - it uses the value from config.json
+export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+
+# Create logs directory if it doesn't exist
+mkdir -p data/logs
+
+# Run the application with logging
+if [ "$QUIET" = true ]; then
+    # Quiet mode: log to file only
+    python -m src.main "$@" >> data/logs/franklinwh.log 2>&1
+else
+    # Verbose mode: log to both terminal and file
+    echo "Starting FranklinWH Battery Manager..."
+    echo "  Modbus: $MODBUS_HOST:$MODBUS_PORT (Unit $MODBUS_UNIT)"
+    echo "  MQTT: $MQTT_HOST:$MQTT_PORT"
+    echo "  Web UI: http://localhost:8080"
+    echo "  Logs: data/logs/franklinwh.log"
+    echo ""
+    python -m src.main "$@" 2>&1 | tee -a data/logs/franklinwh.log
+fi

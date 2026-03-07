@@ -110,6 +110,24 @@ def mock_control_status():
     }
 
 
+def pytest_addoption(parser):
+    """Add custom pytest options."""
+    parser.addoption(
+        "--destructive-enabled",
+        action="store_true",
+        default=False,
+        help="Enable destructive hardware tests that write to battery"
+    )
+    parser.addoption(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Run tests in dry-run mode (no actual writes)"
+    )
+
+
 def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line("markers", "hardware: mark test as requiring actual hardware")
+    config.addinivalue_line("markers", "destructive: mark test as writing to hardware (requires --destructive-enabled)")
+    config.addinivalue_line("markers", "slow: mark test as slow (>1 second)")
