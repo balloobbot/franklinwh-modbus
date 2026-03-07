@@ -1,6 +1,6 @@
 # FranklinWH Modbus Controller - Phases & Roadmap
 
-**Last Updated:** 2026-03-01  
+**Last Updated:** 2026-03-07  
 **Current Phase:** Phase 2 - Core Library Stabilization  
 **Next Milestone:** Virtual Mode Testing Complete
 
@@ -32,10 +32,10 @@
 - ✅ Safety requirements identified
 - ✅ Alarm handling documented
 
-**Key Documents:**
-- [SUNSPEC_MODBUS_TEST_REPORT.md](./SUNSPEC_MODBUS_TEST_REPORT.md)
-- [VPP_MODE_DISCOVERY.md](./VPP_MODE_DISCOVERY.md)
-- [Sunspec2_battery_control_reference.md](./Sunspec2_battery_control_reference.md)
+**Key Documents:** (in `archive/docs/`)
+- SUNSPEC_MODBUS_TEST_REPORT.md
+- VPP_MODE_DISCOVERY.md
+- Sunspec2_battery_control_reference.md
 
 ---
 
@@ -79,10 +79,10 @@
 - ✅ Target vs current validation
 - ✅ Extension register integration (15507-15509)
 
-**Documents:**
-- [SOC_VALIDATION_IMPLEMENTATION.md](./SOC_VALIDATION_IMPLEMENTATION.md)
-- [REQUIREMENTS_SOC_VALIDATION.md](./REQUIREMENTS_SOC_VALIDATION.md)
-- [TRACEABILITY_SOC_VALIDATION.md](./TRACEABILITY_SOC_VALIDATION.md)
+**Documents:** (in `archive/docs/` — work complete)
+- SOC_VALIDATION_IMPLEMENTATION.md
+- REQUIREMENTS_SOC_VALIDATION.md
+- TRACEABILITY_SOC_VALIDATION.md
 
 #### 2.2 Virtual Mode Testing ⚠️ IN PROGRESS
 **Status:** Manual mode ✅ | Other modes need testing
@@ -112,7 +112,7 @@
 **Note:** Context-aware detection that reduces false positives by considering solar/load/grid. Full intent-based detection in Phase 3.
 
 **Documents:**
-- [CONFLICT_DETECTION_ANALYSIS.md](./CONFLICT_DETECTION_ANALYSIS.md)
+- [CONFLICT_DETECTION_ANALYSIS.md](./docs/CONFLICT_DETECTION_ANALYSIS.md)
 
 #### 2.4 TUI Monitor 🟡 PARKED
 - ✅ Implemented with Rich library
@@ -120,7 +120,7 @@
 - ✅ Auto-quiet mode
 - ⚠️ **PARKED** - Waiting for user validation
 
-**Document:** [TODO_TUI_TERMINAL_MONITOR.md](./TODO_TUI_TERMINAL_MONITOR.md)
+**Document:** [TODO_TUI_TERMINAL_MONITOR.md](./archive/docs/TODO_TUI_TERMINAL_MONITOR.md)
 
 ---
 
@@ -145,8 +145,8 @@ Implement intent-based conflict detection to eliminate false positives.
 - Distinguish natural activity from conflicts
 
 **Documents:**
-- [CONFLICT_DETECTION_ANALYSIS.md](./CONFLICT_DETECTION_ANALYSIS.md) - Full analysis
-- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) - Implementation plan
+- [CONFLICT_DETECTION_ANALYSIS.md](./docs/CONFLICT_DETECTION_ANALYSIS.md) - Full analysis
+- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md) - Implementation plan
 
 **Key Deliverables:**
 - Energy flow context display
@@ -169,11 +169,11 @@ Implement intent-based conflict detection to eliminate false positives.
 - Advanced scheduling
 - Pricing API integration
 
-**Documents:**
-- [TODO_DATA_RETENTION.md](./TODO_DATA_RETENTION.md)
-- [TODO_MULTI_AGATE.md](./TODO_MULTI_AGATE.md)
-- [TODO_PRICING_APIS.md](./TODO_PRICING_APIS.md)
-- [TODO_SCHEDULE_LIBRARY.md](./TODO_SCHEDULE_LIBRARY.md)
+**Documents:** (in `archive/docs/` — future planning)
+- TODO_DATA_RETENTION.md
+- TODO_MULTI_AGATE.md
+- TODO_PRICING_APIS.md
+- TODO_SCHEDULE_LIBRARY.md
 
 ---
 
@@ -215,25 +215,21 @@ Implement intent-based conflict detection to eliminate false positives.
 
 ### Documentation by Phase
 
-**Phase 0-1 (Complete):**
-- [SUNSPEC_MODBUS_TEST_REPORT.md](./SUNSPEC_MODBUS_TEST_REPORT.md)
-- [VPP_MODE_DISCOVERY.md](./VPP_MODE_DISCOVERY.md)
-- [BATTERY_CONTROL_SAFETY.md](./BATTERY_CONTROL_SAFETY.md)
+**Phase 0-1 (Complete, in `archive/docs/`):**
+- SUNSPEC_MODBUS_TEST_REPORT.md
+- VPP_MODE_DISCOVERY.md
+- BATTERY_CONTROL_SAFETY.md
 
 **Phase 2 (Current):**
-- [SOC_VALIDATION_IMPLEMENTATION.md](./SOC_VALIDATION_IMPLEMENTATION.md)
-- [REQUIREMENTS_SOC_VALIDATION.md](./REQUIREMENTS_SOC_VALIDATION.md)
-- [TRACEABILITY_SOC_VALIDATION.md](./TRACEABILITY_SOC_VALIDATION.md)
-- [TODO_TUI_TERMINAL_MONITOR.md](./TODO_TUI_TERMINAL_MONITOR.md)
+- SoC validation docs (archived — work complete)
+- [TODO_TUI_TERMINAL_MONITOR.md](./archive/docs/TODO_TUI_TERMINAL_MONITOR.md)
 
 **Phase 3 (Queued):**
-- [CONFLICT_DETECTION_ANALYSIS.md](./CONFLICT_DETECTION_ANALYSIS.md)
-- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md)
+- [CONFLICT_DETECTION_ANALYSIS.md](./docs/CONFLICT_DETECTION_ANALYSIS.md)
+- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md)
 
-**Phase 4 (Future):**
-- [TODO_DATA_RETENTION.md](./TODO_DATA_RETENTION.md)
-- [TODO_MULTI_AGATE.md](./TODO_MULTI_AGATE.md)
-- [TODO_SCHEDULE_LIBRARY.md](./TODO_SCHEDULE_LIBRARY.md)
+**Phase 4 (Future, in `archive/docs/`):**
+- TODO_DATA_RETENTION.md, TODO_MULTI_AGATE.md, TODO_SCHEDULE_LIBRARY.md
 
 ---
 

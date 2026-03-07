@@ -673,12 +673,11 @@ VirtualModeController(
 
 | Mode | Description | Parameters |
 |------|-------------|------------|
-| `VirtualMode.STANDBY` | No control | - |
-| `VirtualMode.NORMAL` | Pass-through | - |
 | `VirtualMode.SELF_CONSUMPTION` | Minimize grid import | `target_soc`, `reserve` |
 | `VirtualMode.EMERGENCY_BACKUP` | Maximize backup | `target_soc` |
-| `VirtualMode.PEAK_SHAVE` | Limit grid power | `threshold` |
 | `VirtualMode.TIME_OF_USE` | Schedule-based | `schedule` |
+| `VirtualMode.GRID_ZERO` | Minimize grid import/export | - |
+| `VirtualMode.PEAK_SHAVE` | Limit grid power | `threshold` |
 | `VirtualMode.MANUAL` | Direct power control | `power_watts` |
 
 ---
@@ -753,11 +752,10 @@ python franklinwh_cli.py -i 192.168.0.110 -t 10 --status
 
 ## Additional Resources
 
-- **Package Import Fix:** See `PACKAGE_IMPORT_FIX_RESPONSE.md`
-- **Hardware Testing:** See `HARDWARE_TEST_GUIDE.md`
-- **Defect Report:** See `DEFECT_REPORT_PACKAGE_IMPORT.md`
-- **Gap Analysis:** See `GAP_ANALYSIS_LIBRARY_CLI.md`
+- **Hardware Testing:** See [docs/HARDWARE_TEST_GUIDE.md](docs/HARDWARE_TEST_GUIDE.md)
+- **Safety Rules:** See [docs/SAFETY_CONTROLS.md](docs/SAFETY_CONTROLS.md)
+- **SunSpec Quirks:** See [docs/FRANKLINWH_SUNSPEC_QUIRKS.md](docs/FRANKLINWH_SUNSPEC_QUIRKS.md)
 
 ---
 
-*Last Updated: 2026-03-01*
+*Last Updated: 2026-03-07 — Fixed VirtualMode enum, updated links after cleanup*

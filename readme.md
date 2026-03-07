@@ -6,25 +6,11 @@
 [![SunSpec](https://img.shields.io/badge/sunspec-2.0-yellow.svg)](https://sunspec.org)
 [![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)]()
 
-A comprehensive battery management system for FranklinWH with **alarm monitoring**, **conflict detection**, and **Cloud API coordination**.
-
-## What's New in v1.3.0
-
-- 🚨 **Alarm Monitoring** - System, DC port, battery, and solar alarm detection
-- ⚡ **Conflict Detection** - Prevents fighting with aGate Cloud API control
-- 🔄 **Auto-Reconnection** - Survives connection drops automatically
-- 🎯 **Target Validation** - Exits if SoC target already reached
-- 📊 **SOC Summary** - Single-line status with ETA calculation
-- ✅ **Vendor-Matching** - Self-consumption mode charges at full 5000W like vendor app
-
-![Dashboard Mockup](./screenshots/dashboard-preview.png)
-
 ## Quick Links
 
-- [📋 Features & Functionality](./FUNCTIONALITY.md)
-- [🚀 Installation Guide](./INSTALLATION.md)
-- [📖 CLI Options Reference](./CLI_OPTIONS.md)
-- [🧪 Test Results (Feb 22, 2026)](./TEST_RESULTS_2026-02-22.md)
+- [📚 Documentation](./docs/README.md)
+- [📖 CLI & Library Usage Guide](./USAGE_GUIDE.md)
+- [🧪 Hardware Test Guide](./docs/HARDWARE_TEST_GUIDE.md)
 
 ## Quick Start - Command Line
 
@@ -121,9 +107,10 @@ FranklinWH Battery Manager provides real-time monitoring and control of Franklin
 
 | Register | Address | Access | Description |
 |----------|---------|--------|-------------|
-| Operating Mode | 15016 | RW | 0=Standby, 1=Normal, 2=Backup, 3=Self-Consume, 4=TOU |
-| Reserve SOC | 15017 | RW | Primary reserve percentage (0-100) |
-| Reserve SOC 2 | 15040 | RW | Secondary reserve (-128 to 127) |
+| OnGridMode | 15507 | RW | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
+| Self Reserve SOC | 15508 | RW | Self-consumption reserve percentage (0-100) |
+| TOU Reserve SOC | 15509 | RW | Time-of-Use reserve percentage (0-100) |
 
 ## Architecture
 
+See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for details on AC-coupled vs DC-coupled systems.

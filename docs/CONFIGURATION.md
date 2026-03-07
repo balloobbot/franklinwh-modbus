@@ -518,6 +518,6 @@ Before running the application, ensure:
 ---
 
 For more help, see:
-- [README.md](readme.md) - Project overview
-- [INSTALLATION.md](installation.md) - Installation instructions
-- [FUNCTIONALITY.md](functionality.md) - Feature documentation
+- [README.md](../readme.md) - Project overview
+- [USAGE_GUIDE.md](../USAGE_GUIDE.md) - CLI & library usage
+- [FEATURES.md](FEATURES.md) - Feature documentation
