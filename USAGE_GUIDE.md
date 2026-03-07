@@ -22,9 +22,15 @@ Complete guide for using the `franklinwh-modbus` library and CLI.
 
 ## Prerequisites & Safety
 
-### Extension Register Write Access
+### Register Access — Read vs Write
 
-FranklinWH extension registers (15507–15509) control the aGate operating mode and reserve levels. These registers are **readable by default**, but **write access must be provisioned by FranklinWH Support**.
+The library accesses the aGate via two mechanisms:
+
+**SunSpec Models (always readable — no provisioning needed):**
+
+All standard SunSpec registers are readable by any Modbus TCP client. This includes battery status, grid power, solar production (proximal and remote AC/DC), system alarms, nameplate data, and control status. The CLI `--status`, `--healthcheck`, `--check-alarms`, and TUI monitor all use these read-only registers.
+
+**FranklinWH Extension Registers (write access requires provisioning):**
 
 | Register | Address | Default Access | With Provisioning |
 |----------|---------|---------------|-------------------|
@@ -32,9 +38,11 @@ FranklinWH extension registers (15507–15509) control the aGate operating mode 
 | SelfReserve | 15508 | Read-only | Read/Write |
 | TOUReserve | 15509 | Read-only | Read/Write |
 
-**Already provisioned:** If your aGate is connected to a **SPAN Panel** or **Lumin Panel** via Modbus TCP, write access is already enabled — you have full operational control.
+These extension registers control the aGate operating mode and reserve levels. Write access must be **provisioned by FranklinWH Support**.
 
-**Not provisioned?** Contact FranklinWH Support to request Modbus TCP write access. Without it, `send_command()` and mode changes will fail silently.
+**Already provisioned:** Owners with **SPAN Panels** or **Lumin Panels** connected via Modbus TCP — write access is already enabled.
+
+**Not provisioned?** Contact FranklinWH Support. Without provisioning, `send_command()` and mode changes will fail silently. Read-only features (`--status`, `--healthcheck`, TUI monitor) still work.
 
 ### Mobile App Conflicts
 
@@ -48,11 +56,15 @@ FranklinWH extension registers (15507–15509) control the aGate operating mode 
 
 ### VPP Mode Indicator
 
-While `franklinwh-modbus` is actively controlling or polling the aGate (i.e. the Modbus TCP keep-alive is active), the FranklinWH mobile app will display the operating mode as:
+When **any remote client API** takes direct control of the aGate — whether via Modbus TCP (this library) or the FranklinWH Cloud API (used by VPP providers) — the FranklinWH mobile app displays the operating mode as:
 
 > **"VPP Mode"** (Virtual Power Plant)
 
-This replaces the normal mode display (Self-Consumption, Time-of-Use, or Emergency Backup). **This is normal and expected** — it confirms that a Modbus TCP client has direct control of the aGate.
+This replaces the normal mode display (Self-Consumption, Time-of-Use, or Emergency Backup). **This is normal and expected** — it confirms that a remote client has direct control of the aGate. VPP Mode remains active as long as the Modbus TCP keep-alive or Cloud API polling is maintaining the connection.
+
+> **Note:** Only one aGate is displayed at a time in the mobile app. VPP Mode appears for the currently selected aGate.
+
+📸 See [VPP Mode Visual Reference](./docs/VPP_MODE_REFERENCE.md) for mobile app screenshots showing before, during, and after control.
 
 ### Releasing Control
 

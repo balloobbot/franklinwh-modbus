@@ -23,7 +23,9 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 ### Extension Register Access
 
-FranklinWH extension registers (15507–15509: OnGridMode, SelfReserve, TOUReserve) are **read/write-capable but require provisioning by FranklinWH Support** to enable write access.
+**Read operations always work** — battery status, grid power, solar production (proximal and remote), system alarms, and all SunSpec model data are readable by any Modbus TCP client without provisioning. The CLI `--status`, `--healthcheck`, and TUI monitor all work out of the box.
+
+**Write access to extension registers (15507–15509: OnGridMode, SelfReserve, TOUReserve) requires provisioning by FranklinWH Support.**
 
 **Already qualified:** Owners with **SPAN Panels** or **Lumin Panels** connected to the aGate via Modbus TCP — these systems already have full write access enabled.
 
@@ -35,7 +37,7 @@ FranklinWH extension registers (15507–15509: OnGridMode, SelfReserve, TOUReser
 > **Do not use the FranklinWH mobile app** to send charge/discharge commands or schedule events while this library is actively controlling the aGate. Conflicting commands will cause unpredictable behavior.
 
 - **Recommended:** Set your aGate to **Emergency Backup** or **Self-Consumption** mode via the mobile app *before* starting library control — this reduces the likelihood of conflicting Cloud API activity.
-- **VPP Mode indicator:** While this library is actively controlling or polling the aGate, the FranklinWH mobile app will display the operating mode as **"VPP Mode"** (instead of Self-Consumption, Time-of-Use, or Emergency Backup). This is normal and confirms direct Modbus control is active.
+- **VPP Mode indicator:** While any remote client API is actively controlling the aGate — Modbus TCP (this library) or the FranklinWH Cloud API (VPP providers) — the mobile app displays **"VPP Mode"**. This is normal and confirms direct control is active. See [VPP Mode Visual Reference](./docs/VPP_MODE_REFERENCE.md) for mobile app screenshots.
 - **On failure or loss of connectivity:** Always release control using `--stop`:
 
 ```bash
