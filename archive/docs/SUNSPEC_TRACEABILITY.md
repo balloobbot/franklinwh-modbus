@@ -34,10 +34,15 @@ The FranklinWH Battery Manager reads data from multiple sources:
 
 | SunSpec Point | Scale Factor | API Field | UI Display | Description |
 |--------------|--------------|-----------|------------|-------------|
-| `Tmp` | `Tmp_SF` | `battery.temperature` | Battery Metrics | Battery temperature (°C) |
+| `DCW` | `DCW_SF` | `battery.dc_power` | DC Power Panel | DC Power (W) - positive=charge, negative=discharge |
+| `DCV` | `DCV_SF` | `battery.dc_voltage` | DC Power Panel | DC Voltage (V) |
+| `DCA` | `DCA_SF` | `battery.dc_current` | DC Power Panel | DC Current (A) - **⚠️ NOT POPULATED by aGate** |
+| `Tmp` | `Tmp_SF` | `battery.temperature` | DC Power Panel | Battery temperature (°C) |
 | `CyC` | - | `battery.cycles` | Dashboard SOH card | Cycle count |
-| `DCWhInj` | `DCWH_SF` | `battery_lifetime.dc_energy_injected_wh` | Battery Lifetime | Total discharged (Wh) |
-| `DCWhAbs` | `DCWH_SF` | `battery_lifetime.dc_energy_absorbed_wh` | Battery Lifetime | Total charged (Wh) |
+| `DCWhInj` | `DCWH_SF` | `battery_lifetime.dc_energy_injected_wh` | Lifetime Energy | Total discharged (Wh) |
+| `DCWhAbs` | `DCWH_SF` | `battery_lifetime.dc_energy_absorbed_wh` | Lifetime Energy | Total charged (Wh) |
+
+> **⚠️ Implementation Note:** The `DCA` (DC Current) register in Model 714 returns 0 on FranklinWH aGate. Calculate current using Ohm's Law: `I = P / V` (DCW / DCV). See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
 
 ### Model 701: DER AC Measurement
 
