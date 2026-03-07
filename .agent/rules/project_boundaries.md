@@ -1,5 +1,5 @@
 ---
-description: Project boundary enforcement — this project is /home/david/dev/modbus ONLY
+description: Project boundary enforcement — this project is /Users/davidhona/dev/modbus ONLY
 priority: CRITICAL
 ---
 
@@ -7,7 +7,7 @@ priority: CRITICAL
 
 ## THIS PROJECT
 
-**Path**: `/home/david/dev/modbus/`
+**Path**: `/Users/davidhona/dev/modbus/`
 **Port**: `8080` (FastAPI via `src/main.py`)
 **Process**: `python.*src.main` or `uvicorn`
 
@@ -15,14 +15,12 @@ priority: CRITICAL
 
 | Path | What It Is | Why Forbidden |
 |------|-----------|---------------|
-| `/home/david/dev/ha/docker/fhp_demo/` | Cloud API web dashboard (Flask, port 5000) | Separate project, production |
-| `/home/david/franklinwh-clean/` | Library PR for upstream | Separate repo |
-| `/home/david/franklin-energy-dashboard/` | Public web app project | Separate repo |
+| Other projects outside this directory | Separate projects | Separate repos |
 
 ## 🚨 MANDATORY CHECKS
 
 **Before ANY file write:**
-1. **Verify path starts with** `/home/david/dev/modbus/`
+1. **Verify path starts with** `/Users/davidhona/dev/modbus/`
 2. If it doesn't → **STOP and ALARM**: "⚠️ This path is outside the modbus project. Aborting."
 3. **Never** auto-run file changes outside this project
 
@@ -34,7 +32,7 @@ priority: CRITICAL
 
 ## ❌ FORBIDDEN
 
-- ❌ Editing files in `/home/david/dev/ha/`
+- ❌ Editing files outside `/Users/davidhona/dev/modbus/`
 - ❌ Running `pkill -f python` or `pkill -f app` (kills fhp_demo)
 - ❌ Cross-project "consistency" changes
 - ❌ Copying files between projects without explicit user approval

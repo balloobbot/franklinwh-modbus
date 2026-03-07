@@ -1,12 +1,12 @@
 # AI Agent Development Guide — FranklinWH Modbus Battery Manager
 
-> **Project**: `/home/david/dev/modbus/`
+> **Project**: `/Users/davidhona/dev/modbus/`
 > **Port**: 8080 (FastAPI)
 > **Created**: 2026-02-18
 
-> **🛡️ See**: [SAFETY_CONTROLS.md](./SAFETY_CONTROLS.md) for all safety rules (10 rules)  
+> **🛡️ See**: [SAFETY_CONTROLS.md](./docs/SAFETY_CONTROLS.md) for all safety rules (10 rules)  
 > **📋 CRITICAL**: See [.agent/workflows/staged-execution.md](./.agent/workflows/staged-execution.md) for MANDATORY staged work process  
-> **🧪 MANDATORY**: See [HARDWARE_TEST_GUIDE.md](./HARDWARE_TEST_GUIDE.md) for REQUIRED hardware testing process
+> **🧪 MANDATORY**: See [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md) for REQUIRED hardware testing process
 
 > **🔒 CRITICAL**: ALL agents MUST follow the approved plan in order (Rule #8), maintain `in_flight_work.md`, pass zero-error gates, persist test evidence, and **USE THE HARDWARE TEST TOOL for any battery control modifications**.
 
@@ -18,10 +18,8 @@
 
 **ANY agent modifying the following MUST run hardware tests:**
 
-- `franklinwh_modbus_library.py` (battery control library)
-- `franklinwh_cli.py` (CLI tool)
-- `franklinwh_control_standalone.py` (deprecated but still used)
 - `src/franklinwh/` package (controller, modes, types)
+- `franklinwh_cli.py` (CLI tool)
 - Any Modbus register write sequences
 - Power calculation logic
 - Safety limit validation code
@@ -126,7 +124,7 @@ python franklinwh_cli.py -i 192.168.0.110 --stop
 python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
 ```
 
-**Reference:** [HARDWARE_TEST_GUIDE.md](./HARDWARE_TEST_GUIDE.md), [TEST_QUICK_REFERENCE.md](./TEST_QUICK_REFERENCE.md)
+**Reference:** [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md), [TEST_QUICK_REFERENCE.md](./docs/TEST_QUICK_REFERENCE.md)
 
 ---
 
@@ -151,10 +149,10 @@ Do NOT restructure, reorganize, rename, delete, move, or merge files and directo
 Each git commit should do one thing. Don't bundle unrelated changes.
 
 ### 3. Project Boundary
-This project is `/home/david/dev/modbus/` ONLY.
-- ❌ Never touch `/home/david/dev/ha/docker/fhp_demo/`
+This project is `/Users/davidhona/dev/modbus/` ONLY.
+- ❌ Never touch other projects outside this directory
 - ❌ Never kill processes on port 5000
-- ✅ Only modify files under `/home/david/dev/modbus/`
+- ✅ Only modify files under `/Users/davidhona/dev/modbus/`
 - ✅ Only kill/restart processes on port 8080
 
 ### 4. Git-First Development
@@ -164,7 +162,7 @@ No file changes without git tracking. Verify clean state before starting, commit
 This web app runs on port **8080**. fhp_demo runs on port **5000**.
 ```bash
 # ✅ Safe restart (this project only):
-lsof -ti:8080 | xargs kill 2>/dev/null; sleep 2; ./run.sh -q &
+lsof -ti:8080 | xargs kill 2>/dev/null; sleep 2; tools/run.sh -q &
 
 # ❌ NEVER use:
 pkill python
@@ -176,4 +174,4 @@ pkill -f app
 
 ---
 
-*Last Updated: 2026-02-28 - Added mandatory hardware testing requirements*
+*Last Updated: 2026-03-07 — Fixed paths for macOS migration, removed deprecated file references*

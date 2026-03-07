@@ -23,7 +23,7 @@ sleep 2
 ## Step 3: Start Server
 
 ```bash
-cd /home/david/dev/modbus && ./run.sh -q &
+cd /Users/davidhona/dev/modbus && tools/run.sh -q &
 ```
 
 ## Step 4: Verify Startup
