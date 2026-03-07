@@ -107,15 +107,22 @@ Examples:
     parser.add_argument('--soc-ramp-window', type=int, default=10, help='SoC ramping window')
     parser.add_argument('--force', action='store_true', help='Force override SoC limits')
     parser.add_argument('--off-grid-permitted', action='store_true', help='Allow operation when grid is disconnected')
+    parser.add_argument('--assume-clean-state', action='store_true', 
+                       help='Skip startup conflict detection (use with caution)')
     
     # Operation
     parser.add_argument('--duration', type=int, help='Run duration in seconds')
+    parser.add_argument('--revert', type=int, metavar='SECONDS',
+                       help='Auto-revert to cloud control after N seconds (safety timer)')
+    parser.add_argument('--target-soc-auto', type=float, metavar='PCT',
+                       help='Target SoC %% - auto-stop when reached (for charge/discharge)')
     parser.add_argument('--reset-on-start', action='store_true', help='Reset control state on start')
     parser.add_argument('--dry-run', action='store_true', help='Simulate without sending commands')
     
     # Info
     parser.add_argument('--status', action='store_true', help='Show system status')
     parser.add_argument('--healthcheck', action='store_true', help='Run health check')
+    parser.add_argument('--check-alarms', action='store_true', help='Check and display detailed alarm status')
     parser.add_argument('--monitor', action='store_true', help='Launch interactive terminal dashboard')
     parser.add_argument('--stop', action='store_true', help='Stop control and exit')
     parser.add_argument('--clear-alarms', action='store_true', help='Clear/reset alarms (write to AlarmReset)')
@@ -126,6 +133,9 @@ Examples:
     parser.add_argument('--validate-schedule', metavar='FILE', help='Validate schedule file')
     
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging')
+    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress non-error output (useful with --monitor')
+    parser.add_argument('--theme', choices=['dark', 'green', 'amber', 'white', 'paper'], 
+                       default='dark', help='Color theme for monitor (default: dark)')
     
     return parser
 
@@ -162,9 +172,14 @@ def print_status(ctrl: FranklinWHController):
     # Battery DC power from Model 714
     battery_dc = solar.get('battery_dc_power_w', solar.get('dc_power_w', 0))
     
-    # Calculate home load (estimate)
-    # home = solar + grid - battery_dc
-    home_load = solar_power + grid_power - battery_dc
+    # Calculate home load using power balance equation:
+    # Home Consumption = Solar Production + Battery Discharge + Grid Import
+    # 
+    # Sign conventions:
+    # - battery_dc: positive = discharge (supplies home), negative = charge
+    # - grid_power: positive = import (supplies home), negative = export
+    # - solar_power: always positive when generating
+    home_load = solar_power + battery_dc + grid_power
     
     # ═══════════════════════════════════════════════════════
     # POWER FLOW SUMMARY (like dashboard)
@@ -432,6 +447,122 @@ def print_health(health):
     print("\n" + "=" * 60)
 
 
+def print_startup_summary(state: dict, requested_mode: str = None, args=None):
+    """Print clear startup state summary with ETA calculation."""
+    print("\n" + "=" * 60)
+    print("  CURRENT SYSTEM STATE")
+    print("=" * 60)
+    
+    current = state
+    soc = current.get('soc', 0)
+    
+    # Build SOC summary line with ETA
+    soc_line = f"    SoC: {soc:.1f}%"
+    if args and hasattr(args, 'target_soc') and args.target_soc:
+        target = args.target_soc
+        soc_line += f" | Target: {target:.1f}%"
+        if soc < target:
+            # Rough ETA: ~1.6 min per % at 5kW (adjusts based on actual power)
+            eta_min = int((target - soc) * 1.6)
+            soc_line += f" | ETA: +{eta_min}min"
+        elif soc == target:
+            soc_line += " | AT TARGET"
+        else:
+            soc_line += " | ABOVE TARGET"
+    
+    print(f"\n  Battery:")
+    print(soc_line)
+    print(f"    Activity:      {current.get('battery_activity', 'Unknown')}")
+    
+    # Display energy flow context (from band-aid fix)
+    energy = current.get('energy_context', {})
+    if energy and any(v != 0 for v in energy.values()):
+        print(f"\n  Energy Flow:")
+        solar = energy.get('solar_w', 0)
+        load = energy.get('home_load_w', 0)
+        battery = energy.get('battery_dc_w', 0)
+        grid = energy.get('grid_w', 0)
+        
+        print(f"    Solar:         {solar:.0f}W")
+        print(f"    Home Load:     {load:.0f}W")
+        batt_str = f"{abs(battery):.0f}W"
+        if battery > 50:
+            batt_str += " → discharging"
+        elif battery < -50:
+            batt_str += " ← charging"
+        else:
+            batt_str += " (idle)"
+        print(f"    Battery:       {batt_str}")
+        grid_str = f"{abs(grid):.0f}W"
+        if grid > 100:
+            grid_str += " ← importing"
+        elif grid < -100:
+            grid_str += " → exporting"
+        else:
+            grid_str += " (balanced)"
+        print(f"    Grid:          {grid_str}")
+    
+    print(f"\n  Grid:")
+    grid_connected = current.get('grid_connected', False)
+    print(f"    Status:        {'✓ Connected' if grid_connected else '✗ Disconnected/Unsafe'}")
+    print(f"    Power:         {current.get('grid_power', 0):.0f}W")
+    print(f"    Voltage:       {current.get('grid_voltage', 0):.1f}V")
+    
+    print(f"\n  Control:")
+    print(f"    WSetEna:       {current.get('wset_ena', 0)}")
+    actual_power = current.get('actual_power', 0)
+    print(f"    Actual Power:  {actual_power:.0f}W")
+    
+    if current.get('ongrid_mode'):
+        print(f"\n  aGate Mode:")
+        print(f"    OnGridMode:    {current.get('ongrid_mode')}")
+    
+    # Display reserve information if available
+    reserve_info = current.get('effective_reserve')
+    if reserve_info:
+        print(f"\n  Reserve Settings:")
+        print(f"    Level:         {reserve_info.get('level')}% ({reserve_info.get('source')})")
+        print(f"    Min Operational: {reserve_info.get('min_operational')}%")
+    elif current.get('self_reserve_pct') is not None:
+        print(f"\n  Reserve Settings:")
+        print(f"    Self-Consumption: {current.get('self_reserve_pct')}%")
+        print(f"    Time-of-Use:      {current.get('tou_reserve_pct')}%")
+    
+    # Display alarms if any
+    alarms = current.get('alarms', {})
+    blocking = alarms.get('blocking', [])
+    if blocking:
+        print(f"\n  🚨 BLOCKING ALARMS:")
+        for alarm in blocking:
+            print(f"    • {alarm}")
+    
+    # Display conflicts and info messages
+    conflicts = current.get('conflicts', [])
+    
+    # Separate conflicts from info messages
+    true_conflicts = [c for c in conflicts if not c.startswith('INFO:')]
+    info_messages = [c.replace('INFO: ', '') for c in conflicts if c.startswith('INFO:')]
+    
+    if info_messages:
+        print(f"\n  ℹ️  SYSTEM STATUS:")
+        for msg in info_messages:
+            print(f"    • {msg}")
+    
+    if true_conflicts:
+        print(f"\n  🚨 CONFLICTS:")
+        for conflict in true_conflicts:
+            print(f"    • {conflict}")
+    
+    if requested_mode:
+        print(f"\n  Requested Mode: {requested_mode}")
+        if conflicts:
+            print(f"  Status:         ✗ CONFLICTS - use --reset-on-start to override")
+        else:
+            print(f"  Status:         ✓ Can proceed")
+    
+    print("=" * 60)
+
+
 def main():
     """Main entry point."""
     parser = create_parser()
@@ -487,6 +618,25 @@ def main():
     if not ctrl.connect():
         sys.exit(1)
     
+    # Setup auto-revert timer if specified
+    revert_timer = None
+    if args.revert and args.revert > 0:
+        import threading
+        
+        def revert_control():
+            """Timer callback to release control to cloud."""
+            try:
+                print(f"\n⏰ REVERT TIMER ({args.revert}s): Releasing control to cloud...")
+                ctrl.reset_control_state()
+                print("✓ Control released - aGate now under cloud control")
+            except Exception as e:
+                logger.error(f"Revert timer failed: {e}")
+        
+        revert_timer = threading.Timer(args.revert, revert_control)
+        revert_timer.daemon = True  # Don't block exit
+        revert_timer.start()
+        print(f"⏱️  Auto-revert timer set: Will release control after {args.revert} seconds")
+    
     # Handle max-charge/max-discharge flags (convert to power values)
     if args.max_charge:
         args.power = ctrl.RATED_MAX_CHARGE_W
@@ -501,6 +651,46 @@ def main():
             health = ctrl.healthcheck()
             print_health(health)
             sys.exit(0 if health.healthy else 1)
+        
+        # Check alarms (detailed display)
+        if args.check_alarms:
+            print("\n" + "=" * 70)
+            print("  ALARM STATUS CHECK")
+            print("=" * 70)
+            
+            alarms = ctrl.read_alarms()
+            decoded = alarms.get('decoded', {})
+            
+            # System alarms
+            print(f"\n  System Alarms (Model 701): 0x{alarms['system_alrm']:08X}")
+            sys_alarms = decoded.get('system', [])
+            if sys_alarms:
+                for alarm in sys_alarms:
+                    print(f"    ⚠️  {alarm}")
+            else:
+                print(f"    ✓ None active")
+            
+            # DC Port alarms
+            print(f"\n  DC Port Alarms (Model 714): 0x{alarms['dc_port_alrm']:08X}")
+            dc_alarms = decoded.get('dc_port', [])
+            if dc_alarms:
+                for alarm in dc_alarms:
+                    print(f"    ⚠️  {alarm}")
+            else:
+                print(f"    ✓ None active")
+            
+            # Battery status
+            print(f"\n  Battery Status: {decoded.get('battery_status', 'UNKNOWN')}")
+            
+            # Check if blocking
+            can_operate, blocking = ctrl.check_blocking_alarms()
+            if blocking:
+                print(f"\n  🚨 BLOCKING ALARMS: {', '.join(blocking)}")
+            else:
+                print(f"\n  ✓ No blocking alarms - operation permitted")
+            
+            print("=" * 70)
+            sys.exit(0 if can_operate else 1)
         
         # Stop control
         if args.stop:
@@ -538,7 +728,9 @@ def main():
                 port=args.port,
                 unit_id=args.unit,
                 refresh_rate=5.0,
-                use_rich=True
+                use_rich=True,
+                quiet=not args.verbose,  # Monitor implies quiet unless --verbose is used
+                theme=args.theme
             )
             monitor = CLIMonitor(config)
             sys.exit(monitor.run())
@@ -585,10 +777,19 @@ def main():
         # Virtual modes
         if args.mode:
             # Check for aGate native mode conflicts FIRST (before any control)
-            state = ctrl.check_state()
-            native_mode = state.get('ongrid_mode', 'Unknown')
-            conflicts = state.get('conflicts', [])
-            battery_activity = state.get('battery_activity', 'Unknown')
+            if not args.assume_clean_state:
+                state = ctrl.check_state()
+                native_mode = state.get('ongrid_mode', 'Unknown')
+                conflicts = state.get('conflicts', [])
+                battery_activity = state.get('battery_activity', 'Unknown')
+                
+                # Print startup summary
+                print_startup_summary(state, args.mode, args)
+            else:
+                # Minimal state read for logging
+                state = ctrl.check_state()
+                conflicts = []
+                print("⚠️  --assume-clean-state: Skipping conflict detection")
             
             # Check if aGate is actively controlling via Cloud API
             if conflicts:
@@ -616,20 +817,30 @@ def main():
                 print(f"\n⚠️  WARNING: Operating OFF-GRID (connection: {connection_state})")
                 print("   --off-grid-permitted specified, continuing...")
             
-            # Validate SoC limits before operation
+            # Validate SoC limits before operation (GAP-1, GAP-2 safety)
             current_soc = state.get('soc', 0)
             requested_power = args.power or 0
             is_charge_request = requested_power > 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
-            is_discharge_request = requested_power > 0 or args.mode == 'peak_shave'
+            is_discharge_request = requested_power < 0 or args.mode == 'peak_shave'
             
-            # Check 1: target_soc for charge modes
-            if is_charge_request and args.target_soc and current_soc >= args.target_soc:
-                print(f"\n🛑 SoC VALIDATION FAILED:")
-                print(f"   Current SoC: {current_soc:.1f}%")
-                print(f"   Target SoC:  {args.target_soc:.1f}%")
-                print(f"   Cannot charge - already at or above target.")
-                print(f"   Use --force to override (not recommended).")
-                sys.exit(1)
+            # Get effective reserve level for validation
+            reserve_info = state.get('effective_reserve', {})
+            effective_reserve = reserve_info.get('level')
+            
+            # Check 1: target_soc for charge modes with reserve validation
+            if is_charge_request and args.target_soc:
+                is_valid, msg, details = ctrl.validate_soc_safety(
+                    target_soc=args.target_soc,
+                    current_soc=current_soc,
+                    operation='charge'
+                )
+                if not is_valid and not args.force:
+                    print(f"\n🛑 SoC VALIDATION FAILED:")
+                    print(f"   {msg}")
+                    print(f"   Use --force to override (not recommended).")
+                    sys.exit(1)
+                elif details.get('warning'):
+                    print(f"\n⚠️  {details['warning']}")
             
             # Check 2: max_charge_soc for charge modes
             if is_charge_request and current_soc >= args.max_charge_soc:
@@ -640,20 +851,48 @@ def main():
                 print(f"   Use --force to override (not recommended).")
                 sys.exit(1)
             
-            # Check 3: min_discharge_soc for discharge modes
-            min_discharge = args.min_discharge_soc or state.get('reserve_soc', 20)
-            if is_discharge_request and current_soc <= min_discharge:
-                print(f"\n🛑 SoC VALIDATION FAILED:")
-                print(f"   Current SoC: {current_soc:.1f}%")
-                print(f"   Min Discharge SoC: {min_discharge}%")
-                print(f"   Cannot discharge - at minimum discharge limit.")
-                print(f"   Use --force to override (not recommended).")
-                sys.exit(1)
+            # Check 3: min_discharge_soc for discharge modes with reserve validation
+            if is_discharge_request:
+                # Use provided min_discharge_soc or fall back to effective reserve + margin
+                if args.min_discharge_soc:
+                    min_discharge = args.min_discharge_soc
+                elif effective_reserve:
+                    min_discharge = effective_reserve + ctrl.SAFETY_MARGIN_PCT
+                else:
+                    min_discharge = 20  # Default fallback
+                
+                # If we have a target_soc for discharge, validate it
+                if args.target_soc:
+                    is_valid, msg, details = ctrl.validate_soc_safety(
+                        target_soc=args.target_soc,
+                        current_soc=current_soc,
+                        operation='discharge'
+                    )
+                    if not is_valid and not args.force:
+                        print(f"\n🛑 SoC VALIDATION FAILED:")
+                        print(f"   {msg}")
+                        if effective_reserve:
+                            print(f"   Current reserve: {effective_reserve}% (from {reserve_info.get('source', 'unknown')})")
+                            print(f"   Minimum operational SoC: {reserve_info.get('min_operational', effective_reserve + 5)}%")
+                        print(f"   Use --force to override (not recommended).")
+                        sys.exit(1)
+                
+                # Check current SoC against minimum discharge limit
+                if current_soc <= min_discharge and not args.force:
+                    print(f"\n🛑 SoC VALIDATION FAILED:")
+                    print(f"   Current SoC: {current_soc:.1f}%")
+                    print(f"   Min Discharge SoC: {min_discharge}%")
+                    if effective_reserve:
+                        print(f"   (Reserve: {effective_reserve}% + {ctrl.SAFETY_MARGIN_PCT}% safety margin)")
+                    print(f"   Cannot discharge - at minimum discharge limit.")
+                    print(f"   Use --force to override (not recommended).")
+                    sys.exit(1)
             
             if args.reset_on_start:
                 ctrl.reset_control_state()
             
             # Create virtual mode controller
+            from franklinwh import VirtualModeController, VirtualMode
             vmc = VirtualModeController(
                 ctrl,
                 max_charge_soc=args.max_charge_soc,
@@ -697,6 +936,21 @@ def main():
                 print(f"  3. Use discharge mode to reduce SoC first")
                 sys.exit(1)
             
+            # Handle dry-run for virtual modes
+            if args.dry_run:
+                print(f"\n{'='*60}")
+                print(f"  DRY RUN: {args.mode} mode")
+                print(f"  Power: {args.power or 'mode-controlled'}W")
+                print(f"  Target SoC: {args.target_soc or 'N/A'}")
+                print(f"  Duration: {args.duration or 'unlimited'}s")
+                print(f"{'='*60}")
+                print(f"\n  Would run: vmc.run_continuous(")
+                print(f"      duration_seconds={args.duration},")
+                print(f"      enable_safety_checks=False")
+                print(f"  )")
+                print(f"\n  ✓ Dry run complete - no commands sent")
+                sys.exit(0)
+            
             print(f"\n{'='*60}")
             print(f"  STARTING: {args.mode} mode")
             if args.duration:
@@ -709,14 +963,39 @@ def main():
         
         # Direct power control (no mode)
         if args.power is not None:
+            # Check for conflicts before direct control (unless skipped)
+            if not args.assume_clean_state:
+                state = ctrl.check_state()
+                conflicts = state.get('conflicts', [])
+                
+                if conflicts:
+                    print_startup_summary(state, 'manual', args)
+                    print("\n🚨 CONFLICTS DETECTED:")
+                    for conflict in conflicts:
+                        print(f"   • {conflict}")
+                    
+                    if not args.reset_on_start:
+                        print("\n⚠️  Use --reset-on-start to force takeover")
+                        print("⚠️  Or use --assume-clean-state to skip this check")
+                        sys.exit(1)
+                    else:
+                        print("\n⚠️  --reset-on-start specified, continuing...")
+                
+                # Check for off-grid condition
+                if not state.get('grid_connected', False) and not args.off_grid_permitted:
+                    print(f"\n🚨 OFF-GRID DETECTED")
+                    print("   Use --off-grid-permitted to allow operation")
+                    sys.exit(1)
+            
             # Check if we should run continuous mode
-            # Continuous if: duration specified OR SoC limits specified
+            # Continuous if: duration specified OR SoC limits specified OR target-soc-auto
             has_duration = args.duration is not None
             has_soc_limits = (args.max_charge_soc != 100 or args.min_discharge_soc is not None)
+            has_target_soc = args.target_soc_auto is not None
             is_controlling = args.power != 0
             
-            if (has_duration or has_soc_limits) and is_controlling:
-                # Run continuous control with SoC limits
+            if (has_duration or has_soc_limits or has_target_soc) and is_controlling:
+                # Run continuous control with SoC limits or target SoC
                 from franklinwh import VirtualModeController, VirtualMode
                 vmc = VirtualModeController(
                     ctrl,
@@ -725,6 +1004,129 @@ def main():
                     soc_ramp_window=args.soc_ramp_window
                 )
                 vmc.set_mode(VirtualMode.MANUAL, manual_power_w=args.power)
+                
+                if has_target_soc:
+                    # Target SoC auto-stop mode
+                    target = args.target_soc_auto
+                    is_charge = args.power > 0
+                    
+                    print(f"\n{'='*60}")
+                    print(f"  TARGET SoC MODE")
+                    print(f"{'='*60}")
+                    print(f"  Power: {args.power}W")
+                    print(f"  Target SoC: {target:.1f}%")
+                    
+                    # Get current SoC and validate target
+                    state = ctrl.check_state()
+                    current_soc = state.get('soc', 0)
+                    
+                    # GAP-1, GAP-2: Validate target against reserve levels
+                    operation = 'charge' if is_charge else 'discharge'
+                    is_valid, msg, details = ctrl.validate_soc_safety(
+                        target_soc=target,
+                        current_soc=current_soc,
+                        operation=operation
+                    )
+                    
+                    if not is_valid and not args.force:
+                        print(f"\n  🛑 VALIDATION FAILED:")
+                        print(f"     {msg}")
+                        reserve_info = state.get('effective_reserve', {})
+                        if reserve_info:
+                            print(f"     Reserve: {reserve_info.get('level')}% ({reserve_info.get('source')})")
+                            print(f"     Min operational: {reserve_info.get('min_operational')}%")
+                        print(f"\n  Use --force to override (not recommended)")
+                        sys.exit(1)
+                    
+                    if is_charge and current_soc >= target:
+                        print(f"\n  ✓ Already at target (SoC: {current_soc:.1f}% >= {target:.1f}%)")
+                        print(f"  No action needed.")
+                        sys.exit(0)
+                    elif not is_charge and current_soc <= target:
+                        print(f"\n  ✓ Already at target (SoC: {current_soc:.1f}% <= {target:.1f}%)")
+                        print(f"  No action needed.")
+                        sys.exit(0)
+                    
+                    print(f"  Current SoC: {current_soc:.1f}%")
+                    print(f"  Will stop when SoC {'>=' if is_charge else '<='} {target:.1f}%")
+                    
+                    # Show reserve info if applicable
+                    reserve_info = state.get('effective_reserve', {})
+                    if reserve_info and not is_charge:
+                        print(f"  Reserve Level: {reserve_info.get('level')}% ({reserve_info.get('source')})")
+                    
+                    # Handle dry-run for target-soc-auto mode
+                    if args.dry_run:
+                        print(f"\n{'='*60}")
+                        print(f"  DRY RUN: Would start monitoring loop")
+                        print(f"  - Check SoC every 5 seconds")
+                        print(f"  - Stop when SoC {'>=' if is_charge else '<='} {target:.1f}%")
+                        if args.duration:
+                            print(f"  - Max duration: {args.duration}s")
+                        print(f"{'='*60}")
+                        print(f"\n  ✓ Dry run complete - no commands sent")
+                        sys.exit(0)
+                    
+                    print(f"\n  Press Ctrl+C to stop manually")
+                    print(f"{'='*60}\n")
+                    
+                    # Custom monitoring loop for target SoC
+                    import time
+                    start_time = time.time()
+                    check_interval = 5  # Check every 5 seconds
+                    
+                    try:
+                        while True:
+                            # Check duration timeout
+                            if args.duration and (time.time() - start_time) >= args.duration:
+                                print(f"\n⏱️  Duration limit ({args.duration}s) reached")
+                                break
+                            
+                            # Check current SoC
+                            status = ctrl.read_battery_status()
+                            current_soc = status.get('soc', 0)
+                            
+                            # Check if target reached
+                            if is_charge and current_soc >= target:
+                                print(f"\n🎯 TARGET REACHED!")
+                                print(f"   SoC: {current_soc:.1f}% (target: {target:.1f}%)")
+                                break
+                            elif not is_charge and current_soc <= target:
+                                print(f"\n🎯 TARGET REACHED!")
+                                print(f"   SoC: {current_soc:.1f}% (target: {target:.1f}%)")
+                                break
+                            
+                            # Show progress
+                            elapsed = int(time.time() - start_time)
+                            print(f"  [{elapsed}s] SoC: {current_soc:.1f}% (target: {target:.1f}%)", end='\r')
+                            
+                            time.sleep(check_interval)
+                            
+                    except KeyboardInterrupt:
+                        print("\n\nInterrupted by user")
+                    
+                    # Release control
+                    print("\n  Releasing control...")
+                    ctrl.reset_control_state()
+                    print("  ✓ Control released")
+                    sys.exit(0)
+                
+                # Regular duration/SOC limit mode
+                if args.dry_run:
+                    print(f"\n{'='*60}")
+                    print(f"  DRY RUN: Manual mode with SoC limits")
+                    print(f"  Power: {args.power}W")
+                    print(f"  Max charge SoC: {args.max_charge_soc}%")
+                    print(f"  Min discharge SoC: {vmc.min_discharge_soc}%")
+                    if args.duration:
+                        print(f"  Duration: {args.duration}s")
+                    print(f"{'='*60}")
+                    print(f"\n  Would run: vmc.run_continuous(")
+                    print(f"      duration_seconds={args.duration},")
+                    print(f"      enable_safety_checks=False")
+                    print(f"  )")
+                    print(f"\n  ✓ Dry run complete - no commands sent")
+                    sys.exit(0)
                 
                 if has_duration:
                     print(f"Running manual mode: {args.power}W for {args.duration}s")
@@ -751,6 +1153,11 @@ def main():
         logger.error(f"Runtime error: {e}")
         raise
     finally:
+        # Cancel revert timer if still active
+        if revert_timer and revert_timer.is_alive():
+            revert_timer.cancel()
+            logger.debug("Revert timer cancelled")
+        
         try:
             ctrl.reset_control_state()
             logger.info("Control released")
