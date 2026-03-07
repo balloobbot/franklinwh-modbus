@@ -22,6 +22,15 @@ Complete guide for using the `franklinwh-modbus` library and CLI.
 
 ## Prerequisites & Safety
 
+### Network Requirements
+
+> [!WARNING]
+> **WiFi connections are highly undesirable** for Modbus TCP control. WiFi latency, packet loss, and disconnections can cause missed keep-alive cycles, leaving the aGate stuck in VPP Mode.
+
+- **Fixed IP address required** — the aGate must have a static/reserved IP on your LAN
+- **LAN Ethernet preferred** — wired connection between Modbus client and aGate for reliability
+- **WiFi:** Functional but unreliable for sustained control sessions; acceptable for read-only status checks
+
 ### Register Access — Read vs Write
 
 The library accesses the aGate via two mechanisms:
