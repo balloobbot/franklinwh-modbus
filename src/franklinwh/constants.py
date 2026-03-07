@@ -1,42 +1,10 @@
 """
 FranklinWH Constants File
-Contains all constant values used in franklinwh integration
+Contains hardware constants (device models, registers, dispatch codes).
+
+For operating mode enums, see types.py (VirtualMode, ControlMode, ONGRID_MODES).
 """
 from enum import Enum
-
-
-# Operating Work Modes
-MODE_TIME_OF_USE = "time_of_use"
-MODE_SELF_CONSUMPTION = "self_consumption"
-MODE_EMERGENCY_BACKUP = "emergency_backup"
-
-MODE_MAP = {
-        1: MODE_TIME_OF_USE,
-        2: MODE_SELF_CONSUMPTION,
-        3: MODE_EMERGENCY_BACKUP,
-}
-
-TIME_OF_USE = 1
-SELF_CONSUMPTION = 2
-EMERGENCY_BACKUP = 3
-
-class workModeType(Enum):
-    """Operating mode types"""
-    TIME_OF_USE = 1
-    SELF_CONSUMPTION = 2
-    EMERGENCY_BACKUP = 3
-
-OPERATING_MODES = {
-    1: "Time of Use",
-    2: "Self-Consumption",
-    3: "Emergency Backup",
-    "Time of Use": 1,
-    "Self-Consumption": 2,
-    "Emergency Backup": 3,
-    "time_of_use": 1,
-    "self_consumption": 2,
-    "emergency_backup": 3
-}
 
 # Run mode of Gateway
 RUN_STATUS = {

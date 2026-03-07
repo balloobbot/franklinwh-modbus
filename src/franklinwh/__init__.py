@@ -16,7 +16,7 @@ Example usage:
     vmc.run_continuous(duration_seconds=3600)
 """
 
-__version__ = '1.0.0'
+__version__ = '0.9.0'
 
 from .types import (
     ControlMode,
@@ -30,7 +30,7 @@ from .schedule import TOUSchedule, DEFAULT_SCHEDULE
 
 from .controller import FranklinWHController
 
-from .modes import VirtualModeController
+from .modes import VirtualModeController, run_with_signal_handling
 
 # Optional monitor import (requires rich dependency)
 try:
@@ -55,6 +55,7 @@ __all__ = [
     'FranklinWHController',
     # Modes
     'VirtualModeController',
+    'run_with_signal_handling',
     # Monitor (optional)
     'CLIMonitor',
     'MonitorConfig',
