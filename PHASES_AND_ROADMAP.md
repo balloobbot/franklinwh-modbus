@@ -1,8 +1,13 @@
 # FranklinWH Modbus Controller - Phases & Roadmap
 
 **Last Updated:** 2026-03-07  
-**Current Phase:** Phase 2 - Core Library Stabilization  
-**Next Milestone:** Virtual Mode Testing Complete
+**Current Phase:** Phase 2 — Core Library Stabilization  
+**Next Milestone:** Library extraction for PyPi publication
+
+> [!IMPORTANT]
+> **Strategic Decision (2026-03-07):** Web app is on **indefinite hold**. Priority is
+> developing the core `franklinwh` Modbus TCP library as a standalone, PyPi-publishable
+> package. The web app will be refactored/rebuilt later to consume the library.
 
 ---
 
@@ -12,9 +17,9 @@
 |-------|-------|--------|------------------|
 | **Phase 0** | Discovery & Research | ✅ Complete | Protocol docs, register maps |
 | **Phase 1** | Basic Control | ✅ Complete | Manual mode, CLI, core library |
-| **Phase 2** | Core Library Stabilization | 🟡 **IN PROGRESS** | Virtual modes, SoC validation |
+| **Phase 2** | Core Library Stabilization | 🟡 **IN PROGRESS** | Virtual modes, SoC validation, PyPi-ready |
 | **Phase 3** | Enhanced Conflict Detection | 🟢 QUEUED | Intent-based detection |
-| **Phase 4** | Ecosystem & Tools | 🟢 FUTURE | Web UI, automation, integrations |
+| **Phase 4** | Web App / Ecosystem | ⏸️ **ON HOLD** | Web UI rebuild on library |
 
 ---
 
@@ -156,18 +161,21 @@ Implement intent-based conflict detection to eliminate false positives.
 
 ---
 
-### Phase 4: Ecosystem & Tools 🟢
+### Phase 4: Web App / Ecosystem ⏸️
 
-**Timeline:** Future  
-**Status:** IDEAS / PLANNING
+**Timeline:** After library published on PyPi  
+**Status:** ON HOLD — Library must be stable and published first
 
-**Potential Features:**
-- Web dashboard ( historical data)
+> **Decision (2026-03-07):** The web app (`src/main.py`, `src/web_server.py`, 77 endpoints)
+> is on indefinite hold. It mixes web framework concerns with library code in `src/`.
+> When resumed, it will be rebuilt/refactored to consume the `franklinwh` library as
+> an external dependency, not by sharing the `src/` directory.
+
+**Potential Features (future):**
+- Web dashboard (historical data)
 - Home Assistant integration
 - Cloud API bridge
 - Multi-device support
-- Advanced scheduling
-- Pricing API integration
 
 **Documents:** (in `archive/docs/` — future planning)
 - TODO_DATA_RETENTION.md
@@ -181,6 +189,8 @@ Implement intent-based conflict detection to eliminate false positives.
 
 | Date | Decision | Context | Status |
 |------|----------|---------|--------|
+| 2026-03-07 | **Web app on hold** | Library-first: stabilize `franklinwh` for PyPi, rebuild web app later | STRATEGIC |
+| 2026-03-07 | **Library-first for PyPi** | Extract `src/franklinwh/` as standalone package, optimize Modbus reads/writes | IN PROGRESS |
 | 2026-03-01 | **Select Option 2** for conflict detection | Intent-based most accurate; requires virtual mode testing first | QUEUED for Phase 3 |
 | 2026-03-01 | **Park TUI Monitor** | Implemented but needs user validation; focus on core features | PARKED |
 | 2026-03-01 | **Complete SoC Validation** | GAP-1, GAP-2 implemented and tested | ✅ COMPLETE |
