@@ -191,6 +191,17 @@ Implement intent-based conflict detection to eliminate false positives.
 
 **Web app design preserved:** `archive/webapp/README.md`
 
+### Future Library Consumers
+
+Projects that will consume `franklinwh-modbus` as a dependency:
+
+| Project | Repo | Purpose | Status |
+|---------|------|---------|--------|
+| **FranklinWH Energy Manager** | `~/dev/franklinwh-energy-manager` | Dashboard, static data, Cloud API integration | WIP — porting to macOS |
+| **FranklinWH Local VPP** | `~/dev/modbus2` (planned) | Multi-site/multi-aGate orchestration, dynamic tariff optimization | Concept — AI-generated code, not functional |
+
+**Local VPP vision:** Define site topology (single/multi-site) with single or multi-aGate Modbus TCP devices connected to single or multiple utility services. Orchestrate aGates to optimize solar production, battery balancing across units, and TOU / dynamic tariff arbitrage. See `~/dev/franklinwh-energy-manager/multi-site-architecture.md` for initial static data architecture.
+
 ---
 
 ## Decision Log
