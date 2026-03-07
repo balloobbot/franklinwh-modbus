@@ -21,6 +21,12 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 ## ⚠️ Important — Before You Start
 
+### Network Requirements
+
+- **Fixed IP address required** — the aGate must have a static/reserved IP on your LAN.
+- **LAN Ethernet strongly preferred** — wired connection for reliable Modbus TCP control.
+- ⚠️ **WiFi is highly undesirable** — latency and packet loss can cause missed keep-alive cycles, leaving the aGate stuck in VPP Mode.
+
 ### Extension Register Access
 
 **Read operations always work** — battery status, grid power, solar production (proximal and remote), system alarms, and all SunSpec model data are readable by any Modbus TCP client without provisioning. The CLI `--status`, `--healthcheck`, and TUI monitor all work out of the box.
