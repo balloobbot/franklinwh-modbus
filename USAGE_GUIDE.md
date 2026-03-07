@@ -17,18 +17,28 @@ Complete guide for using the `franklinwh` library and CLI.
 
 ## Installation & Setup
 
-### Basic Installation (Library Only)
+### Install as Package (Recommended)
 
 ```bash
-# Clone repository
-git clone <repo-url>
+git clone git@github.com:david2069/franklinwh-modbus.git
 cd franklinwh-modbus
+python3 -m venv venv && source venv/bin/activate
 
-# Add src to PYTHONPATH
-export PYTHONPATH=$PWD/src:$PYTHONPATH
+# Core library + dev tools
+pip install -e ".[dev]"
 
-# Or install as editable package
-pip install -e .
+# With TUI monitor support
+pip install -e ".[dev,monitor]"
+```
+
+### For External Projects (e.g. FranklinWH Energy Manager)
+
+```bash
+# Path dependency during development
+pip install -e /path/to/franklinwh-modbus
+
+# Or when published to PyPi (future)
+pip install franklinwh
 ```
 
 ### Import Patterns
@@ -36,71 +46,54 @@ pip install -e .
 ```python
 # Core library imports (always available)
 from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+from franklinwh import BatteryCommand, ControlMode, HealthStatus
 
-# Optional monitor import (requires 'rich' package)
+# For CLI/scripts with signal handling
+from franklinwh import run_with_signal_handling
+
+# Optional monitor import (requires 'pip install franklinwh[monitor]')
 try:
     from franklinwh import CLIMonitor, MonitorConfig
-    HAS_MONITOR = True
 except ImportError:
-    HAS_MONITOR = False
-    print("Install 'rich' for TUI monitor: pip install rich")
+    pass  # rich not installed
 ```
 
-### Optional Dependencies
+### Install Extras
 
-| Feature | Package | Install |
-|---------|---------|---------|
-| Core library | - | Built-in |
-| TUI Monitor | rich | `pip install rich` |
-| Development | pytest | `pip install pytest` |
+| Extra | Packages | Install |
+|-------|----------|---------|
+| Core | pysunspec2, pymodbus | `pip install franklinwh` |
+| `[monitor]` | rich | `pip install franklinwh[monitor]` |
+| `[dev]` | pytest, pytest-mock | `pip install franklinwh[dev]` |
 
 ---
 
 ## Migration from Standalone Script
 
-If you were using `franklinwh_control_standalone.py`, migration is simple:
+> **Note:** `franklinwh_control_standalone.py` has been archived to `archive/`.
+> The library (`franklinwh`) is the replacement.
 
-### Before (Standalone)
+### Before (Standalone — deprecated)
 ```python
-import sys
-sys.path.insert(0, '/path/to/modbus')
 from franklinwh_control_standalone import FranklinWHController
-
 ctrl = FranklinWHController('192.168.0.110')
-ctrl.connect()
 ```
 
-### After (Library)
+### After (Library — v0.9.0)
 ```python
-import sys
-sys.path.insert(0, '/path/to/modbus/src')  # Note: src/ subdirectory
-from franklinwh import FranklinWHController  # Note: package name
-
+from franklinwh import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 ```
 
 ### Key Differences
 
-| Aspect | Standalone | Library |
-|--------|------------|---------|
-| Path | `modbus/` | `modbus/src/` |
+| Aspect | Standalone | Library v0.9.0 |
+|--------|------------|----------------|
+| Install | `sys.path` hack | `pip install -e .` |
 | Import | `franklinwh_control_standalone` | `franklinwh` |
-| TUI | Not available | Available with `--monitor` |
-| Package | Script | Importable library |
-
-### Common Import Error (Fixed)
-
-**Error:** `NameError: name 'Layout' is not defined`
-
-**Cause:** Missing `rich` dependency caused import to fail.
-
-**Fix:** Add `from __future__ import annotations` to `monitor.py` - now type hints are postponed and don't cause NameError.
-
-**Verification:**
-```bash
-python -c "import sys; sys.path.insert(0, 'src'); from franklinwh import FranklinWHController; print('✓ Import works')"
-```
+| Signal handling | In library (breaks consumers) | Opt-in via `run_with_signal_handling()` |
+| Package | Single script | Proper package with `__init__.py` |
 
 ---
 
@@ -667,7 +660,36 @@ VirtualModeController(
 | `set_mode(mode, **kwargs)` | Set virtual mode with parameters |
 | `calculate_power()` | Calculate optimal power for current mode |
 | `execute_once()` | Execute single control cycle |
-| `run_continuous(duration)` | Run mode continuously |
+| `run_continuous(duration, stop_event)` | Run mode continuously (library-safe) |
+| `tick()` | Single control tick (returns True/False) |
+| `verify_command_execution()` | Verify commanded vs actual power |
+
+#### Running Continuously
+
+**For library consumers** (e.g. FranklinWH Energy Manager):
+```python
+import threading
+from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+
+ctrl = FranklinWHController('192.168.0.110')
+ctrl.connect()
+
+vmc = VirtualModeController(ctrl)
+vmc.set_mode(VirtualMode.SELF_CONSUMPTION, target_soc=90)
+
+# Use stop_event for cooperative shutdown — no signal hijacking
+stop = threading.Event()
+vmc.run_continuous(duration_seconds=3600, stop_event=stop)
+# Call stop.set() from another thread to stop gracefully
+```
+
+**For CLI/scripts** (with Ctrl+C handling):
+```python
+from franklinwh import VirtualModeController, run_with_signal_handling
+
+# Installs SIGINT/SIGTERM handlers, restores them on exit
+run_with_signal_handling(vmc, duration_seconds=3600)
+```
 
 #### Modes
 
@@ -755,7 +777,8 @@ python franklinwh_cli.py -i 192.168.0.110 -t 10 --status
 - **Hardware Testing:** See [docs/HARDWARE_TEST_GUIDE.md](docs/HARDWARE_TEST_GUIDE.md)
 - **Safety Rules:** See [docs/SAFETY_CONTROLS.md](docs/SAFETY_CONTROLS.md)
 - **SunSpec Quirks:** See [docs/FRANKLINWH_SUNSPEC_QUIRKS.md](docs/FRANKLINWH_SUNSPEC_QUIRKS.md)
+- **Roadmap:** See [PHASES_AND_ROADMAP.md](PHASES_AND_ROADMAP.md)
 
 ---
 
-*Last Updated: 2026-03-07 — Fixed VirtualMode enum, updated links after cleanup*
+*Version 0.9.0 — Last Updated: 2026-03-07*
