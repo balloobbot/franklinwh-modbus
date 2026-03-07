@@ -11,6 +11,22 @@ This is a built-in FranklinWH indicator that confirms external control is active
 - Any third-party integration using direct Modbus register control
 - Polling/keep-alive connections that maintain active control
 
+### Network Topology & Latency
+
+The mobile app does **not** connect directly to the aGate — it polls via the FranklinWH Cloud API. This means there is inherent latency between a Modbus command and the app reflecting the change:
+
+```
+Modbus Client (this library)
+    ↓  LAN (WiFi or Ethernet) — ~1-5ms
+aGate (local)
+    ↓  WiFi/LAN → Internet — variable
+FranklinWH Cloud API
+    ↓  Internet → 4G/WiFi — variable
+FranklinWH Mobile App
+```
+
+The mobile app polls the Cloud API frequently, but the round-trip latency can be significant. **Don't rely on the mobile app for real-time feedback** — use the library's direct Modbus reads or the CLI `--status` command instead.
+
 > **Note:** Only one aGate is displayed at a time in the mobile app. The VPP Mode indicator appears for the currently selected aGate.
 
 ---
