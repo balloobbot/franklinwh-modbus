@@ -368,8 +368,10 @@ class FranklinWHController:
         """Read current battery status from Model 713 and 714.
         
         Returns dict with:
-            soc, soh, wh_rating, wh_available, status (from M713)
-            battery_power_w, battery_current_a (from M714)
+            soc, soh, wh_rating, wh_available (from M713)
+            status_raw: M713.Sta raw value (always 0 on FranklinWH — do not use)
+            battery_state: Derived from M714 DCW power direction (CHARGING/DISCHARGING/IDLE)
+            battery_power_w, battery_current_a, battery_temp_c (from M714)
         """
         def _do_read():
             m713 = self.get_model(713)
@@ -386,7 +388,7 @@ class FranklinWHController:
                 'soh': round(m713.SoH.value * (10 ** sf_pct), 1),
                 'wh_rating': m713.WHRtg.value * (10 ** sf_wh),
                 'wh_available': m713.WHAvail.value * (10 ** sf_wh),
-                'status': m713.Sta.value,
+                'status_raw': m713.Sta.value,  # Always 0 on FranklinWH (quirk)
             }
             
             # Model 714 - Battery DC power (DCW: negative=charging, positive=discharging)
@@ -400,6 +402,15 @@ class FranklinWHController:
                     
                     dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0
                     result['battery_power_w'] = dc_power
+                    
+                    # Derive battery state from DC power direction (±50W deadband)
+                    # FranklinWH M713.Sta is always 0 (OFF) — cannot rely on it
+                    if dc_power < -50:
+                        result['battery_state'] = 'CHARGING'
+                    elif dc_power > 50:
+                        result['battery_state'] = 'DISCHARGING'
+                    else:
+                        result['battery_state'] = 'IDLE'
                     
                     # DC current (read or calculate from P/V)
                     dc_current = 0

@@ -495,13 +495,9 @@ class CLIMonitor:
             self.data.power_flow.grid_w = grid_raw
             self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
             
-            # Determine battery state
-            if battery_dc < -50:
-                self.data.power_flow.battery_state = "CHARGING"
-            elif battery_dc > 50:
-                self.data.power_flow.battery_state = "DISCHARGING"
-            else:
-                self.data.power_flow.battery_state = "IDLE"
+            # Battery state from enriched read_battery_status()
+            # (derived from M714 DCW — M713.Sta is always 0 on FranklinWH)
+            self.data.power_flow.battery_state = battery.get('battery_state', 'IDLE')
                 
             # Update Battery DC — all from enriched read_battery_status()
             self.data.soc = battery.get('soc', self.data.soc)

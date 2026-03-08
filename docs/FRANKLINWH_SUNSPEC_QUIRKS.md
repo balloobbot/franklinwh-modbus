@@ -4,6 +4,39 @@ Documenting non-standard behaviors, missing registers, and implementation-specif
 
 ---
 
+## Model 713 - DER Storage Capacity
+
+### Sta (Status) Register Always 0
+
+**Issue:** The `Sta` register in Model 713 always returns 0 (OFF) regardless of actual battery state.
+
+**SunSpec 2 M713.Sta enum:**
+| Value | Meaning |
+|-------|---------|
+| 0 | OFF |
+| 1 | EMPTY |
+| 2 | DISCHARGING |
+| 3 | CHARGING |
+| 4 | FULL |
+| 5 | HOLDING |
+| 6 | TESTING |
+
+**Observed:** Battery actively charging at -400W (M714.DCW), SoC 79% — M713.Sta remains 0 (OFF).
+
+**Workaround:** Derive battery state from M714 DCW power direction:
+```python
+if dc_power < -50:
+    state = 'CHARGING'
+elif dc_power > 50:
+    state = 'DISCHARGING'
+else:
+    state = 'IDLE'
+```
+
+**Code Location:** `src/franklinwh/controller.py:read_battery_status()` — returns `battery_state` (derived) and `status_raw` (M713.Sta, always 0)
+
+---
+
 ## Model 714 - Battery DC Measurements
 
 ### DCA (DC Current) Register Not Populated
