@@ -1133,9 +1133,12 @@ def main():
                 sys.exit(0)
             else:
                 # One-shot command
+                revert_s = args.revert if args.revert and args.revert > 0 else None
                 cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
-                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run)
+                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run, duration_s=revert_s)
                 print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
+                if revert_s:
+                    print(f"⏱️  Auto-revert in {revert_s}s (software timer)")
                 sys.exit(0 if success else 1)
         
         # No action specified
