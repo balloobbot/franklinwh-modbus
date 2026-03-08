@@ -410,6 +410,13 @@ class FranklinWHController:
                         if dc_voltage > 0:
                             dc_current = round(dc_power / dc_voltage, 2)
                     result['battery_current_a'] = dc_current
+                    
+                    # Battery temperature from M714
+                    sf_tmp = self._get_scale_factor(m714, 'Tmp_SF')
+                    if hasattr(m714, 'Tmp') and m714.Tmp.value is not None:
+                        result['battery_temp_c'] = round(m714.Tmp.value * (10 ** sf_tmp), 1)
+                    else:
+                        result['battery_temp_c'] = 0
                 except Exception as e:
                     logger.debug(f"Could not read Model 714: {e}")
             

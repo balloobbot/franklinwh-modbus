@@ -430,106 +430,7 @@ class CLIMonitor:
             return value - 65536
         return value
         
-    def _read_model_714(self) -> dict:
-        """Read Model 714 for battery DC data."""
-        try:
-            m714 = self.controller.get_model(714)
-            if not m714:
-                return {}
-            m714.read()
-            
-            sf_w = self.controller._get_scale_factor(m714, 'DCW_SF')
-            sf_a = self.controller._get_scale_factor(m714, 'DCA_SF')
-            sf_v = self.controller._get_scale_factor(m714, 'DCV_SF')
-            sf_tmp = self.controller._get_scale_factor(m714, 'Tmp_SF')
-            
-            dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0
-            
-            # Read DCA if available, otherwise calculate from DCW/DCV (P/V = I)
-            dc_current = 0
-            if hasattr(m714, 'DCA') and m714.DCA.value is not None and m714.DCA.value != 0:
-                dc_current = m714.DCA.value * (10 ** sf_a)
-            elif hasattr(m714, 'DCV') and m714.DCV.value is not None and m714.DCV.value != 0:
-                dc_voltage = m714.DCV.value * (10 ** sf_v)
-                if dc_voltage > 0:
-                    dc_current = dc_power / dc_voltage
-            
-            return {
-                'dc_power': dc_power,
-                'dc_current': dc_current,
-                'battery_temp': m714.Tmp.value * (10 ** sf_tmp) if hasattr(m714, 'Tmp') and m714.Tmp.value is not None else 0,
-            }
-        except Exception as e:
-            return {}
-            
-    def _read_model_701_extra(self) -> dict:
-        """Read extra fields from Model 701 (current, PF, temperatures)."""
-        try:
-            m701 = self.controller.get_model(701)
-            if not m701:
-                return {}
-            m701.read()
-            
-            sf_a = self.controller._get_scale_factor(m701, 'A_SF')
-            sf_pf = self.controller._get_scale_factor(m701, 'PF_SF')
-            sf_tmp = self.controller._get_scale_factor(m701, 'Tmp_SF')
-            
-            current = 0
-            if hasattr(m701, 'A') and m701.A.value is not None:
-                current = m701.A.value * (10 ** sf_a)
-            elif hasattr(m701, 'AphA') and m701.AphA.value is not None:
-                current = m701.AphA.value * (10 ** sf_a)
-                
-            pf = 0
-            if hasattr(m701, 'PF') and m701.PF.value is not None:
-                pf = m701.PF.value * (10 ** sf_pf)
-                
-            # Temperatures from Model 701 (FranklinWH implements these)
-            ambient_temp = 0
-            if hasattr(m701, 'TmpAmb') and m701.TmpAmb.value is not None:
-                ambient_temp = m701.TmpAmb.value * (10 ** sf_tmp)
-            
-            cabinet_temp = 0
-            if hasattr(m701, 'TmpCab') and m701.TmpCab.value is not None:
-                cabinet_temp = m701.TmpCab.value * (10 ** sf_tmp)
-            
-            return {
-                'current_a': current,
-                'power_factor': pf,
-                'ambient_temp': ambient_temp,
-                'cabinet_temp': cabinet_temp,
-            }
-        except Exception as e:
-            return {}
-            
-    def _read_nameplate_strings(self) -> dict:
-        """Read nameplate and extract string values."""
-        try:
-            m1 = self.controller.get_model(1)
-            if not m1:
-                return {}
-            m1.read()
-            
-            def get_point_str(model, point_name):
-                pt = getattr(model, point_name, None)
-                if pt is None:
-                    return ''
-                if hasattr(pt, 'value'):
-                    val = pt.value
-                    if isinstance(val, bytes):
-                        return val.decode('utf-8', errors='ignore').strip('\x00').strip()
-                    return str(val).strip() if val else ''
-                return str(pt).strip() if pt else ''
-                
-            return {
-                'manufacturer': get_point_str(m1, 'Mn'),
-                'model': get_point_str(m1, 'Md'),
-                'serial': get_point_str(m1, 'SN'),
-                'version': get_point_str(m1, 'Vr'),
-                'options': get_point_str(m1, 'Opt'),
-            }
-        except Exception as e:
-            return {}
+
             
     def _read_lifetime_energy(self) -> dict:
         """Read lifetime energy accumulators from Model 715 (if available)."""
@@ -576,18 +477,14 @@ class CLIMonitor:
             control = self.controller.read_control_status()
             native = self.controller.read_native_mode()
             ext = self._read_extension_registers()
-            
-            # Additional TUI-specific reads (lifetime energy, extra extensions)
-            m714_data = self._read_model_714()
             nameplate = self.controller.read_nameplate()  # Now returns strings
             
             # Get extension solar data if available
             ext_solar = solar.get('extension', {})
             solar_total = ext_solar.get('total_solar', abs(solar.get('ac_power_w', 0)))
             
-            # Battery DC power — now available from enriched read_battery_status()
-            # Falls back to M714 direct read for extra fields (current, temp)
-            battery_dc = battery.get('battery_power_w', m714_data.get('dc_power', 0))
+            # Battery DC power from enriched read_battery_status()
+            battery_dc = battery.get('battery_power_w', 0)
             
             # Grid power from controller
             grid_raw = grid.get('grid_power_w', 0)
@@ -606,12 +503,12 @@ class CLIMonitor:
             else:
                 self.data.power_flow.battery_state = "IDLE"
                 
-            # Update Battery DC
+            # Update Battery DC — all from enriched read_battery_status()
             self.data.soc = battery.get('soc', self.data.soc)
             self.data.soh = battery.get('soh', self.data.soh)
             self.data.dc_power = battery_dc
-            self.data.dc_current = battery.get('battery_current_a', m714_data.get('dc_current', 0))
-            self.data.battery_temp = m714_data.get('battery_temp', 0)
+            self.data.dc_current = battery.get('battery_current_a', 0)
+            self.data.battery_temp = battery.get('battery_temp_c', 0)
             self.data.available_wh = battery.get('wh_available', 0)
             self.data.rated_wh = battery.get('wh_rating', 0)
             self.data.reserve_soc = native.get('self_reserve_pct', 20.0)
@@ -653,7 +550,8 @@ class CLIMonitor:
             if m502 and hasattr(m502, 'OutWh') and m502.OutWh.value is not None:
                 self.data.lifetime_generated = m502.OutWh.value
             
-            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:             self.data.lifetime_discharged = m714_energy.DCWhInj.value
+            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:
+                self.data.lifetime_discharged = m714_energy.DCWhInj.value
             
             if m714_energy and hasattr(m714_energy, 'DCWhAbs') and m714_energy.DCWhAbs.value is not None:
                 self.data.lifetime_charged = m714_energy.DCWhAbs.value

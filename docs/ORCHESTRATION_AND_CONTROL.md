@@ -4,7 +4,9 @@ This document details the hardware interaction sequences and software logic for 
 
 ## 1. Core Hardware Command Sequence
 
-**CRITICAL**: All battery control relies on a mandatory, multi-step sequence of **direct register writes**. High-level `sunspec2` model point writes are ignored by the hardware.
+**CRITICAL**: All battery control relies on a mandatory, multi-step sequence of **SunSpec model point writes**. The library uses Model 704 via `sunspec2` model access.
+
+> See [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) for the complete register map and test status.
 
 **Sign Convention**:
 - **Positive (+) Power**: Discharges the battery.
@@ -20,21 +22,18 @@ sequenceDiagram
     
     App->>Ctrl: send_command(power_watts)
     
-    Ctrl->>H: 1. Disable Control (Write Reg 317 = 0)
+    Ctrl->>H: 1. Disable Control (WSetEna = 0)
     H-->>Ctrl: Ack
     
-    Ctrl->>H: 2. Configure (Write Reg 318 = 0) & Disable Reversion (Write Reg 326 = 0)
+    Ctrl->>H: 2. Configure (WSetMod = 0, WSetPct = -pct_raw)
+    Note right of Ctrl: WSetPct sign INVERTED: Negative=Charge, Positive=Discharge
     H-->>Ctrl: Ack
     
-    Ctrl->>H: 3. Write Power (Write Reg 319 = watts)
-    Note right of Ctrl: Uses Negative for Charge, Positive for Discharge
+    Ctrl->>H: 3. Enable Control (WSetEna = 1)
     H-->>Ctrl: Ack
     
-    Ctrl->>H: 4. Enable Control (Write Reg 317 = 1)
-    H-->>Ctrl: Ack
-    
-    Ctrl->>H: 5. Verify (Read Reg 319)
-    H-->>Ctrl: Return Power Value
+    Ctrl->>H: 4. Verify (Read WSetPct)
+    H-->>Ctrl: Return WSetPct Value
     Ctrl-->>App: Success, Command Sent
 ```
 
@@ -53,10 +52,10 @@ sequenceDiagram
 
     App->>Ctrl: reset_control_state()
     
-    Ctrl->>H: 1. Disable Control (Write Reg 317 = 0)
+    Ctrl->>H: 1. Disable Control (WSetEna = 0)
     H-->>Ctrl: Ack
 
-    Ctrl->>H: 2. Zero Power (Write Reg 319 = 0)
+    Ctrl->>H: 2. Zero Power (WSetPct = 0, WSet = 0)
     H-->>Ctrl: Ack
 ```
 
@@ -97,19 +96,27 @@ The following table maps user-facing actions to their underlying orchestration a
 
 | User Action | Entry Point | Controller Call | Hardware Sequence (Model 704) |
 | :--- | :--- | :--- | :--- |
-| **CLI/TUI Charge** (`--charge W` or 'c') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=-W (Charge) <br> 4. 317=1 (Enable) |
-| **CLI/TUI Discharge** (`--discharge W` or 'd') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=+W (Discharge) <br> 4. 317=1 (Enable) |
-| **CLI/TUI Standby** (`--standby` or 's') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(0)` | 1. 317=0 (Stop) <br> 2. 318=0, 326=0 (Config) <br> 3. 319=0 (Standby) <br> 4. 317=1 (Enable) |
-| **CLI/TUI Stop / Release** (`--stop` or 'r') | `franklinwh_cli.py` / `monitor.py` | `ctrl.reset_control_state()` | 1. 317=0 (Disable Control) <br> 2. 318=0 (Set Normal) <br> 3. 319=0 (Zero Power) |
-| **Function Call** (Python API) | `controller.py` | `send_command(W)` | Direct register writes to 704 via sequence |
+| **CLI/TUI Charge** (`--charge W` or 'c') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. WSetEna=0 (Stop) <br> 2. WSetMod=0, WSetPct=-pct (Config) <br> 3. WSetEna=1 (Enable) |
+| **CLI/TUI Discharge** (`--discharge W` or 'd') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. WSetEna=0 (Stop) <br> 2. WSetMod=0, WSetPct=+pct (Config) <br> 3. WSetEna=1 (Enable) |
+| **CLI/TUI Standby** (`--standby` or 's') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(0)` | 1. WSetEna=0 (Stop) <br> 2. WSetMod=0, WSetPct=0 (Config) <br> 3. WSetEna=1 (Enable) |
+| **CLI/TUI Stop / Release** (`--stop` or 'r') | `franklinwh_cli.py` / `monitor.py` | `ctrl.reset_control_state()` | 1. WSetEna=0 <br> 2. WSetPct=0, WSet=0 |
+| **Function Call** (Python API) | `controller.py` | `send_command(W)` | Via sunspec2 model point writes |
 | **Virtual Mode** (`--mode X`) | `modes.py` -> `set_mode` | `ctrl.send_command(...)` | Repeated updates based on SoC/Target logic |
 
 ---
 ## 5. Register Reference (Model 704)
 
-| Register | PDU Address | Name | Type | Unit | Description |
+| Register | Address | Name | Type | Unit | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 40318 | 317 | `WSetEna` | uint16 | Enum | 1=Local Control Enabled, 0=Disabled |
-| 40319 | 318 | `WSetMod` | uint16 | Enum | 0=Normal/VPP Mode |
-| 40320 | 319 | `WSetPct` | int16 | %/W | Power (+Discharge, -Charge) |
-| 40327 | 326 | `WSetRvrtTms` | uint32 | sec | Reversion Timeout (0 to disable) |
+| `WSetEna` | 40318 | Active Power Enable | enum16 | — | 0=Disabled, 1=Enabled |
+| `WSetMod` | 40319 | Active Power Mode | enum16 | — | 0=Normal |
+| `WSetPct` | 40324 | Active Power % | int16 | % | **Sign inverted:** +discharge, -charge |
+| `WSet` | 40320 | Active Power (W) | int32 | W | ⚠️ Avoided (causes flickering) |
+| `WSetRvrtTms` | 40327 | Reversion Timeout | uint32 | sec | 0 = no reversion |
+| `WSetRvrtRem` | 40329 | Reversion Remaining | uint32 | sec | Read-only countdown |
+
+> See [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) for the complete M704 register map (48 fields).
+
+---
+
+*Last Updated: 2026-03-08*
