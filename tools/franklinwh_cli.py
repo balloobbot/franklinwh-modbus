@@ -565,7 +565,7 @@ def print_startup_summary(state: dict, requested_mode: str = None, args=None):
     
     if requested_mode:
         print(f"\n  Requested Mode: {requested_mode}")
-        if conflicts:
+        if true_conflicts:
             print(f"  Status:         ✗ CONFLICTS - use --reset-on-start to override")
         else:
             print(f"  Status:         ✓ Can proceed")
