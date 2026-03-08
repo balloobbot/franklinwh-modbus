@@ -52,12 +52,12 @@ These are the primary battery control registers. **This is what we use.**
 
 | Address | Field | Label | Type | RW | Current Value | Status |
 |---------|-------|-------|------|----|---------------|--------|
-| 40310 | `WMaxLimPctEna` | Max Power Limit Enable | enum16 | RW | 0 (disabled) | 🔲 **Untested** |
-| 40311 | `WMaxLimPct` | Max Power Limit (%) | uint16 | RW | 100% (raw: 1000) | 🔲 Untested |
-| 40312 | `WMaxLimPctRvrt` | Reversion Limit (%) | uint16 | RW | None | 🔲 Untested |
-| 40313 | `WMaxLimPctEnaRvrt` | Reversion Enable | enum16 | RW | None | 🔲 Untested |
-| 40314 | `WMaxLimPctRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | 🔲 Untested |
-| 40316 | `WMaxLimPctRvrtRem` | Reversion Time Remaining | uint32 | R | None | 🔲 Untested |
+| 40310 | `WMaxLimPctEna` | Max Power Limit Enable | enum16 | RW | 0 (disabled) | ❌ **Read-only** (P2 tested) |
+| 40311 | `WMaxLimPct` | Max Power Limit (%) | uint16 | RW | 100% (raw: 1000) | ❌ **Read-only** (P2 tested) |
+| 40312 | `WMaxLimPctRvrt` | Reversion Limit (%) | uint16 | RW | None | ❌ Unimplemented |
+| 40313 | `WMaxLimPctEnaRvrt` | Reversion Enable | enum16 | RW | None | ❌ Unimplemented |
+| 40314 | `WMaxLimPctRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | ❌ Unimplemented |
+| 40316 | `WMaxLimPctRvrtRem` | Reversion Time Remaining | uint32 | R | None | ❌ Unimplemented |
 
 > [!NOTE]
 > **Potential Use Case:** Could be used to cap inverter output during grid-sensitive periods or to implement soft power ramp-down. Worth testing if the aGate respects this limit.
@@ -70,17 +70,17 @@ These are the primary battery control registers. **This is what we use.**
 
 | Address | Field | Label | Type | RW | Current Value | Status |
 |---------|-------|-------|------|----|---------------|--------|
-| 40298 | `PFWInjEna` | PF Enable (W Inject) | enum16 | RW | **1 (enabled!)** | ⚠️ **Active but unused** |
-| 40299 | `PFWInjEnaRvrt` | PF Reversion Enable (Inj) | enum16 | RW | None | 🔲 Untested |
-| 40300 | `PFWInjRvrtTms` | PF Reversion Time (Inj) | uint32 | RW | None | 🔲 Untested |
-| 40302 | `PFWInjRvrtRem` | PF Rev Time Remaining | uint32 | R | None | 🔲 Untested |
-| 40304 | `PFWAbsEna` | PF Enable (W Absorb) | enum16 | RW | None | 🔲 Untested |
-| 40305 | `PFWAbsEnaRvrt` | PF Reversion Enable (Abs) | enum16 | RW | None | 🔲 Untested |
-| 40306 | `PFWAbsRvrtTms` | PF Reversion Time (Abs) | uint32 | RW | None | 🔲 Untested |
-| 40308 | `PFWAbsRvrtRem` | PF Rev Time Remaining | uint32 | R | None | 🔲 Untested |
+| 40298 | `PFWInjEna` | PF Enable (W Inject) | enum16 | RW | **1 (enabled!)** | ✅ **Writable** — toggles actual PF |
+| 40299 | `PFWInjEnaRvrt` | PF Reversion Enable (Inj) | enum16 | RW | None | ❌ Unimplemented |
+| 40300 | `PFWInjRvrtTms` | PF Reversion Time (Inj) | uint32 | RW | None | ❌ Unimplemented |
+| 40302 | `PFWInjRvrtRem` | PF Rev Time Remaining | uint32 | R | None | ❌ Unimplemented |
+| 40304 | `PFWAbsEna` | PF Enable (W Absorb) | enum16 | RW | None | ❌ Unimplemented |
+| 40305 | `PFWAbsEnaRvrt` | PF Reversion Enable (Abs) | enum16 | RW | None | ❌ Unimplemented |
+| 40306 | `PFWAbsRvrtTms` | PF Reversion Time (Abs) | uint32 | RW | None | ❌ Unimplemented |
+| 40308 | `PFWAbsRvrtRem` | PF Rev Time Remaining | uint32 | R | None | ❌ Unimplemented |
 
 > [!WARNING]
-> `PFWInjEna` = 1 — **this is already enabled by the aGate's default config.** We are not setting it. Unknown what PF target it's using. This could affect grid export behavior.
+> `PFWInjEna` = 1 — **Active and WRITABLE.** When enabled (=1): M701 PF = -1 (≈ unity). When disabled (=0): PF = 3 (0.003, essentially no correction). **Do not leave disabled** — the aGate's default PF correction is applied through this register.
 
 ---
 
@@ -90,16 +90,16 @@ These are the primary battery control registers. **This is what we use.**
 
 | Address | Field | Label | Type | RW | Current Value | Status |
 |---------|-------|-------|------|----|---------------|--------|
-| 40331 | `VarSetEna` | Reactive Power Enable | enum16 | RW | 0 | 🔲 Untested |
-| 40332 | `VarSetMod` | Reactive Power Mode | enum16 | RW | 1 | 🔲 Untested |
-| 40333 | `VarSetPri` | Reactive Power Priority | enum16 | RW | 2 | 🔲 Untested |
-| 40334 | `VarSet` | Reactive Power (Var) | int32 | RW | 0 | 🔲 Untested |
-| 40336 | `VarSetRvrt` | Reversion Reactive Power | int32 | RW | None | 🔲 Untested |
-| 40338 | `VarSetPct` | Reactive Power (%) | int16 | RW | None | 🔲 Untested |
-| 40339 | `VarSetPctRvrt` | Reversion Reactive (%) | int16 | RW | None | 🔲 Untested |
-| 40340 | `VarSetEnaRvrt` | Reversion Enable | enum16 | RW | None | 🔲 Untested |
-| 40341 | `VarSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | 🔲 Untested |
-| 40343 | `VarSetRvrtRem` | Reversion Time Remaining | uint32 | R | None | 🔲 Untested |
+| 40331 | `VarSetEna` | Reactive Power Enable | enum16 | RW | 0 | ❌ **Read-only** (P3 tested) |
+| 40332 | `VarSetMod` | Reactive Power Mode | enum16 | RW | 1 | ❌ Read-only (pre-configured) |
+| 40333 | `VarSetPri` | Reactive Power Priority | enum16 | RW | 2 | ❌ Read-only (pre-configured) |
+| 40334 | `VarSet` | Reactive Power (Var) | int32 | RW | 0 | ❌ **Read-only** (P3 tested) |
+| 40336 | `VarSetRvrt` | Reversion Reactive Power | int32 | RW | None | ❌ Unimplemented |
+| 40338 | `VarSetPct` | Reactive Power (%) | int16 | RW | None | ❌ Unimplemented |
+| 40339 | `VarSetPctRvrt` | Reversion Reactive (%) | int16 | RW | None | ❌ Unimplemented |
+| 40340 | `VarSetEnaRvrt` | Reversion Enable | enum16 | RW | None | ❌ Unimplemented |
+| 40341 | `VarSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | ❌ Unimplemented |
+| 40343 | `VarSetRvrtRem` | Reversion Time Remaining | uint32 | R | None | ❌ Unimplemented |
 
 ---
 
@@ -109,9 +109,9 @@ These are the primary battery control registers. **This is what we use.**
 
 | Address | Field | Label | Type | RW | Current Value | Status |
 |---------|-------|-------|------|----|---------------|--------|
-| 40345 | `WRmp` | Normal Ramp Rate | uint16 | RW | None | 🔲 Untested |
-| 40346 | `WRmpRef` | Ramp Rate Reference | enum16 | RW | None | 🔲 Untested |
-| 40347 | `VarRmp` | Reactive Ramp Rate | uint16 | RW | None | 🔲 Untested |
+| 40345 | `WRmp` | Normal Ramp Rate | uint16 | RW | None | ❌ **Unimplemented** (P4 tested) |
+| 40346 | `WRmpRef` | Ramp Rate Reference | enum16 | RW | None | ❌ **Unimplemented** (P4 tested) |
+| 40347 | `VarRmp` | Reactive Ramp Rate | uint16 | RW | None | ❌ Unimplemented |
 
 ---
 
@@ -180,8 +180,8 @@ Legend:  ✅ Working   ⚠️ Partial   🔲 Untested   ❌ Broken/Blocked
 | **Reversion Countdown (WSetRvrtRem)** | 40329 | ❌ Non-functional | Always 0 — hardware timer not implemented (TESTED) |
 | **Reversion Power** | 40322/40325 | 🔲 Untested | Could set fallback power after timeout |
 | **Max Power Limit** | 40310-40316 | 🔲 Untested | Could cap inverter output |
-| **Power Factor** | 40298-40308 | 🔲 Untested | PFWInjEna=1 already active (default) |
-| **Reactive Power** | 40331-40343 | 🔲 Untested | Full VarSet group unused |
+| **Power Factor** | 40298-40308 | ✅ PFWInjEna writable | PFWInjEna toggles actual PF. All Rvrt regs unimplemented |
+| **Reactive Power** | 40331-40343 | ❌ Read-only | VarSetEna/VarSet writes silently discarded |
 | **Ramp Rates** | 40345-40347 | 🔲 Untested | Could smooth power transitions |
 | **Controller Heartbeat** | 1092 | ❌ Non-functional | Write accepted, value silently ignored (TESTED) |
 | **DER Heartbeat** | 1090 | ❌ Non-functional | Always 0 (TESTED) |
