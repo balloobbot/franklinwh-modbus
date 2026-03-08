@@ -578,6 +578,7 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
     one_shot_exit = False  # Track if we're exiting after a one-shot command (don't reset)
+    needs_cleanup = False   # Only set True when entering continuous mode that needs cleanup on exit
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -953,6 +954,7 @@ def main():
             print(f"  Press Ctrl+C to stop")
             print(f"{'='*60}")
             
+            needs_cleanup = True
             vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
             sys.exit(0)
         
@@ -1135,6 +1137,7 @@ def main():
                 print(f"  Max charge SoC: {args.max_charge_soc}%")
                 print(f"  Min discharge SoC: {vmc.min_discharge_soc}%")
                 print("Press Ctrl+C to stop")
+                needs_cleanup = True
                 vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
                 sys.exit(0)
             else:
@@ -1157,12 +1160,12 @@ def main():
         logger.error(f"Runtime error: {e}")
         raise
     finally:
-        # Cancel command timer on exit (safety — but don't reset for one-shot commands)
+        # Cancel command timer on exit
         ctrl.cancel_command_timer()
         
         # Only reset control state if we were running continuous mode
-        # One-shot commands (--charge/--discharge without --mode) should persist
-        if not one_shot_exit:
+        # Read-only ops (--status/--healthcheck) and one-shot commands should NOT reset
+        if needs_cleanup and not one_shot_exit:
             try:
                 ctrl.reset_control_state()
                 logger.info("Control released")
