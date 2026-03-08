@@ -111,13 +111,21 @@ See: `docs/VERIFICATION_BASELINE.md` for full register map and cross-verificatio
 
 ## Extension Registers (15000-15039) — Undocumented
 
-Additional proprietary registers discovered via raw scanning. See `docs/VERIFICATION_BASELINE.md` Section 4 for full dump with tentative field matching.
+Discovered by accident (typo of 15500). Proprietary registers — likely aPower battery telemetry mirrors. See `docs/VERIFICATION_BASELINE.md` Section 4 for full dump.
 
 Notable high-confidence matches:
 - `15020` = 13600 → exact match to `713.WHRtg` (battery energy rating)
 - `15036` = 961 → exact match to `713.SoH` raw (96.1%)
+- `15024` = ~50010 → grid frequency mirror (~50.0Hz)
+- `15025` = ~2420 → grid voltage mirror (~242.0V)
+
+**Write-probe (2026-03-08):** All 40 registers accept writes at protocol level but ALL are silently discarded. No sticky registers found. See `tests/results/2026-03-08_extension_write_probe.md`.
+
+**Unit ID scan:** All unit IDs (1-247 sampled) return the same aGate X device (DA=1). No hidden sub-devices.
 
 > **Caution:** These are undocumented and may change with firmware updates.
+
+> **Future TODO:** Overnight brute-force scan of address ranges 15040-15499 and 16000-20000+ for additional populated register ranges. The 15000 range was found by accident — there may be more. Scan ~5000 addresses at 100ms each ≈ 8 minutes.
 
 ---
 
