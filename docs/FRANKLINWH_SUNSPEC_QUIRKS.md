@@ -114,26 +114,44 @@ FranklinWH creates a **split-brain control architecture** where two independent 
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### The LocRemCtl Conflict (Model 715)
+### The LocRemCtl Paradox (Model 715) — TESTED 2026-03-08
 
-Model 715 `LocRemCtl` (41089) reports `1` = **Local Control**. In standard SunSpec, a remote client (like this library) should:
+Model 715 `LocRemCtl` (addr 1089 base-1) reports `1` = **Local Control** and is **read-only**.
 
-1. Write `LocRemCtl = 0` (Remote) to signal it wants to take control
-2. The DER device acknowledges by accepting write commands
-3. The remote client writes M704 to control the battery
-4. On disconnect, write `LocRemCtl = 1` (Local) to release control
+**Per SunSpec 2 spec:**
+- `LocRemCtl = 1` (Local) → DER should **reject ALL** Modbus client writes
+- `LocRemCtl = 0` (Remote) → DER accepts write commands from Modbus clients
 
-**FranklinWH does NOT support this handoff.** `LocRemCtl` appears to be read-only. Despite this, M704 writes work without the LocRemCtl handoff — FranklinWH allows "side-channel" power control while the aGate simultaneously runs its own mode (Self-Consumption, TOU, etc.).
+**FranklinWH violates this fundamentally.** The aGate:
+- ✅ Accepts M704 power writes (WSetEna, WSetPct, WSetMod) despite being in Local mode
+- ❌ Ignores M715 lifecycle writes (ControllerHb — value silently discarded)
+- ⚠️ Accepts WSetRvrtTms config writes BUT does not execute the countdown behavior
+
+This creates a **selective-write hybrid** that is non-standard:
+
+| Feature | SunSpec 2 Expectation (Local) | FranklinWH Actual |
+|---------|-------------------------------|-------------------|
+| Power writes (WSetPct) | ❌ Reject | ✅ Accepts |
+| Power enable (WSetEna) | ❌ Reject | ✅ Accepts |
+| Reversion config (WSetRvrtTms) | ❌ Reject | ✅ Accepts value |
+| Reversion countdown (WSetRvrtRem) | N/A | ❌ Never activates |
+| Controller heartbeat (ControllerHb) | ❌ Reject | ❌ Silently ignores |
+| DER heartbeat (DERHb) | N/A | ❌ Always 0 |
+| LocRemCtl write | Allow | ❌ Read-only |
+
+**Test evidence:** See `tests/results/2026-03-08_p1_control_tests.md`
 
 ### Design Implications
 
-1. **Conflicting Control Sources:** The aGate's Cloud API mode continues running while Modbus power commands override battery behavior. This creates a tug-of-war: Modbus commands expire (via `WSetRvrtTms`), and the aGate resumes its native mode.
+1. **Cannot rely on hardware lifecycle features:** Heartbeat and reversion must be implemented **in software** (application-side watchdog timer).
 
-2. **Virtual Modes Are Illusions:** Our "virtual" Self-Consumption/TOU/Peak-Shave modes cannot actually change the aGate's operating mode — they can only fight against it using M704 power commands.
+2. **Conflicting Control Sources:** The aGate's Cloud API mode continues running while Modbus power commands override battery behavior. Commands don't expire via hardware timer — they persist until manually reset or the connection is lost.
 
-3. **Intent-Based Conflict Detection Must Account for This:** The conflict detection system (see `TODO_INTENT_BASED_CONFLICT_DETECTION.md`) must understand that the aGate's native mode (read from extension 15507) will always be exerting its own intent in parallel. True conflicts are when the aGate's native mode AND user Modbus commands work against each other.
+3. **Virtual Modes Are Illusions:** Our "virtual" Self-Consumption/TOU/Peak-Shave modes cannot actually change the aGate's operating mode — they can only fight against it using M704 power commands.
 
-4. **SPAN Modbus Unlock Changes Everything:** If write access to extensions is enabled, the library could fully control the aGate — changing modes, setting reserves, etc. This is a fundamentally different operating mode that the library should detect and adapt to.
+4. **Intent-Based Conflict Detection Must Account for This:** The conflict detection system (see `TODO_INTENT_BASED_CONFLICT_DETECTION.md`) must understand that the aGate's native mode (read from extension 15507) will always be exerting its own intent in parallel.
+
+5. **SPAN Modbus Unlock Changes Everything:** If write access to extensions is enabled, the library could fully control the aGate — changing modes, setting reserves, etc. This is a fundamentally different operating mode that the library should detect and adapt to.
 
 ### Detection of Write Capability
 
@@ -179,14 +197,29 @@ resp = sock.recv(256)
 
 ---
 
+## M715 Address Space — Base-1 Only (TESTED 2026-03-08)
+
+**Issue:** M715 (DERCtl) registers are ONLY accessible at base-1 addresses via raw Modbus TCP, NOT at the standard 40000+ offsets.
+
+| Method | Address for ControllerHb | Result |
+|--------|-------------------------|--------|
+| sunspec2 model read | Internal mapping | ✅ Works |
+| Raw TCP @ 41092 (base 40000) | 41092 | ❌ ILLEGAL_DATA_ADDRESS |
+| Raw TCP @ 1092 (base 1) | 1092 | ✅ Readable |
+
+The FranklinWH SunSpec XLSX file also confirms base address = 1.
+
+---
+
 ## General Notes
 
 - **Scale Factors:** Always read SF registers dynamically — they can change
 - **Model Discovery:** aGate implements models 1, 502, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715
 - **Write Sequencing:** Model 704 requires specific write sequence (STOP → CONFIG → ENABLE → VERIFY)
 - **Timeout:** WiFi networks to the aGate can be slow; always use configurable timeout (default 10s)
+- **Batch Writes:** `tools/modbus_sunspec_readwrite.py` has batch write capability (untested)
 
 ---
 
-*Last Updated: 2026-03-08*  
+*Last Updated: 2026-03-08 (P1 control test results added)*  
 *Device Tested: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*

@@ -21,8 +21,8 @@ These are the primary battery control registers. **This is what we use.**
 | 40324 | `WSetPct` | Active Power Setpoint (%) | int16 | RW | ✅ | ✅ **Working** | `send_command()` step 2 — **sign inverted** (see quirks) |
 | 40325 | `WSetPctRvrt` | Reversion Power (%) | int16 | RW | ❌ | 🔲 **Untested** | Could set fallback power level |
 | 40326 | `WSetEnaRvrt` | Reversion Enable | enum16 | RW | ❌ | 🔲 **Untested** | What happens when command reverts |
-| 40327 | `WSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | ⚠️ | ⚠️ **Partially tested** | Read in `healthcheck()` zombie detection; never written |
-| 40329 | `WSetRvrtRem` | Reversion Time Remaining (s) | uint32 | R | ✅ | ✅ **Working** | Read in `healthcheck()` and `read_control_status()` |
+| 40327 | `WSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | ⚠️ | ⚠️ **Config only** | Value accepted & persists, but countdown never activates (TESTED 2026-03-08) |
+| 40329 | `WSetRvrtRem` | Reversion Time Remaining (s) | uint32 | R | ✅ | ❌ **Non-functional** | Always 0 — countdown never activates despite WSetRvrtTms being set (TESTED 2026-03-08) |
 
 > [!IMPORTANT]
 > **Sign Convention Quirk:** `WSetPct` is inverted on FranklinWH hardware. Positive values = discharge (in standard SunSpec, positive = charge). The library inverts: `m704.WSetPct.value = -pct_raw`. See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
@@ -136,19 +136,21 @@ These are the primary battery control registers. **This is what we use.**
 
 ## 2. Model 715 — DER Control
 
-| Address | Field | Label | Type | RW | Current Value | Status | Notes |
+> **Note:** M715 registers use base-1 addressing (1087-1095) for raw Modbus TCP. Base-40000 addresses (41087+) return ILLEGAL_DATA_ADDRESS.
+
+| Address (base-1) | Field | Label | Type | RW | Current Value | Status | Notes |
 |---------|-------|-------|------|----|---------------|--------|-------|
-| 41089 | `LocRemCtl` | Control Mode | enum16 | R | **1 (Local)** | ⚠️ **Read-only** | SunSpec says this should be writable to switch to remote control — **aGate does not support** |
-| 41090 | `DERHb` | DER Heartbeat | uint32 | R | 0 | 🔲 Untested | aGate's own heartbeat counter |
-| 41092 | `ControllerHb` | Controller Heartbeat | uint32 | RW | 0 | 🔲 **Untested** | We should write this as keep-alive |
-| 41094 | `AlarmReset` | Alarm Reset | uint16 | RW | 0 | 🔲 Untested | Used in `check_blocking_alarms()` but never written |
-| 41095 | `OpCtl` | Set Operation | enum16 | RW | 0 | 🔲 Untested | Start/Stop/Standby the DER |
+| 1089 | `LocRemCtl` | Control Mode | enum16 | ❌ R | **1 (Local)** | ❌ **Read-only** | SunSpec says writable — aGate ignores (see LocRemCtl Paradox) |
+| 1090 | `DERHb` | DER Heartbeat | uint32 | R | 0 | ❌ **Non-functional** | Always 0 — DER heartbeat protocol not implemented (TESTED) |
+| 1092 | `ControllerHb` | Controller Heartbeat | uint32 | RW* | 0 | ❌ **Non-functional** | Write accepted, value silently ignored (TESTED via sunspec2 + raw TCP) |
+| 1094 | `AlarmReset` | Alarm Reset | uint16 | RW | 0 | 🔲 Untested | Used in `check_blocking_alarms()` but never written |
+| 1095 | `OpCtl` | Set Operation | enum16 | RW | 0 | 🔲 Untested | Start/Stop/Standby the DER |
 
 > [!CAUTION]
-> **LocRemCtl = 1 (Local) and read-only.** This is a significant deviation from SunSpec. Standard SunSpec requires a remote controller to write `LocRemCtl = 0` before taking control. FranklinWH ignores this — M704 writes work regardless, but the aGate considers itself under "local" (Cloud API) control at all times. See `FRANKLINWH_SUNSPEC_QUIRKS.md` for full implications.
+> **LocRemCtl Paradox:** Per SunSpec 2, `LocRemCtl=1` (Local) should mean the DER rejects ALL client writes. FranklinWH violates this — M704 power writes work, but lifecycle features (heartbeat, reversion countdown) are non-functional. This is a **selective-write hybrid** unique to FranklinWH. See `FRANKLINWH_SUNSPEC_QUIRKS.md` for full analysis.
 
 > [!IMPORTANT]
-> **ControllerHb (Keep-Alive):** SunSpec2 standard defines this as a heartbeat the remote controller writes to signal it is alive. If the DER doesn't receive heartbeat updates, it may revert to local control. **We are not writing this.** Testing needed to determine if the aGate monitors this and whether writing it affects command persistence.
+> **ControllerHb TESTED 2026-03-08:** Writes accepted at protocol level (no Modbus exception) via both sunspec2 model.write() and raw TCP func 16 at address 1092. Value stays 0 after all writes. **aGate firmware silently discards heartbeat writes.** See `tests/results/2026-03-08_p1_control_tests.md`.
 
 ---
 
@@ -174,33 +176,33 @@ Legend:  ✅ Working   ⚠️ Partial   🔲 Untested   ❌ Broken/Blocked
 |----------|-----------|--------|----------|
 | **Battery Power (WSetPct)** | 40318-40324 | ✅ Working | Live verified — charge/discharge confirmed |
 | **WSet (absolute watts)** | 40320 | ⚠️ Avoided | Causes flickering when used with WSetPct |
-| **Reversion Timer** | 40327-40329 | ⚠️ Read-only use | Read in healthcheck; never written to set timeout |
+| **Reversion Config (WSetRvrtTms)** | 40327 | ⚠️ Config only | Value accepted & persists, but countdown never activates (TESTED) |
+| **Reversion Countdown (WSetRvrtRem)** | 40329 | ❌ Non-functional | Always 0 — hardware timer not implemented (TESTED) |
 | **Reversion Power** | 40322/40325 | 🔲 Untested | Could set fallback power after timeout |
 | **Max Power Limit** | 40310-40316 | 🔲 Untested | Could cap inverter output |
 | **Power Factor** | 40298-40308 | 🔲 Untested | PFWInjEna=1 already active (default) |
 | **Reactive Power** | 40331-40343 | 🔲 Untested | Full VarSet group unused |
 | **Ramp Rates** | 40345-40347 | 🔲 Untested | Could smooth power transitions |
-| **Controller Heartbeat** | 41092 | 🔲 **Critical untested** | May affect command persistence |
-| **DER Heartbeat** | 41090 | 🔲 Untested | aGate heartbeat — monitoring only |
-| **OpCtl (Start/Stop)** | 41095 | 🔲 Untested | Could start/stop DER |
-| **LocRemCtl** | 41089 | ❌ Read-only | SunSpec handoff not supported |
+| **Controller Heartbeat** | 1092 | ❌ Non-functional | Write accepted, value silently ignored (TESTED) |
+| **DER Heartbeat** | 1090 | ❌ Non-functional | Always 0 (TESTED) |
+| **OpCtl (Start/Stop)** | 1095 | 🔲 Untested | Could start/stop DER |
+| **LocRemCtl** | 1089 | ❌ Read-only | SunSpec handoff not supported; LocRemCtl Paradox (TESTED) |
 | **Extension Mode/Reserves** | 15507-15509 | ❌ Write blocked | Need SPAN Modbus unlock |
 
 ---
 
 ## 5. Future Test Plan
 
-### Priority 1 — Command Persistence and Keep-Alive
+### Priority 1 — Command Persistence and Keep-Alive — TESTED 2026-03-08
 
-| Test | What to Do | Expected Outcome | Risk |
-|------|-----------|-------------------|------|
-| **Write ControllerHb** | Write incrementing counter to 41092 every N seconds | Determine if aGate monitors heartbeat | Low — write test |
-| **Set WSetRvrtTms** | Write timeout (e.g., 300s) to 40327 before sending command | Command auto-reverts after timeout | Low — self-healing |
-| **Set WSetPctRvrt** | Write fallback power % to 40325 | After timeout, battery reverts to this power level | Low |
-| **Monitor reversion** | After WSetRvrtTms expires, read all WSet fields | Understand what state the aGate returns to | Low — read only |
+| Test | What to Do | Result | Evidence |
+|------|-----------|--------|----------|
+| **Write ControllerHb** | Write incrementing counter to 1092 | ❌ **Non-functional** — writes silently ignored | Test 1a/1b/1c |
+| **Set WSetRvrtTms** | Write timeout to 40327, issue command | ⚠️ **Config only** — value persists but countdown never activates | Test 2a/2b/2c |
+| **Monitor WSetRvrtRem** | Read countdown after timeout set | ❌ **Always 0** — hardware timer not implemented | Test 2b/2c |
 
 > [!IMPORTANT]
-> **Why this matters:** Currently commands may persist indefinitely (no timeout set) or be overridden unpredictably by the aGate's Cloud API. Understanding the reversion mechanism is critical for safe autonomous operation.
+> **Root cause: LocRemCtl Paradox.** Both features are SunSpec 2 remote controller lifecycle features that require `LocRemCtl=0` (Remote). The aGate keeps this at 1 (Local) and read-only, selectively accepting power writes but ignoring lifecycle features. **Software-side watchdog must be implemented instead.** See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
 
 ### Priority 2 — Power Limiting and Ramp Control
 
@@ -293,5 +295,6 @@ Goals for feature parity with the FranklinWH mobile app:
 
 ---
 
-*Last Updated: 2026-03-08*  
+*Last Updated: 2026-03-08 (P1 tests complete)*  
+*Test Results: `tests/results/2026-03-08_p1_control_tests.md`*  
 *See also: [ORCHESTRATION_AND_CONTROL.md](./ORCHESTRATION_AND_CONTROL.md) for command sequencing diagrams*
