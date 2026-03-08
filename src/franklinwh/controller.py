@@ -988,6 +988,20 @@ class FranklinWHController:
                 self._command_timer.cancel()
                 logger.info("Command timer cancelled")
             self._command_timer = None
+    
+    def get_command_timer_status(self) -> dict:
+        """Return status of software command timeout timer.
+        
+        Returns dict with:
+            active: bool - whether a timer is currently running
+            remaining_s: float - approximate seconds remaining (0 if no timer)
+        """
+        with self._command_timer_lock:
+            if self._command_timer and self._command_timer.is_alive():
+                # Timer.interval is the full duration, but we don't track start time
+                # Just indicate it's active
+                return {'active': True, 'interval_s': self._command_timer.interval}
+            return {'active': False, 'interval_s': 0}
 
     def send_command(
         self,

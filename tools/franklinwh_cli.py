@@ -233,6 +233,13 @@ def print_status(ctrl: FranklinWHController):
     else:
         print(f"    Control Source:   Idle (no active control)")
     
+    # Software command timeout
+    timer = ctrl.get_command_timer_status()
+    if timer.get('active'):
+        print(f"    ⏱️  Timeout:       Active ({timer.get('interval_s', 0):.0f}s interval)")
+    elif wset_ena == 1:
+        print(f"    ⏱️  Timeout:       ⚠️  None (command persists until manual stop)")
+    
     # ═══════════════════════════════════════════════════════
     # AC POWER (like dashboard card)
     # ═══════════════════════════════════════════════════════
@@ -618,24 +625,8 @@ def main():
     if not ctrl.connect():
         sys.exit(1)
     
-    # Setup auto-revert timer if specified
-    revert_timer = None
-    if args.revert and args.revert > 0:
-        import threading
-        
-        def revert_control():
-            """Timer callback to release control to cloud."""
-            try:
-                print(f"\n⏰ REVERT TIMER ({args.revert}s): Releasing control to cloud...")
-                ctrl.reset_control_state()
-                print("✓ Control released - aGate now under cloud control")
-            except Exception as e:
-                logger.error(f"Revert timer failed: {e}")
-        
-        revert_timer = threading.Timer(args.revert, revert_control)
-        revert_timer.daemon = True  # Don't block exit
-        revert_timer.start()
-        print(f"⏱️  Auto-revert timer set: Will release control after {args.revert} seconds")
+    # --revert is passed to send_command(duration_s=) at command time
+    # (no need for a separate CLI-level timer)
     
     # Handle max-charge/max-discharge flags (convert to power values)
     if args.max_charge:
@@ -1153,10 +1144,8 @@ def main():
         logger.error(f"Runtime error: {e}")
         raise
     finally:
-        # Cancel revert timer if still active
-        if revert_timer and revert_timer.is_alive():
-            revert_timer.cancel()
-            logger.debug("Revert timer cancelled")
+        # Cancel command timer on exit
+        ctrl.cancel_command_timer()
         
         try:
             ctrl.reset_control_state()
