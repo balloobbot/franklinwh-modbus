@@ -577,6 +577,7 @@ def main():
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
+    one_shot_exit = False  # Track if we're exiting after a one-shot command (don't reset)
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -962,10 +963,15 @@ def main():
                 state = ctrl.check_state()
                 conflicts = state.get('conflicts', [])
                 
+                # Separate true conflicts from informational messages
+                true_conflicts = [c for c in conflicts if not c.startswith('INFO:')]
+                
                 if conflicts:
                     print_startup_summary(state, 'manual', args)
+                
+                if true_conflicts:
                     print("\n🚨 CONFLICTS DETECTED:")
-                    for conflict in conflicts:
+                    for conflict in true_conflicts:
                         print(f"   • {conflict}")
                     
                     if not args.reset_on_start:
@@ -1139,6 +1145,7 @@ def main():
                 print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
                 if revert_s:
                     print(f"⏱️  Auto-revert in {revert_s}s (software timer)")
+                one_shot_exit = True
                 sys.exit(0 if success else 1)
         
         # No action specified
@@ -1150,14 +1157,17 @@ def main():
         logger.error(f"Runtime error: {e}")
         raise
     finally:
-        # Cancel command timer on exit
+        # Cancel command timer on exit (safety — but don't reset for one-shot commands)
         ctrl.cancel_command_timer()
         
-        try:
-            ctrl.reset_control_state()
-            logger.info("Control released")
-        except:
-            pass
+        # Only reset control state if we were running continuous mode
+        # One-shot commands (--charge/--discharge without --mode) should persist
+        if not one_shot_exit:
+            try:
+                ctrl.reset_control_state()
+                logger.info("Control released")
+            except:
+                pass
         ctrl.disconnect()
 
 
