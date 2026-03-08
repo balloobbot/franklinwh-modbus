@@ -87,6 +87,77 @@ m704.WSetPct.value = -pct_raw  # Invert for hardware
 
 ---
 
+## ⚠️ Write Access Asymmetry — The Core FranklinWH Quirk
+
+> **This is the most significant implementation quirk affecting library design.**
+
+### The Problem
+
+FranklinWH creates a **split-brain control architecture** where two independent control planes exist with different write access:
+
+| Control Plane | Registers | Read | Write | What It Controls |
+|---------------|-----------|------|-------|------------------|
+| **SunSpec Standard** | M704 (40xxx) | ✅ | ✅ | Battery power (WSet, WSetPct, WSetEna) |
+| **FranklinWH Extensions** | 15507-15509 | ✅ | ❌ Read-Only* | Operating mode, SoC reserves |
+
+*Write access requires **SPAN Modbus** unlock — enabled by FranklinWH Support for owners of SPAN electrical panels. The aGate's Ethernet port passes through the SPAN Panel, which controls Modbus access.
+
+### What This Means in Practice
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ We CAN do (SunSpec M704):              WE CANNOT do:        │
+│ ✅ Charge battery at 3000W             ❌ Change mode to TOU │
+│ ✅ Discharge battery at 2000W          ❌ Set reserve to 30% │
+│ ✅ Set idle (stop charge/discharge)    ❌ Switch to Backup   │
+│ ✅ Read all status + extensions        ❌ Change any mode    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### The LocRemCtl Conflict (Model 715)
+
+Model 715 `LocRemCtl` (41089) reports `1` = **Local Control**. In standard SunSpec, a remote client (like this library) should:
+
+1. Write `LocRemCtl = 0` (Remote) to signal it wants to take control
+2. The DER device acknowledges by accepting write commands
+3. The remote client writes M704 to control the battery
+4. On disconnect, write `LocRemCtl = 1` (Local) to release control
+
+**FranklinWH does NOT support this handoff.** `LocRemCtl` appears to be read-only. Despite this, M704 writes work without the LocRemCtl handoff — FranklinWH allows "side-channel" power control while the aGate simultaneously runs its own mode (Self-Consumption, TOU, etc.).
+
+### Design Implications
+
+1. **Conflicting Control Sources:** The aGate's Cloud API mode continues running while Modbus power commands override battery behavior. This creates a tug-of-war: Modbus commands expire (via `WSetRvrtTms`), and the aGate resumes its native mode.
+
+2. **Virtual Modes Are Illusions:** Our "virtual" Self-Consumption/TOU/Peak-Shave modes cannot actually change the aGate's operating mode — they can only fight against it using M704 power commands.
+
+3. **Intent-Based Conflict Detection Must Account for This:** The conflict detection system (see `TODO_INTENT_BASED_CONFLICT_DETECTION.md`) must understand that the aGate's native mode (read from extension 15507) will always be exerting its own intent in parallel. True conflicts are when the aGate's native mode AND user Modbus commands work against each other.
+
+4. **SPAN Modbus Unlock Changes Everything:** If write access to extensions is enabled, the library could fully control the aGate — changing modes, setting reserves, etc. This is a fundamentally different operating mode that the library should detect and adapt to.
+
+### Detection of Write Capability
+
+```python
+# The library tests write capability during connect()
+# by attempting a write to extension registers
+def _probe_extension_writable(self):
+    """Test if extension registers accept writes."""
+    try:
+        # Read current value, write it back, verify
+        current = read_register(15508)  # SelfReserve
+        write_register(15508, current)  # Write same value
+        return True  # SPAN Modbus unlock is active
+    except:
+        return False  # Standard read-only
+```
+
+### Related
+
+- `docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md` — Must be re-evaluated given this asymmetry
+- `docs/VERIFICATION_BASELINE.md` — Extension register access table
+
+---
+
 ## SunSpec2 Client — Address Remapping
 
 **Issue:** The SunSpec2 Python library (`sunspec2.modbus.client.ModbusClientTCP`) remaps register addresses internally. The `client.read()` method adjusts addresses based on SunSpec model base offsets, causing "Modbus exception 2" (illegal address) when attempting to read FranklinWH proprietary extension registers (15000+ and 15500+).

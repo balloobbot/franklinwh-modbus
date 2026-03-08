@@ -14,6 +14,74 @@ Implement intent-based conflict detection (Option 2 from analysis) to eliminate 
 
 ---
 
+## 🔴 Re-evaluation Required (2026-03-08)
+
+> [!CAUTION]
+> This design was created before the **write access asymmetry** was fully understood. The assumptions about control capability need revision.
+
+### What Changed
+
+The original design assumes the library can **fully control** the aGate — setting modes, reserves, and power commands. In reality:
+
+| Capability | Assumed | Actual (without SPAN unlock) |
+|-----------|---------|------------------------------|
+| Set battery power (M704) | ✅ | ✅ |
+| Change operating mode (15507) | ✅ | ❌ Read-only |
+| Set SoC reserves (15508-15509) | ✅ | ❌ Read-only |
+| LocRemCtl handoff (M715) | ✅ | ❌ Read-only (always "Local") |
+
+See: `docs/FRANKLINWH_SUNSPEC_QUIRKS.md` → "Write Access Asymmetry" for full details.
+
+### Impact on This Design
+
+1. **Phase 2 (Energy Context Enhancement):** ✅ Still valid — reads only, no writes needed.
+
+2. **Phase 3 (Intent-Based Conflict Detection):** ⚠️ **Needs rethinking.** The design assumes we detect conflicts between what the *user asked for* and what the *aGate is doing*. But there's a third actor: **the aGate's native mode** (Self-Consumption, TOU, etc.) which continues running in parallel and will override Modbus commands when they expire.
+
+3. **Virtual Mode Controller (modes.py):** ⚠️ **Fundamentally limited.** Virtual modes cannot change the aGate's OnGridMode — they can only fight against it using M704 power commands that eventually timeout.
+
+### Revised Conflict Model
+
+The conflict detection should model **three-way intent**:
+
+```
+                    ┌─────────────┐
+                    │  User CLI   │  ← What the user typed
+                    │  Intent     │     (charge/discharge/idle)
+                    └──────┬──────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌──────────────┐  ┌───────────────┐
+│ M704 Power    │  │ aGate Native │  │ Cloud API /   │
+│ Commands      │  │ Mode (15507) │  │ FranklinWH    │
+│ (our control) │  │ (read-only)  │  │ App           │
+└───────────────┘  └──────────────┘  └───────────────┘
+   We write this    We can only       We cannot see or
+   but it expires   observe this      influence this
+```
+
+**True conflict exists when:** The aGate's native mode intent *opposes* the user's Modbus command AND the power balance cannot be explained by natural energy flow (solar/load).
+
+### Two Operating Modes
+
+The library should detect and adapt to the write capability:
+
+| Mode | Extension Writes | Control Strategy |
+|------|-----------------|------------------|
+| **Standard** (current) | ❌ Read-only | M704 power override only; commands expire; aGate native mode runs in parallel |
+| **SPAN Unlocked** (future) | ✅ Full write | Can set mode, reserves, full control — intent-based detection works as originally designed |
+
+### Recommendation
+
+- Phase 2 (energy context) can proceed as-is
+- Phase 3 (intent detection) should be revised to account for:
+  - Three-way intent (user vs M704 vs aGate native mode)
+  - Command expiry (WSetRvrtTms) as a design constraint
+  - SPAN unlock detection to switch between limited vs full control strategies
+
+---
+
 ## Prerequisites (MUST COMPLETE FIRST)
 
 ### Phase 1: Virtual Mode Testing (BLOCKING)
