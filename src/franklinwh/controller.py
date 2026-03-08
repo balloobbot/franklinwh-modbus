@@ -8,6 +8,7 @@ communication with FranklinWH aGate battery systems.
 import logging
 import time
 import struct
+import threading
 from typing import Dict, Any, Optional, Tuple, List
 
 from .types import BatteryCommand, HealthStatus, ONGRID_MODES
@@ -57,6 +58,10 @@ class FranklinWHController:
         self.dev: Optional[SunSpecModbusClientDeviceTCP] = None
         self.models: dict = {}
         self._span_writable: Optional[bool] = None
+        
+        # Software command timeout (hardware WSetRvrtTms doesn't work)
+        self._command_timer: Optional[threading.Timer] = None
+        self._command_timer_lock = threading.Lock()
         
         # Extension register write test results
         self._extension_write_results: Dict[str, Any] = {
@@ -976,14 +981,29 @@ class FranklinWHController:
             return clamped
         return power_watts
     
+    def cancel_command_timer(self) -> None:
+        """Cancel any active software command timeout."""
+        with self._command_timer_lock:
+            if self._command_timer and self._command_timer.is_alive():
+                self._command_timer.cancel()
+                logger.info("Command timer cancelled")
+            self._command_timer = None
+
     def send_command(
         self,
         command: BatteryCommand,
-        revert_time_s: int = 0,
-        heartbeat_interval: float = 5.0,
+        duration_s: Optional[int] = None,
         dry_run: bool = False
     ) -> Tuple[bool, str]:
-        """Send battery control command via Model 704."""
+        """Send battery control command via Model 704.
+        
+        Args:
+            command: BatteryCommand with power_watts and direction
+            duration_s: Optional software timeout in seconds. After this
+                duration, reset_control_state() is called automatically.
+                Hardware reversion (WSetRvrtTms) does NOT work on FranklinWH.
+            dry_run: If True, report what would happen without writing
+        """
         def _do_send():
             m704 = self.get_model(704)
             if not m704:
@@ -996,6 +1016,9 @@ class FranklinWHController:
             
             if dry_run:
                 return True, f"Dry Run: WSetPct={pct_raw} ({command.power_watts}W)"
+            
+            # Cancel any existing timer before sending new command
+            self.cancel_command_timer()
             
             # 1. STOP & CLEAR
             m704.read()
@@ -1022,6 +1045,23 @@ class FranklinWHController:
             actual_pct = m704.WSetPct.value * (10 ** pct_sf) if m704.WSetPct.value else 0
             logger.info(f"Command sent: WSetPct={actual_pct}% (raw={m704.WSetPct.value}), "
                        f"WSet={m704.WSet.value}, WSetEna={m704.WSetEna.value}")
+            
+            # 5. START SOFTWARE TIMEOUT if requested
+            if duration_s and duration_s > 0:
+                def _on_timeout():
+                    logger.warning(f"Software timeout ({duration_s}s) expired — resetting control")
+                    try:
+                        self.reset_control_state()
+                    except Exception as e:
+                        logger.error(f"Failed to reset on timeout: {e}")
+                
+                with self._command_timer_lock:
+                    self._command_timer = threading.Timer(duration_s, _on_timeout)
+                    self._command_timer.daemon = True  # Don't block exit
+                    self._command_timer.start()
+                logger.info(f"Software timeout set: {duration_s}s")
+                return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {self.RATED_MAX_W}W) [timeout: {duration_s}s]"
+            
             return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {self.RATED_MAX_W}W)"
         
         try:
