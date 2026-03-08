@@ -5,10 +5,12 @@ Curated, current documentation for `franklinwh-modbus`.
 ## Library Reference
 - [ARCHITECTURE.md](ARCHITECTURE.md) — AC/DC coupling, system overview
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware-specific SunSpec quirks
-- [ORCHESTRATION_AND_CONTROL.md](ORCHESTRATION_AND_CONTROL.md) — Control logic and command sequences
+- [DER_CONTROL_REFERENCE.md](DER_CONTROL_REFERENCE.md) — Complete M704/M715 register map with test status
+- [ORCHESTRATION_AND_CONTROL.md](ORCHESTRATION_AND_CONTROL.md) — Control logic, command sequences, software timeout
 - [SAFETY_CONTROLS.md](SAFETY_CONTROLS.md) — 10 safety rules for development
 - [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — VPP Mode behavior with mobile app screenshots
-- [UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx](UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx) — SunSpec certification PICS
+- [VERIFICATION_BASELINE.md](VERIFICATION_BASELINE.md) — Full register map cross-verification
+- [UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx](UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx) — SunSpec certification PICS (use with caution)
 
 ## Development
 - [DEVELOPMENT.md](DEVELOPMENT.md) — Dev safety guidelines

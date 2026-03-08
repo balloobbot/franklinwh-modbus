@@ -63,6 +63,9 @@ Examples:
   %(prog)s -i 192.168.1.100 --max-charge --duration 3600
   %(prog)s -i 192.168.1.100 --max-discharge --duration 3600
   
+  # Software timeout (auto-reverts to cloud control)
+  %(prog)s -i 192.168.1.100 --charge 3000 --revert 3600
+  
   # Legacy --power with sign
   %(prog)s -i 192.168.1.100 --mode manual --power 3000 --duration 3600   # Charge
   %(prog)s -i 192.168.1.100 --mode manual --power -3000 --duration 3600  # Discharge
@@ -113,14 +116,14 @@ Examples:
     # Operation
     parser.add_argument('--duration', type=int, help='Run duration in seconds')
     parser.add_argument('--revert', type=int, metavar='SECONDS',
-                       help='Auto-revert to cloud control after N seconds (safety timer)')
+                       help='Auto-revert to cloud control after N seconds (software timer — hardware WSetRvrtTms does not work on FranklinWH)')
     parser.add_argument('--target-soc-auto', type=float, metavar='PCT',
                        help='Target SoC %% - auto-stop when reached (for charge/discharge)')
     parser.add_argument('--reset-on-start', action='store_true', help='Reset control state on start')
     parser.add_argument('--dry-run', action='store_true', help='Simulate without sending commands')
     
     # Info
-    parser.add_argument('--status', action='store_true', help='Show system status')
+    parser.add_argument('--status', action='store_true', help='Show system status (includes timer state)')
     parser.add_argument('--healthcheck', action='store_true', help='Run health check')
     parser.add_argument('--check-alarms', action='store_true', help='Check and display detailed alarm status')
     parser.add_argument('--monitor', action='store_true', help='Launch interactive terminal dashboard')

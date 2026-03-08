@@ -100,11 +100,46 @@ The following table maps user-facing actions to their underlying orchestration a
 | **CLI/TUI Discharge** (`--discharge W` or 'd') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(W)` | 1. WSetEna=0 (Stop) <br> 2. WSetMod=0, WSetPct=+pct (Config) <br> 3. WSetEna=1 (Enable) |
 | **CLI/TUI Standby** (`--standby` or 's') | `franklinwh_cli.py` / `monitor.py` | `ctrl.send_command(0)` | 1. WSetEna=0 (Stop) <br> 2. WSetMod=0, WSetPct=0 (Config) <br> 3. WSetEna=1 (Enable) |
 | **CLI/TUI Stop / Release** (`--stop` or 'r') | `franklinwh_cli.py` / `monitor.py` | `ctrl.reset_control_state()` | 1. WSetEna=0 <br> 2. WSetPct=0, WSet=0 |
-| **Function Call** (Python API) | `controller.py` | `send_command(W)` | Via sunspec2 model point writes |
+| **Function Call** (Python API) | `controller.py` | `send_command(cmd, duration_s=N)` | Via sunspec2 model point writes |
 | **Virtual Mode** (`--mode X`) | `modes.py` -> `set_mode` | `ctrl.send_command(...)` | Repeated updates based on SoC/Target logic |
 
 ---
-## 5. Register Reference (Model 704)
+## 5. Software Command Timeout
+
+> [!IMPORTANT]
+> Hardware reversion (`WSetRvrtTms`) does **NOT** work on FranklinWH — the aGate accepts the value but never starts the countdown. See [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) for details.
+
+The library provides a **software-side timeout** via `threading.Timer`:
+
+```python
+from franklinwh import FranklinWHController
+from franklinwh.types import BatteryCommand
+
+ctrl = FranklinWHController('192.168.0.110')
+ctrl.connect()
+
+cmd = BatteryCommand(power_watts=3000, mode='charge')
+
+# Auto-resets to cloud control after 3600 seconds (1 hour)
+ctrl.send_command(cmd, duration_s=3600)
+
+# Check timer status
+status = ctrl.get_command_timer_status()  # {'active': True, 'interval_s': 3600}
+
+# Cancel timer manually
+ctrl.cancel_command_timer()
+```
+
+**CLI equivalent:** `--revert 3600`
+
+**Safety properties:**
+- New commands cancel any existing timer first
+- Timer thread is daemon (won't block app exit)
+- Thread-safe via `_command_timer_lock`
+- `--status` shows timer state when active
+
+---
+## 6. Register Reference (Model 704)
 
 | Register | Address | Name | Type | Unit | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -112,8 +147,8 @@ The following table maps user-facing actions to their underlying orchestration a
 | `WSetMod` | 40319 | Active Power Mode | enum16 | — | 0=Normal |
 | `WSetPct` | 40324 | Active Power % | int16 | % | **Sign inverted:** +discharge, -charge |
 | `WSet` | 40320 | Active Power (W) | int32 | W | ⚠️ Avoided (causes flickering) |
-| `WSetRvrtTms` | 40327 | Reversion Timeout | uint32 | sec | 0 = no reversion |
-| `WSetRvrtRem` | 40329 | Reversion Remaining | uint32 | sec | Read-only countdown |
+| `WSetRvrtTms` | 40327 | Reversion Timeout | uint32 | sec | ⚠️ **Non-functional** on FranklinWH |
+| `WSetRvrtRem` | 40329 | Reversion Remaining | uint32 | sec | ⚠️ **Never counts down** |
 
 > See [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) for the complete M704 register map (48 fields).
 
