@@ -64,12 +64,31 @@ sequenceDiagram
 
 Before any hardware commands are sent, the `VirtualModeController` calculates and sanitizes the power request based on the following SoC parameters. This entire process occurs within the application and acts as a safety guardrail.
 
+> [!IMPORTANT]
+> **Software ramp ≠ Hardware ramp.** The `--soc-ramp-window` CLI option is a **software-side SoC proximity ramp** (implemented in `modes.py`). The hardware `WRmp` register (M704, addr 40345) is **unimplemented** on FranklinWH — all writes are silently discarded. The software ramp works correctly; the hardware ramp does not exist.
+
 | Parameter | Purpose | Scope |
 | :--- | :--- | :--- |
 | `target-soc` | The desired SoC for automated modes like Emergency Backup. | Mode-specific |
 | `max-charge-soc` | The absolute maximum SoC allowed. Charging is disabled above this. | Global |
 | `min-discharge-soc` | The absolute minimum SoC allowed. Discharging is disabled below this. | Global |
 | `soc_ramp_window`| The SoC percentage range where power is ramped down to avoid "slamming" into limits. | Global |
+
+### How SoC Ramping Works
+
+When SoC enters the ramp window near a limit, the software **linearly reduces power** to prevent overshoot:
+
+```
+Example: --charge 5000 --max-charge-soc 100 --soc-ramp-window 10
+
+SoC 85% → Full power (5000W)
+SoC 90% → Ramp starts (window = 100% - 10% = 90%)
+SoC 95% → Half power (2500W)   ← 50% into ramp window
+SoC 99% → Minimal power (500W) ← 90% into ramp window
+SoC 100% → Block charge (0W)    ← at max-charge-soc
+```
+
+This is purely **software logic** — the power value sent to `send_command()` is reduced. The aGate hardware has no awareness of SoC ramping.
 
 ### Logic Flow Diagram
 ```mermaid
