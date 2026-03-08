@@ -31,11 +31,11 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 **Read operations always work** — battery status, grid power, solar production (proximal and remote), system alarms, and all SunSpec model data are readable by any Modbus TCP client without provisioning. The CLI `--status`, `--healthcheck`, and TUI monitor all work out of the box.
 
-**Write access to extension registers (15507–15509: OnGridMode, SelfReserve, TOUReserve) requires provisioning by FranklinWH Support.**
+**Write access to extension registers (15507–15509: OnGridMode, SelfReserve, TOUReserve) requires "SPAN Modbus" unlock in FranklinWH installer settings.**
 
 **Already qualified:** Owners with **SPAN Panels** or **Lumin Panels** connected to the aGate via Modbus TCP — these systems already have full write access enabled.
 
-**Not yet provisioned?** Contact FranklinWH Support to request Modbus write access for your aGate. Without provisioning, registers are read-only and control commands will fail silently.
+**Not yet provisioned?** Contact FranklinWH Support to request Modbus write access for your aGate. Without provisioning, extension registers are read-only (writes fail silently). **Note:** Standard SunSpec M704 power commands (charge/discharge) work regardless of SPAN unlock status.
 
 ### Avoiding Control Conflicts
 
@@ -55,7 +55,8 @@ ctrl.reset_control_state()
 ctrl.disconnect()
 ```
 
-If control is not released, the aGate may remain in VPP Mode until the Modbus keep-alive times out (typically 60–120 seconds).
+> [!WARNING]
+> If control is not released, the aGate **persists the last command indefinitely**. Hardware heartbeat (`ControllerHb`) and reversion timer (`WSetRvrtTms`) do not work on FranklinWH — use `--revert N` or `send_command(cmd, duration_s=N)` for software-side auto-revert.
 
 ## Installation
 
@@ -69,22 +70,21 @@ pip install -e ".[dev]"
 ## Library Usage
 
 ```python
-from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+from franklinwh import FranklinWHController, BatteryCommand
 
 # Connect to aGate
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 
-# Read battery status
+# Read battery status (battery_state derived from DC power, not unreliable M713.Sta)
 status = ctrl.read_battery_status()
-print(f"SoC: {status['soc']:.1f}%")
+print(f"SoC: {status['soc']:.1f}%  State: {status['battery_state']}")
 
-# Charge at 3000W
-from franklinwh import BatteryCommand
-cmd = BatteryCommand(power_watts=3000)
-ctrl.send_command(cmd)
+# Charge at 3000W with 1-hour software timeout (auto-reverts to cloud control)
+cmd = BatteryCommand(power_watts=3000, mode='charge')
+ctrl.send_command(cmd, duration_s=3600)
 
-# Release control
+# Release control (or let timeout handle it)
 ctrl.reset_control_state()
 ctrl.disconnect()
 ```
@@ -122,7 +122,7 @@ python3 franklinwh_cli.py -i 192.168.0.110 --stop
 | **Conflict Detection** | Detects aGate Cloud API activity before taking control |
 | **SoC Safety** | Reserve validation, target checking, safety margins |
 | **Alarm Monitoring** | System, DC port, battery, solar alarms |
-| **Auto-Revert** | Safety timer releases control automatically |
+| **Auto-Revert** | Software timeout (hardware reversion non-functional on FranklinWH) |
 
 ## Project Structure
 
@@ -135,7 +135,7 @@ franklinwh-modbus/
 │   ├── schedule.py          # TOUSchedule — time-of-use
 │   ├── monitor.py           # CLIMonitor — TUI (optional, needs rich)
 │   └── constants.py         # Register addresses, limits
-├── franklinwh_cli.py        # CLI tool (consumes the library)
+├── tools/franklinwh_cli.py   # CLI tool (consumes the library)
 ├── tests/                   # Unit + integration + hardware tests
 ├── docs/                    # Current documentation
 ├── tools/                   # Utility scripts
@@ -152,26 +152,30 @@ franklinwh-modbus/
 
 ## SunSpec Model Support
 
-| Model | Description | Read | Write |
-|-------|-------------|------|-------|
-| 1 | Common | ✅ | ❌ |
-| 701 | DER AC Measurements | ✅ | ❌ |
-| 702 | DER DC Measurements | ✅ | ❌ |
-| 703 | DER Capacity | ✅ | ❌ |
-| 704 | DER Enter Service | ✅ | ✅ |
-| 705 | DER AC Controls | ✅ | ✅ |
-| 706 | DER Volt/Var/Watt | ✅ | ✅ |
-| 713 | DER Storage Capacity | ✅ | ❌ |
-| 714 | DER Storage Status | ✅ | ❌ |
-| 715 | DER Storage Controls | ✅ | ✅ |
+> **Note:** aGate uses base address **1** (not standard 40000). Unit ID **1** or **2** both work (DA=1).
+
+| Model | Description | Read | Write | Notes |
+|-------|-------------|------|-------|-------|
+| 1 | Common | ✅ | ❌ | |
+| 701 | DER AC Measurements | ✅ | ❌ | |
+| 702 | DER DC Measurements | ✅ | ❌ | |
+| 703 | DER Capacity | ✅ | ❌ | |
+| 704 | DER AC Battery Control | ✅ | ✅ | WSetPct/WSetEna confirmed working |
+| 705 | DER AC Controls | ✅ | ⚠️ | Untested |
+| 706 | DER Volt/Var/Watt | ✅ | ⚠️ | Untested |
+| 713 | DER Storage Capacity | ✅ | ❌ | ⚠️ Sta always 0 (unreliable) |
+| 714 | DER Storage Status | ✅ | ❌ | DCW used for battery state derivation |
+| 715 | DER Storage Controls | ✅ | ❌ | LocRemCtl read-only, heartbeat non-functional |
 
 ## FranklinWH Extension Registers
 
 | Register | Address | Access | Description |
 |----------|---------|--------|-------------|
-| OnGridMode | 15507 | RW | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
-| Self Reserve SOC | 15508 | RW | Self-consumption reserve percentage (0-100) |
-| TOU Reserve SOC | 15509 | RW | Time-of-Use reserve percentage (0-100) |
+| OnGridMode | 15507 | R (RW with SPAN) | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
+| Self Reserve SOC | 15508 | R (RW with SPAN) | Self-consumption reserve percentage (0-100) |
+| TOU Reserve SOC | 15509 | R (RW with SPAN) | ⚠️ Known defect: always mirrors 15508 |
+
+See [FRANKLINWH_SUNSPEC_QUIRKS.md](./docs/FRANKLINWH_SUNSPEC_QUIRKS.md) for all documented hardware quirks.
 
 ## License
 
