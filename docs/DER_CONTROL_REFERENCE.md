@@ -264,5 +264,34 @@ ctrl.disconnect()
 
 ---
 
+## 7. Retrospective: Why Past Tests Failed
+
+> [!NOTE]
+> Previous attempts at battery control were largely "winging it" — writing to registers without understanding:
+> - **Correct addresses** — legacy code used PDU offsets (317, 318, 319) instead of absolute addresses (40318, 40319, 40320)
+> - **Sign conventions** — WSetPct is inverted on FranklinWH hardware (positive=discharge, not charge)
+> - **Sequencing requirements** — M704 requires a multi-step STOP→CONFIG→ENABLE→VERIFY sequence; single writes are ignored
+> - **WSet vs WSetPct conflict** — writing both causes mode flickering; must use only WSetPct
+> - **FranklinWH quirks** — LocRemCtl handoff not supported, extension registers read-only
+>
+> This document now provides the correct baseline for future formal use-case testing of each register group.
+
+---
+
+## 8. Future TODO: FranklinWH App Parity
+
+Goals for feature parity with the FranklinWH mobile app:
+
+- [ ] **Manual Controls** — mimic the app's manual charge/discharge with power level selection (partially working via `send_command()`)
+- [ ] **TOU Scheduling** — implement time-of-use schedule programming (requires extension register 15507 write access OR virtual mode emulation)
+- [ ] **Max Power Settings** — the app allows setting max charge/discharge power limits (map to WMaxLimPct? or extension registers?)
+- [ ] **Custom Inverter/Grid Operations** — app offers grid export limits and inverter power caps (map to VarSet or WMaxLim groups?)
+- [ ] **Reserve Level Management** — app sets Self-Consumption and TOU reserve percentages (extension registers 15508-15509, currently read-only)
+
+> [!IMPORTANT]
+> Achieving full App parity likely requires the **SPAN Modbus unlock** for extension register writes. Without it, we can emulate some behaviors via M704 power commands, but cannot natively change modes or reserves.
+
+---
+
 *Last Updated: 2026-03-08*  
 *See also: [ORCHESTRATION_AND_CONTROL.md](./ORCHESTRATION_AND_CONTROL.md) for command sequencing diagrams*
