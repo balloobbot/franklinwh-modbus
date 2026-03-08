@@ -569,7 +569,7 @@ class CLIMonitor:
             return False
             
         try:
-            # Read all status methods
+            # Read all status methods (enriched — includes M714, M701 extras, extensions)
             battery = self.controller.read_battery_status()
             grid = self.controller.read_grid_status()
             solar = self.controller.read_solar_status()
@@ -577,35 +577,25 @@ class CLIMonitor:
             native = self.controller.read_native_mode()
             ext = self._read_extension_registers()
             
-            # Read additional model data
+            # Additional TUI-specific reads (lifetime energy, extra extensions)
             m714_data = self._read_model_714()
-            m701_extra = self._read_model_701_extra()
-            nameplate = self._read_nameplate_strings()
+            nameplate = self.controller.read_nameplate()  # Now returns strings
             
             # Get extension solar data if available
             ext_solar = solar.get('extension', {})
             solar_total = ext_solar.get('total_solar', abs(solar.get('ac_power_w', 0)))
             
-            # Battery DC power (from M714 or fallback)
-            # Note: DCW positive = discharging, negative = charging
-            battery_dc = m714_data.get('dc_power', 0)
+            # Battery DC power — now available from enriched read_battery_status()
+            # Falls back to M714 direct read for extra fields (current, temp)
+            battery_dc = battery.get('battery_power_w', m714_data.get('dc_power', 0))
             
-            # Grid power from controller: positive = importing FROM grid, negative = exporting TO grid
-            # (verified against controller.py and CLI output)
+            # Grid power from controller
             grid_raw = grid.get('grid_power_w', 0)
             
-            # Store grid directly - display logic handles sign interpretation
+            # Store power flow
             self.data.power_flow.solar_w = solar_total
             self.data.power_flow.battery_w = battery_dc
             self.data.power_flow.grid_w = grid_raw
-            
-            # Calculate home load using power balance equation:
-            # Home Consumption = Solar Production + Battery Discharge + Grid Import
-            # 
-            # Sign conventions:
-            # - battery_dc: positive = discharge (supplies home)
-            # - grid_raw: positive = import (supplies home), negative = export (consumes from home)
-            # - solar_total: always positive when generating
             self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
             
             # Determine battery state
@@ -620,17 +610,17 @@ class CLIMonitor:
             self.data.soc = battery.get('soc', self.data.soc)
             self.data.soh = battery.get('soh', self.data.soh)
             self.data.dc_power = battery_dc
-            self.data.dc_current = m714_data.get('dc_current', 0)
+            self.data.dc_current = battery.get('battery_current_a', m714_data.get('dc_current', 0))
             self.data.battery_temp = m714_data.get('battery_temp', 0)
             self.data.available_wh = battery.get('wh_available', 0)
             self.data.rated_wh = battery.get('wh_rating', 0)
             self.data.reserve_soc = native.get('self_reserve_pct', 20.0)
             
-            # Update AC Power
+            # Update AC Power — enriched grid status now includes current, PF, temps
             self.data.ac_voltage = grid.get('voltage_v', 0)
-            self.data.ac_current = m701_extra.get('current_a', 0)
+            self.data.ac_current = grid.get('current_a', 0)
             self.data.ac_frequency = grid.get('frequency_hz', 0)
-            self.data.ac_pf = m701_extra.get('power_factor', 0)
+            self.data.ac_pf = grid.get('power_factor', 0)
             self.data.ac_va = grid.get('grid_va', 0)
             self.data.ac_var = grid.get('grid_var', 0)
             self.data.ac_type = grid.get('ac_type', 'Single-Phase')
@@ -643,11 +633,11 @@ class CLIMonitor:
             self.data.solar.remote1_w = ext_solar.get('pv_remote1', 0)
             self.data.solar.remote2_w = ext_solar.get('pv_remote2', 0)
             
-            # Update Temperatures from Model 701 (FranklinWH implements TmpAmb, TmpCab)
-            self.data.cabinet_temp = m701_extra.get('cabinet_temp', 0)
-            self.data.ambient_temp = m701_extra.get('ambient_temp', 0)
+            # Update Temperatures — enriched grid status now includes temps
+            self.data.cabinet_temp = grid.get('cabinet_temp_c', 0)
+            self.data.ambient_temp = grid.get('ambient_temp_c', 0)
             
-            # Update System Info
+            # Update System Info — read_nameplate() now returns strings directly
             self.data.serial = nameplate.get('serial', '')
             self.data.model = nameplate.get('model', 'aGate X')
             self.data.firmware = nameplate.get('version', '')
@@ -657,17 +647,13 @@ class CLIMonitor:
             self.data.extension_writable = False
             
             # Update Lifetime Energy (from M502 solar and M714 battery)
-            # Solar generated: M502.OutWh (Output Energy)
-            # Battery discharged: M714.DCWhInj (DC Energy Injected)
-            # Battery charged: M714.DCWhAbs (DC Energy Absorbed)
             m502 = self.controller.get_model(502)
             m714_energy = self.controller.get_model(714)
             
             if m502 and hasattr(m502, 'OutWh') and m502.OutWh.value is not None:
-                self.data.lifetime_generated = m502.OutWh.value  # Already in Wh
+                self.data.lifetime_generated = m502.OutWh.value
             
-            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:
-                self.data.lifetime_discharged = m714_energy.DCWhInj.value
+            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:             self.data.lifetime_discharged = m714_energy.DCWhInj.value
             
             if m714_energy and hasattr(m714_energy, 'DCWhAbs') and m714_energy.DCWhAbs.value is not None:
                 self.data.lifetime_charged = m714_energy.DCWhAbs.value

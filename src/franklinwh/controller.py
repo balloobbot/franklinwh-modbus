@@ -365,7 +365,12 @@ class FranklinWHController:
         return 0
     
     def read_battery_status(self) -> dict:
-        """Read current battery status from Model 713."""
+        """Read current battery status from Model 713 and 714.
+        
+        Returns dict with:
+            soc, soh, wh_rating, wh_available, status (from M713)
+            battery_power_w, battery_current_a (from M714)
+        """
         def _do_read():
             m713 = self.get_model(713)
             if not m713:
@@ -376,13 +381,39 @@ class FranklinWHController:
             sf_wh = self._get_scale_factor(m713, 'WH_SF')
             sf_pct = self._get_scale_factor(m713, 'Pct_SF')
             
-            return {
-                'soc': m713.SoC.value * (10 ** sf_pct),
-                'soh': m713.SoH.value * (10 ** sf_pct),
+            result = {
+                'soc': round(m713.SoC.value * (10 ** sf_pct), 1),
+                'soh': round(m713.SoH.value * (10 ** sf_pct), 1),
                 'wh_rating': m713.WHRtg.value * (10 ** sf_wh),
                 'wh_available': m713.WHAvail.value * (10 ** sf_wh),
                 'status': m713.Sta.value,
             }
+            
+            # Model 714 - Battery DC power (DCW: negative=charging, positive=discharging)
+            m714 = self.get_model(714)
+            if m714:
+                try:
+                    m714.read()
+                    sf_w = self._get_scale_factor(m714, 'DCW_SF')
+                    sf_a = self._get_scale_factor(m714, 'DCA_SF')
+                    sf_v = self._get_scale_factor(m714, 'DCV_SF')
+                    
+                    dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0
+                    result['battery_power_w'] = dc_power
+                    
+                    # DC current (read or calculate from P/V)
+                    dc_current = 0
+                    if hasattr(m714, 'DCA') and m714.DCA.value is not None and m714.DCA.value != 0:
+                        dc_current = m714.DCA.value * (10 ** sf_a)
+                    elif hasattr(m714, 'DCV') and m714.DCV.value is not None and m714.DCV.value != 0:
+                        dc_voltage = m714.DCV.value * (10 ** sf_v)
+                        if dc_voltage > 0:
+                            dc_current = round(dc_power / dc_voltage, 2)
+                    result['battery_current_a'] = dc_current
+                except Exception as e:
+                    logger.debug(f"Could not read Model 714: {e}")
+            
+            return result
         
         try:
             return self._with_retry(_do_read, max_retries=2)
@@ -391,7 +422,13 @@ class FranklinWHController:
             return {}
     
     def read_grid_status(self) -> dict:
-        """Read grid status from Model 701."""
+        """Read grid status from Model 701.
+        
+        Returns dict with:
+            grid_power_w, grid_va, grid_var, voltage_v, frequency_hz,
+            connection_state, inverter_state, grid_mode, ac_type,
+            current_a, power_factor, ambient_temp_c, cabinet_temp_c
+        """
         def _do_read():
             m701 = self.get_model(701)
             if not m701:
@@ -402,9 +439,12 @@ class FranklinWHController:
             sf_w = self._get_scale_factor(m701, 'W_SF')
             sf_v = self._get_scale_factor(m701, 'V_SF')
             sf_hz = self._get_scale_factor(m701, 'Hz_SF')
+            sf_a = self._get_scale_factor(m701, 'A_SF')
+            sf_pf = self._get_scale_factor(m701, 'PF_SF')
+            sf_tmp = self._get_scale_factor(m701, 'Tmp_SF')
             
-            voltage = m701.LNV.value * (10 ** sf_v) if m701.LNV.value is not None else 0
-            freq = m701.Hz.value * (10 ** sf_hz) if m701.Hz.value is not None else 0
+            voltage = round(m701.LNV.value * (10 ** sf_v), 1) if m701.LNV.value is not None else 0
+            freq = round(m701.Hz.value * (10 ** sf_hz), 2) if m701.Hz.value is not None else 0
             
             # Connection state
             conn_st = m701.ConnSt.value if hasattr(m701, 'ConnSt') and m701.ConnSt.value is not None else -1
@@ -435,12 +475,37 @@ class FranklinWHController:
             else:
                 ac_type = 'Unknown'
             
+            # Current (A field or AphA fallback)
+            current = 0
+            if hasattr(m701, 'A') and m701.A.value is not None:
+                current = round(m701.A.value * (10 ** sf_a), 1)
+            elif hasattr(m701, 'AphA') and m701.AphA.value is not None:
+                current = round(m701.AphA.value * (10 ** sf_a), 1)
+            
+            # Power factor
+            pf = 0
+            if hasattr(m701, 'PF') and m701.PF.value is not None:
+                pf = round(m701.PF.value * (10 ** sf_pf), 3)
+            
+            # Temperatures (FranklinWH implements TmpAmb and TmpCab)
+            ambient_temp = 0
+            if hasattr(m701, 'TmpAmb') and m701.TmpAmb.value is not None:
+                ambient_temp = round(m701.TmpAmb.value * (10 ** sf_tmp), 1)
+            
+            cabinet_temp = 0
+            if hasattr(m701, 'TmpCab') and m701.TmpCab.value is not None:
+                cabinet_temp = round(m701.TmpCab.value * (10 ** sf_tmp), 1)
+            
             return {
                 'grid_power_w': m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0,
                 'grid_va': m701.VA.value * (10 ** sf_w) if m701.VA.value is not None else 0,
                 'grid_var': m701.Var.value * (10 ** sf_w) if m701.Var.value is not None else 0,
                 'voltage_v': voltage,
                 'frequency_hz': freq,
+                'current_a': current,
+                'power_factor': pf,
+                'ambient_temp_c': ambient_temp,
+                'cabinet_temp_c': cabinet_temp,
                 'connection_state': CONN_STATES.get(conn_st, f'Unknown({conn_st})'),
                 'inverter_state': INVERTER_STATES.get(inv_st, f'Unknown({inv_st})'),
                 'grid_mode': grid_mode,
@@ -511,13 +576,28 @@ class FranklinWHController:
             return {}
     
     def _read_extension_solar(self) -> Optional[dict]:
-        """Read FranklinWH extension registers for solar (15500-15513)."""
+        """Read FranklinWH extension registers for solar (15500-15513).
+        
+        Uses raw Modbus TCP socket because SunSpec2 client remaps addresses
+        and fails on FranklinWH proprietary extension registers.
+        """
         try:
-            result = self.dev.client.read_holding_registers(15500, count=14, device_id=self.unit_id)
-            if result.isError():
+            client = self.dev.client
+            client.connect()
+            sock = client.socket
+            if not sock:
                 return None
             
-            regs = result.registers
+            # Raw Modbus TCP: read 14 registers starting at 15500
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, 15500, 14)
+            sock.settimeout(self.timeout)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            
+            if len(resp) < 37:  # 9 header + 14*2 bytes
+                return None
+            
+            regs = list(struct.unpack('>14H', resp[9:37]))
             
             pv_total = regs[2] if len(regs) > 2 else 0
             pv_proximal = regs[3] if len(regs) > 3 else 0
@@ -555,20 +635,32 @@ class FranklinWHController:
         """Read device nameplate information from Model 1 (Common).
         
         Returns:
-            Dict with manufacturer, model, serial, version, etc.
+            Dict with manufacturer, model, serial, version as strings.
         """
         m1 = self.get_model(1)
         if not m1:
             return {}
         
+        def _get_point_str(model, point_name):
+            """Resolve a SunSpec point to a clean string value."""
+            pt = getattr(model, point_name, None)
+            if pt is None:
+                return ''
+            if hasattr(pt, 'value'):
+                val = pt.value
+                if isinstance(val, bytes):
+                    return val.decode('utf-8', errors='ignore').strip('\x00').strip()
+                return str(val).strip() if val else ''
+            return str(pt).strip() if pt else ''
+        
         try:
             m1.read()
             return {
-                'manufacturer': getattr(m1, 'Mn', None),
-                'model': getattr(m1, 'Md', None),
-                'serial': getattr(m1, 'SN', None),
-                'version': getattr(m1, 'Vr', None),
-                'options': getattr(m1, 'Opt', None),
+                'manufacturer': _get_point_str(m1, 'Mn'),
+                'model': _get_point_str(m1, 'Md'),
+                'serial': _get_point_str(m1, 'SN'),
+                'version': _get_point_str(m1, 'Vr'),
+                'options': _get_point_str(m1, 'Opt'),
             }
         except Exception as e:
             logger.debug(f"Could not read Model 1 nameplate: {e}")
