@@ -82,10 +82,28 @@ FranklinWH provides proprietary extension registers beyond standard SunSpec:
 | 15502-15505 | Solar breakdown | ✅ Working | PV Total, Proximal, Remote 1/2 (W) |
 | 15506 | Home Load | ✅ Working | Active load in W |
 | 15507 | Operating Mode | ✅ Working | 0=Emergency, 1=TOU, 2=Self-Consumption, 3=Manual |
-| 15508-15509 | SOC Reserve | ✅ Working | Self/TOU reserve % |
+| 15508 | Self-Consumption Reserve | ✅ Working | Reserve SOC % |
+| 15509 | TOU Reserve | ⚠️ **Known defect** | Always mirrors 15508 — see below |
 | 15510-15513 | PV Energy | ✅ Working | Total/Proximal Wh (uint32 high:low pairs) |
 
 > **Note:** Write access to 15507-15509 requires **SPAN Modbus** unlock in FranklinWH installer app.
+
+### SOC Reserve Registers — Known Defect
+
+Registers 15508 (Self-Consumption Reserve) and 15509 (TOU Reserve) **always return the same value**, even when set differently in the FranklinWH app. This is a known firmware defect documented in the SPAN tab of the official SunSpec PICS file.
+
+### Official SunSpec PICS Reference
+
+FranklinWH's SunSpec Alliance certification document is at:
+`docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx`
+
+This XLSX documents:
+- "Unimplemented" info points (using base address 1)
+- Extension register definitions (SPAN tab)
+- The SOC reserve defect
+
+> [!WARNING]
+> **We do not fully trust this document.** Our live testing has found discrepancies between what the PICS document claims and actual aGate behavior. Always verify against the live device. Use the PICS as a starting point, not ground truth.
 
 See: `docs/VERIFICATION_BASELINE.md` for full register map and cross-verification.
 
