@@ -990,10 +990,14 @@ def main():
                     sys.exit(1)
             
             # Check if we should run continuous mode
-            # Continuous if: duration specified OR SoC limits specified OR target-soc-auto
+            # Continuous if: duration specified OR SoC limits specified OR target-soc/target-soc-auto
             has_duration = args.duration is not None
             has_soc_limits = (args.max_charge_soc != 100 or args.min_discharge_soc is not None)
             has_target_soc = args.target_soc_auto is not None
+            # Treat --target-soc as --target-soc-auto when used with --charge/--discharge
+            if not has_target_soc and args.target_soc != 100:
+                args.target_soc_auto = args.target_soc
+                has_target_soc = True
             is_controlling = args.power != 0
             
             if (has_duration or has_soc_limits or has_target_soc) and is_controlling:
@@ -1146,8 +1150,12 @@ def main():
                 cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
                 success, msg = ctrl.send_command(cmd, dry_run=args.dry_run, duration_s=revert_s)
                 print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
-                if revert_s:
-                    print(f"⏱️  Auto-revert in {revert_s}s (software timer)")
+                if success:
+                    if revert_s:
+                        print(f"⏱️  Auto-revert in {revert_s}s (software timer)")
+                    else:
+                        print(f"✅ Command will PERSIST until you run --stop")
+                        print(f"   To release: python3 tools/franklinwh_cli.py -i {args.ip} --stop")
                 one_shot_exit = True
                 sys.exit(0 if success else 1)
         

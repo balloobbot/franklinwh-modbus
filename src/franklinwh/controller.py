@@ -1251,6 +1251,7 @@ class FranklinWHController:
             result['actual_power'] = actual_power
             
             # Determine battery activity
+            dc_power = bat.get('dc_power', 0) or 0
             if wset_ena == 1:
                 if actual_power < -50:
                     result['battery_activity'] = f'CHARGING ({abs(actual_power):.0f}W)'
@@ -1259,7 +1260,13 @@ class FranklinWHController:
                 else:
                     result['battery_activity'] = 'IDLE'
             else:
-                result['battery_activity'] = 'IDLE (no control)'
+                # No Modbus control — show actual DC power from native mode
+                if dc_power < -50:
+                    result['battery_activity'] = f'CHARGING ({abs(dc_power):.0f}W, aGate native)'
+                elif dc_power > 50:
+                    result['battery_activity'] = f'DISCHARGING ({dc_power:.0f}W, aGate native)'
+                else:
+                    result['battery_activity'] = 'IDLE (no Modbus control)'
             
             # Native mode and reserve levels
             native = self.read_native_mode()
