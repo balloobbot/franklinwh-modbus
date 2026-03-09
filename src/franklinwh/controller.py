@@ -1251,7 +1251,7 @@ class FranklinWHController:
             result['actual_power'] = actual_power
             
             # Determine battery activity
-            dc_power = bat.get('dc_power', 0) or 0
+            dc_power = bat.get('battery_power_w', 0) or 0
             if wset_ena == 1:
                 if actual_power < -50:
                     result['battery_activity'] = f'CHARGING ({abs(actual_power):.0f}W)'
