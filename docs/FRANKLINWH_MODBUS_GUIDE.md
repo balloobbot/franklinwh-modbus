@@ -201,6 +201,18 @@ ctrl.connect()
 > [!NOTE]
 > **Community testing needed:** We need a user with both SPAN Panel + aGate configured to verify that `spanFlag: 1` enables write access to 15507-15509 via Modbus TCP.
 
+#### Mode Control Tiers (Web App)
+
+The admin console already defines three control tiers based on SPAN availability:
+
+| Tier | Method | Capability |
+|------|--------|------------|
+| ⚡ Tier 1: SPAN Panel | Direct Modbus register writes | Full mode/reserve control (Phase 4) |
+| ☁️ Tier 2: Cloud Bypass | Mode changes via Cloud API | Mode control, data stays Modbus |
+| 📖 Tier 3: Read-Only | View only | No control |
+
+> **TODO:** SPAN detection + Mode Control Tier selection should move from MQTT Admin to a **Setup Wizard** — it's a one-time configuration decision, not an MQTT setting.
+
 ### 5.7 PFWInjEna (Power Factor)
 
 `PFWInjEna` (40298) is **enabled by default (=1)** and **writable**:
