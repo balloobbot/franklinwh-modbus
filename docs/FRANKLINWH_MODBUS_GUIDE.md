@@ -170,7 +170,14 @@ Write access to these registers requires the **SPAN Modbus** unlock — enabled 
 
 **1. Network Scanner** — detect SPAN Panel on the local network:
 ```bash
-python3 tools/network_scanner.py --type span
+# Scan subnet for SPAN devices
+python3 tools/network_scanner.py 192.168.0.0/24 --devices span -v
+
+# Check specific IP
+python3 tools/network_scanner.py 192.168.0.35 --devices span -v
+
+# mDNS discovery (no IP needed)
+python3 tools/network_scanner.py --mdns --devices span
 ```
 If a SPAN Panel is found alongside the aGate on the same network, extension registers are **likely writable**.
 
