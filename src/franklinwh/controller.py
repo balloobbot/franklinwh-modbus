@@ -1333,7 +1333,17 @@ class FranklinWHController:
                 'grid_w': grid_power,
             }
             
-            if wset_ena == 1 or is_active_charging or is_active_discharging:
+            if wset_ena == 1:
+                # WSetEna=1 means WE are controlling — this is our own command, not a conflict
+                if is_active_charging or is_active_discharging:
+                    activity = "charging" if is_active_charging else "discharging"
+                    power_val = abs(battery_dc_power or actual_power)
+                    result['conflicts'].append(
+                        f"INFO: Modbus control active ({activity} {power_val:.0f}W, "
+                        f"SoC {result['soc']:.1f}%) - New command will override"
+                    )
+            elif is_active_charging or is_active_discharging:
+                # WSetEna=0 but battery is active — Cloud API or native mode is controlling
                 if native_mode == 'Self-Consumption':
                     if is_active_charging:
                         # Charging: Check if importing from grid (conflict) or excess solar (natural)
