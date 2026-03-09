@@ -3,6 +3,7 @@
 Curated, current documentation for `franklinwh-modbus`.
 
 ## Library Reference
+- **[FRANKLINWH_MODBUS_GUIDE.md](FRANKLINWH_MODBUS_GUIDE.md) — Definitive implementation guide (start here)**
 - [ARCHITECTURE.md](ARCHITECTURE.md) — AC/DC coupling, system overview
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware-specific SunSpec quirks
 - [DER_CONTROL_REFERENCE.md](DER_CONTROL_REFERENCE.md) — Complete M704/M715 register map with test status
