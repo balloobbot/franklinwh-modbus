@@ -156,13 +156,43 @@ The library automatically inverts: `m704.WSetPct.value = -pct_raw`
 
 Writing to `WSet` (absolute watts) alongside `WSetPct` causes **mode flickering** on the aGate. The library uses **only WSetPct**. `WSet` is zeroed during `reset_control_state()`.
 
-### 5.6 Extension Registers
+### 5.6 Extension Registers & SPAN Modbus Unlock
 
 | Address | Name | Access | Notes |
 |---------|------|--------|-------|
 | 15507 | OnGridMode | R (RW with SPAN) | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
 | 15508 | SelfReserve | R (RW with SPAN) | Reserve SOC % |
 | 15509 | TouReserve | R (RW with SPAN) | ⚠️ **Always mirrors 15508** (firmware defect) |
+
+Write access to these registers requires the **SPAN Modbus** unlock — enabled by FranklinWH support for owners of SPAN Smart Panels. The aGate's Ethernet port passes through the SPAN Panel, which controls Modbus access.
+
+#### Detecting SPAN Configuration
+
+**1. Network Scanner** — detect SPAN Panel on the local network:
+```bash
+python3 tools/network_scanner.py --type span
+```
+If a SPAN Panel is found alongside the aGate on the same network, extension registers are **likely writable**.
+
+**2. FranklinWH Cloud API** — check `spanFlag` directly:
+```bash
+curl "https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting?gatewayId=YOUR_GATEWAY_ID"
+```
+```json
+{"code": 200, "result": {"spanFlag": 0}, "success": true}
+```
+- `spanFlag: 0` → SPAN **not configured** (extensions read-only)
+- `spanFlag: 1` → SPAN **configured** (extensions likely writable)
+
+**3. Library auto-detection** — the controller probes on `connect()`:
+```python
+ctrl.connect()
+# Logs: "Extension registers: READ-ONLY (requires installer unlock for SPAN Modbus)"
+# or:   "Extension registers: WRITABLE (SPAN Modbus enabled)"
+```
+
+> [!NOTE]
+> **Community testing needed:** We need a user with both SPAN Panel + aGate configured to verify that `spanFlag: 1` enables write access to 15507-15509 via Modbus TCP.
 
 ### 5.7 PFWInjEna (Power Factor)
 
