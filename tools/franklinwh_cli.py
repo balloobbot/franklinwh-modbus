@@ -130,6 +130,8 @@ Examples:
     parser.add_argument('--stop', action='store_true', help='Stop control and exit')
     parser.add_argument('--clear-alarms', action='store_true', help='Clear/reset alarms (write to AlarmReset)')
     parser.add_argument('--test-extension-write', action='store_true', help='Test extension register writability (15507-15509)')
+    parser.add_argument('--check-span', metavar='TOKEN', nargs='?', const='CHECK',
+                       help='Check SPAN panel flag via Cloud API (pass loginToken, or omit to check via franklinwh lib)')
     
     # Schedule validation
     parser.add_argument('--show-schedule', metavar='FILE', help='Display schedule file')
@@ -647,6 +649,42 @@ def main():
             health = ctrl.healthcheck()
             print_health(health)
             sys.exit(0 if health.healthy else 1)
+        
+        # SPAN panel check (Cloud API)
+        if args.check_span:
+            print("\n" + "=" * 60)
+            print("  SPAN PANEL CHECK (Cloud API)")
+            print("=" * 60)
+            import requests as _requests
+            gateway_id = ctrl.gateway_id if hasattr(ctrl, 'gateway_id') else None
+            if not gateway_id:
+                # Try to read from extension registers
+                try:
+                    gateway_id = ctrl._read_extension_register_string(15500, 10)
+                except Exception:
+                    pass
+            if not gateway_id:
+                print("  ❌ Cannot determine gateway ID for Cloud API call")
+                print("     Pass gateway ID manually or use franklinwh-python CLI")
+                sys.exit(1)
+            
+            url = f"https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting"
+            headers = {}
+            if args.check_span != 'CHECK':
+                headers['loginToken'] = args.check_span
+            try:
+                resp = _requests.get(url, params={'gatewayId': gateway_id}, headers=headers, timeout=10)
+                data = resp.json()
+                if data.get('code') == 200:
+                    span_flag = data['result'].get('spanFlag', 0)
+                    print(f"  Gateway:  {gateway_id}")
+                    print(f"  spanFlag: {span_flag} {'✅ SPAN detected' if span_flag else '— no SPAN panel'}")
+                else:
+                    print(f"  ⚠️  API returned: {data.get('message', 'Unknown error')}")
+                    print(f"     You may need to pass a loginToken: --check-span YOUR_TOKEN")
+            except Exception as e:
+                print(f"  ❌ Cloud API error: {e}")
+            sys.exit(0)
         
         # Check alarms (detailed display)
         if args.check_alarms:
