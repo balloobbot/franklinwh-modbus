@@ -203,34 +203,34 @@ def print_status(ctrl: FranklinWHController):
     # Home load status (always consuming if magnitude > 50W)
     home_active = abs(home_load) > 50
     
-    print(f"      Solar: {solar_arrow} {abs(solar_power):>5.0f}W  {'Producing' if solar_power > 50 else 'Idle'}")
-    print(f"       Home: ← {abs(home_load):>5.0f}W  {'Consuming' if home_active else 'Idle'}")
+    print(f"      Solar: {solar_arrow} {abs(solar_power):>5.0f}W  {'Producing' if solar_power > 50 else 'Idle'}  (M502.OutPw)")
+    print(f"       Home: ← {abs(home_load):>5.0f}W  {'Consuming' if home_active else 'Idle'}  (calc)")
     
     if battery_dc < 0:
-        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  CHARGING")
+        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  CHARGING  (M714.DCW)")
     elif battery_dc > 0:
-        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  DISCHARGING")
+        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  DISCHARGING  (M714.DCW)")
     else:
-        print(f"     Battery:     {abs(battery_dc):>5.0f}W  IDLE")
+        print(f"     Battery:     {abs(battery_dc):>5.0f}W  IDLE  (M714.DCW)")
     
     if is_off_grid:
-        print(f"       Grid:   ✕     0W  OFF-GRID")
+        print(f"       Grid:   ✕     0W  OFF-GRID  (M701.ConnSt)")
     elif grid_power > 0:
-        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  IMPORTING")
+        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  IMPORTING  (M701.W)")
     elif grid_power < 0:
-        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  EXPORTING")
+        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  EXPORTING  (M701.W)")
     else:
-        print(f"       Grid:     {abs(grid_power):>5.0f}W  BALANCED")
+        print(f"       Grid:     {abs(grid_power):>5.0f}W  BALANCED  (M701.W)")
     
     # ═══════════════════════════════════════════════════════
     # BATTERY POWER (DC side)
     # ═══════════════════════════════════════════════════════
     print(f"\n  🔋 BATTERY POWER (DC)")
     print("  " + "─" * 54)
-    print(f"    State of Charge:  {soc:.1f}%")
-    print(f"    State of Health:  {soh:.1f}%")
-    print(f"    DC Power:         {abs(battery_dc):.0f}W  {'CHARGING' if battery_dc < 0 else ('DISCHARGING' if battery_dc > 0 else 'IDLE')}")
-    print(f"    Available:        {bat.get('wh_available', 0)/1000:.1f} / {bat.get('wh_rating', 0)/1000:.1f} kWh")
+    print(f"    State of Charge:  {soc:.1f}%  (M713.SoC)")
+    print(f"    State of Health:  {soh:.1f}%  (M713.SoH)")
+    print(f"    DC Power:         {abs(battery_dc):.0f}W  {'CHARGING' if battery_dc < 0 else ('DISCHARGING' if battery_dc > 0 else 'IDLE')}  (M714.DCW)")
+    print(f"    Available:        {bat.get('wh_available', 0)/1000:.1f} / {bat.get('wh_rating', 0)/1000:.1f} kWh  (M713.WHAvail/WHRtg)")
     
     # Show control source
     wset_ena = ctl.get('wset_enabled', 0)
@@ -256,35 +256,35 @@ def print_status(ctrl: FranklinWHController):
     print("  " + "─" * 54)
     print(f"    Architecture:     AC-Coupled (aGate X)")
     print(f"    Solar Inputs:     2x 63A AC circuits (+ remote via aPbox/aHub)")
-    print(f"    AC Type:          {grid.get('ac_type', 'Unknown')}")
-    print(f"    Voltage:          {grid.get('voltage_v', 0):.1f}V")
-    print(f"    Frequency:        {grid.get('frequency_hz', 0):.2f}Hz")
+    print(f"    AC Type:          {grid.get('ac_type', 'Unknown')}  (M701.ACType)")
+    print(f"    Voltage:          {grid.get('voltage_v', 0):.1f}V  (M701.LNV)")
+    print(f"    Frequency:        {grid.get('frequency_hz', 0):.2f}Hz  (M701.Hz)")
     
     # Calculate current from power and voltage (I = P/V)
     voltage = grid.get('voltage_v', 240)
     if voltage > 0:
         current = abs(grid_power) / voltage
-        print(f"    Current:          {current:.1f}A")
+        print(f"    Current:          {current:.1f}A  (M701.A)")
     
     # Power factor if available
     pf = grid.get('power_factor', 0)
     if pf:
-        print(f"    Power Factor:     {pf:.2f}")
+        print(f"    Power Factor:     {pf:.2f}  (M701.PF)")
     
     # Apparent power (VA)
     va = grid.get('grid_va', 0)
     if va:
-        print(f"    Apparent Power:   {va:.0f}VA")
+        print(f"    Apparent Power:   {va:.0f}VA  (M701.VA)")
     
     # Reactive power (VAR)
     var = grid.get('grid_var', 0)
     if var:
-        print(f"    Reactive Power:   {var:.0f}VAR")
+        print(f"    Reactive Power:   {var:.0f}VAR  (M701.Var)")
     
-    print(f"    Grid Power:       {grid_power:.0f}W  ({'OFF-GRID' if is_off_grid else ('Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else 'Balanced'))})")
-    print(f"    Connection:       {conn_state}{' ⚡ OFF-GRID' if is_off_grid else ''}")
-    print(f"    Grid Mode:        {grid.get('grid_mode', 'Unknown')}")
-    print(f"    Inverter State:   {grid.get('inverter_state', 'Unknown')}")
+    print(f"    Grid Power:       {grid_power:.0f}W  ({'OFF-GRID' if is_off_grid else ('Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else 'Balanced'))})  (M701.W)")
+    print(f"    Connection:       {conn_state}{' ⚡ OFF-GRID' if is_off_grid else ''}  (M701.ConnSt)")
+    print(f"    Grid Mode:        {grid.get('grid_mode', 'Unknown')}  (M701.DERMode)")
+    print(f"    Inverter State:   {grid.get('inverter_state', 'Unknown')}  (M701.InvSt)")
     
     # ═══════════════════════════════════════════════════════
     # DEVICE INFO
@@ -308,13 +308,13 @@ def print_status(ctrl: FranklinWHController):
         version = clean_value(nameplate.get('version'))
         
         if mfg:
-            print(f"    Manufacturer:     {mfg}")
+            print(f"    Manufacturer:     {mfg}  (M1.Mn)")
         if model:
-            print(f"    Model:            {model}")
+            print(f"    Model:            {model}  (M1.Md)")
         if serial:
-            print(f"    Serial:           {serial}")
+            print(f"    Serial:           {serial}  (M1.SN)")
         if version:
-            print(f"    Firmware:         {version}")
+            print(f"    Firmware:         {version}  (M1.Vr)")
     
     # ═══════════════════════════════════════════════════════
     # AGATE MODE
@@ -322,9 +322,9 @@ def print_status(ctrl: FranklinWHController):
     if native:
         print(f"\n  🎛️  AGATE MODE")
         print("  " + "─" * 54)
-        print(f"    OnGridMode:       {native.get('mode_name', 'Unknown')}")
-        print(f"    Self Reserve:     {native.get('self_reserve_pct', 0)}%")
-        print(f"    TOU Reserve:      {native.get('tou_reserve_pct', 0)}%")
+        print(f"    OnGridMode:       {native.get('mode_name', 'Unknown')}  (Ext.15507)")
+        print(f"    Self Reserve:     {native.get('self_reserve_pct', 0)}%  (Ext.15508)")
+        print(f"    TOU Reserve:      {native.get('tou_reserve_pct', 0)}%  (Ext.15509)")
     
     # ═══════════════════════════════════════════════════════
     # ALARMS
@@ -333,7 +333,7 @@ def print_status(ctrl: FranklinWHController):
     print("  " + "─" * 54)
     has_alarms = False
     if alarms.get('system_alrm', 0):
-        print(f"    ⚠️  System Alarm:  0x{alarms['system_alrm']:08X}")
+        print(f"    ⚠️  System Alarm:  0x{alarms['system_alrm']:08X}  (M701.Alrm)")
         has_alarms = True
     if alarms.get('dc_port_alrm', 0):
         print(f"    ⚠️  DC Port Alarm:  0x{alarms['dc_port_alrm']:08X}")
