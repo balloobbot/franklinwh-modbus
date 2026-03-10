@@ -655,7 +655,8 @@ def main():
             print("\n" + "=" * 60)
             print("  SPAN PANEL CHECK (Cloud API)")
             print("=" * 60)
-            import requests as _requests
+            import urllib.request
+            import json as _json
             gateway_id = ctrl.gateway_id if hasattr(ctrl, 'gateway_id') else None
             if not gateway_id:
                 # Try to read from extension registers
@@ -668,13 +669,13 @@ def main():
                 print("     Pass gateway ID manually or use franklinwh-python CLI")
                 sys.exit(1)
             
-            url = f"https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting"
-            headers = {}
+            api_url = f"https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting?gatewayId={gateway_id}"
+            req = urllib.request.Request(api_url)
             if args.check_span != 'CHECK':
-                headers['loginToken'] = args.check_span
+                req.add_header('loginToken', args.check_span)
             try:
-                resp = _requests.get(url, params={'gatewayId': gateway_id}, headers=headers, timeout=10)
-                data = resp.json()
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = _json.loads(resp.read().decode())
                 if data.get('code') == 200:
                     span_flag = data['result'].get('spanFlag', 0)
                     print(f"  Gateway:  {gateway_id}")
