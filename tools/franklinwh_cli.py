@@ -130,8 +130,8 @@ Examples:
     parser.add_argument('--stop', action='store_true', help='Stop control and exit')
     parser.add_argument('--clear-alarms', action='store_true', help='Clear/reset alarms (write to AlarmReset)')
     parser.add_argument('--test-extension-write', action='store_true', help='Test extension register writability (15507-15509)')
-    parser.add_argument('--check-span', metavar='TOKEN', nargs='?', const='CHECK',
-                       help='Check SPAN panel flag via Cloud API (pass loginToken, or omit to check via franklinwh lib)')
+    parser.add_argument('--check-span', metavar='GATEWAY_ID', nargs='?', const='AUTO',
+                       help='Check SPAN panel flag via Cloud API (pass aGate serial, e.g. 10060006A02F24170091)')
     
     # Schedule validation
     parser.add_argument('--show-schedule', metavar='FILE', help='Display schedule file')
@@ -657,13 +657,17 @@ def main():
             print("=" * 60)
             import urllib.request
             import json as _json
-            gateway_id = ctrl.gateway_id if hasattr(ctrl, 'gateway_id') else None
-            if not gateway_id:
-                # Try to read from extension registers
-                try:
-                    gateway_id = ctrl._read_extension_register_string(15500, 10)
-                except Exception:
-                    pass
+            # Accept gateway ID directly from command line
+            if args.check_span != 'AUTO':
+                gateway_id = args.check_span
+            else:
+                # Try to auto-detect from controller
+                gateway_id = ctrl.gateway_id if hasattr(ctrl, 'gateway_id') else None
+                if not gateway_id:
+                    try:
+                        gateway_id = ctrl._read_extension_register_string(15500, 10)
+                    except Exception:
+                        pass
             if not gateway_id:
                 print("  ❌ Cannot determine gateway ID for Cloud API call")
                 print("     Pass gateway ID manually or use franklinwh-python CLI")
