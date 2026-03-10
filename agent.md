@@ -2,15 +2,44 @@
 
 > **Project**: `/Users/davidhona/dev/modbus/`
 > **Package**: `franklinwh-modbus` v0.9.0 (import as `from franklinwh_modbus import ...`)
+> **Sister project**: `/Users/davidhona/dev/franklinwh-python/` (Cloud API client, `pip install franklinwh`)
 > **Created**: 2026-02-18
+
+---
+
+## 📖 Essential Reading Order (START HERE)
+
+**New agents MUST read these files in order before starting work:**
+
+| Priority | File | Why |
+|----------|------|-----|
+| 1 | [`in_flight_work.md`](./in_flight_work.md) | Current state, active work, blockers |
+| 2 | [`agent.md`](./agent.md) | This file — rules, safety, testing |
+| 3 | [`docs/FRANKLINWH_MODBUS_GUIDE.md`](./docs/FRANKLINWH_MODBUS_GUIDE.md) | Definitive implementation guide |
+| 4 | [`docs/FRANKLINWH_SUNSPEC_QUIRKS.md`](./docs/FRANKLINWH_SUNSPEC_QUIRKS.md) | Hardware quirks (critical gotchas) |
+| 5 | [`docs/DER_CONTROL_REFERENCE.md`](./docs/DER_CONTROL_REFERENCE.md) | M704/M715 register map |
+| 6 | [`docs/SAFETY_CONTROLS.md`](./docs/SAFETY_CONTROLS.md) | 10 safety rules |
+| 7 | [`readme.md`](./readme.md) | Project overview, SunSpec model table |
+| 8 | [`USAGE_GUIDE.md`](./USAGE_GUIDE.md) | Library & CLI usage |
+
+**Read-on-demand** (when working on specific areas):
+
+| File | When |
+|------|------|
+| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | AC/DC coupling questions |
+| [`docs/ORCHESTRATION_AND_CONTROL.md`](./docs/ORCHESTRATION_AND_CONTROL.md) | Control logic changes |
+| [`docs/VPP_MODE_REFERENCE.md`](./docs/VPP_MODE_REFERENCE.md) | VPP/mobile app behavior |
+| [`docs/HARDWARE_TEST_GUIDE.md`](./docs/HARDWARE_TEST_GUIDE.md) | Before any hardware testing |
+| [`docs/VERIFICATION_BASELINE.md`](./docs/VERIFICATION_BASELINE.md) | Register verification |
+| [`tools/README.md`](./tools/README.md) | Network scanner, SPAN detection |
+| [`.agent/workflows/`](./.agent/workflows/) | Staged execution, verification workflows |
+| [`.agent/rules/`](./.agent/rules/) | Project rules (boundaries, architecture) |
+
+---
 
 > **🛡️ See**: [SAFETY_CONTROLS.md](./docs/SAFETY_CONTROLS.md) for all safety rules (10 rules)  
 > **📋 CRITICAL**: See [.agent/workflows/staged-execution.md](./.agent/workflows/staged-execution.md) for MANDATORY staged work process  
 > **🧪 MANDATORY**: See [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md) for REQUIRED hardware testing process
-
-> **🔒 CRITICAL**: ALL agents MUST follow the approved plan in order (Rule #8), maintain `in_flight_work.md`, pass zero-error gates, persist test evidence, and **USE THE HARDWARE TEST TOOL for any battery control modifications**.
-
----
 
 ## ⚠️ Package Naming
 
@@ -128,4 +157,4 @@ No file changes without git tracking. Verify clean state before starting, commit
 
 ---
 
-*Last Updated: 2026-03-07 — Removed web app references, updated for franklinwh-modbus*
+*Last Updated: 2026-03-10 — Added Essential Reading Order for agent onboarding*

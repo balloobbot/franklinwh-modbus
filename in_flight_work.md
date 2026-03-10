@@ -1,10 +1,10 @@
 # In-Flight Work
 
-**Last Updated:** 2026-03-07  
+**Last Updated:** 2026-03-10  
 **Current Phase:** Phase 2 — Core Library Stabilization  
-**Branch:** `fix/modbus-stability`  
+**Branch:** `develop`  
 **Package:** `franklinwh-modbus` v0.9.0  
-**Strategic Priority:** Library-first for PyPi — web app archived
+**Sister project:** `/Users/davidhona/dev/franklinwh-python/` (Cloud API, `pip install franklinwh`)
 
 ---
 
@@ -13,44 +13,46 @@
 - ✅ macOS migration complete (from Ubuntu)
 - ✅ All tests passing: 32 passed, 0 failed, 7 skipped
 - ✅ Proof-of-life smoke test: 47 pass, 0 fail, 3 skip
-- ✅ Project cleanup done: root 190→11 files
-- ✅ Web app archived to `archive/webapp/`
 - ✅ `pip install -e ".[dev]"` → `franklinwh-modbus-0.9.0`
-- ✅ Git + GitHub SSH configured
-- ✅ Library API fixes: `stop_event`, `run_with_signal_handling`, no `sys.exit`
-- ✅ Docs updated: README, USAGE_GUIDE, VPP_MODE_REFERENCE, safety warnings
+- ✅ `pip install -e .` → `franklinwh-python` (pyproject.toml added)
+- ✅ Git + GitHub SSH configured (both repos)
+- ✅ aGate reachable at `192.168.0.110` from macOS
 
-## Completed This Session (2026-03-07)
+## Completed (2026-03-08 — 2026-03-10)
 
-1. Web app archived (39 files → `archive/webapp/`)
-2. Library v0.9.0: signal handling decoupled, print→logger, duplicate types removed
-3. `setup.py`: `pymodbus` added, `[monitor]` extra, author/URL
-4. Distribution renamed: `franklinwh` → `franklinwh-modbus`
-5. USAGE_GUIDE rewritten for library-first
-6. Safety docs: extension register provisioning, VPP Mode, network requirements
-7. Proof-of-life smoke test: 47/47 pass across 9 capability areas
-8. Documentation health audit
+### Modbus Library & CLI
+1. **DER control testing** — M704 WSetEna/WSet confirmed working for charge/discharge
+2. **Off-grid detection** — `ConnSt=0` now shows OFF-GRID in `--status`
+3. **DERMode fix** — correct bit positions (bit 0=Grid Following, bit 1=Grid Forming)
+4. **Register annotations** — `--status` shows `(M701.W)`, `(M713.SoC)` etc.
+5. **`--check-span`** — local network scan (replaced Cloud API, no auth needed)
+6. **Extension register probe** — confirmed READ-ONLY without SPAN Modbus unlock
+7. **Namespace rename** — `franklinwh` → `franklinwh_modbus` (no conflicts with Cloud API)
+8. **Test results** archived in `tests/results/`
+
+### franklinwh-python (Cloud API)
+1. **`pyproject.toml`** added — `pip install -e .` works
+2. **`tou_predefined_builtin`** — fixed missing export from `const/__init__.py`
 
 ## Next Priorities
 
-1. **Virtual mode hardware testing** — Self-Consumption, Emergency Backup, TOU, Peak Shave
-   - **Blocked:** Need aGate network access from macOS
-2. **FEM integration test** — verify `franklinwh-modbus` works from `franklinwh-energy-manager`
-   - Not blocked — can test locally
-3. **PyPi publication prep** — LICENSE, pyproject.toml, CI/CD
-4. **Phase 3: Intent-based conflict detection** — after hardware testing
+1. **SPAN panel beta testing** — find beta tester with SPAN+aGate to test extension register writability
+2. **Virtual mode hardware testing** — Self-Consumption, Emergency Backup, TOU, Peak Shave
+3. **Phase 3: Intent-based conflict detection** — see [TODO doc](./docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md)
+4. **PyPi publication prep** — LICENSE, pyproject.toml, CI/CD
 5. **TUI Monitor validation** — after library stable
 
 ## Blockers
 
-- aGate hardware (`192.168.0.110`) not reachable from macOS host
-- Virtual mode testing requires network access to aGate
+- Extension registers (15507-15509) confirmed READ-ONLY — need SPAN Modbus unlock from FranklinWH
+- Need beta tester with SPAN panel connected to aGate
 
-## On Hold
+## Related Docs
 
-- **TUI Monitor** — implemented but parked until library usage validated
-- **Web app** — archived in `archive/webapp/`, design elements preserved
+- [PHASES_AND_ROADMAP.md](./PHASES_AND_ROADMAP.md) — strategic multi-phase plan
+- [docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md](./docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Phase 3 design
+- [docs/CONFLICT_DETECTION_ANALYSIS.md](./docs/CONFLICT_DETECTION_ANALYSIS.md) — Phase 3 analysis
 
 ---
 
-**Branch history:** `fix/modbus-stability` — 15+ commits this session
+**Branch history:** `develop` — active development branch
