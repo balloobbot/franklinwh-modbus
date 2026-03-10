@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Strategic Decision (2026-03-07):** Web app is **archived** (`archive/webapp/`).
 > Priority is the core `franklinwh-modbus` library as a standalone, PyPi-publishable
-> package. Distribution name: `franklinwh-modbus`, import: `from franklinwh import ...`
+> package. Distribution name: `franklinwh-modbus`, import: `from franklinwh_modbus import ...`
 
 ---
 
@@ -50,7 +50,7 @@
 **Status:** Production-ready for manual control
 
 **Deliverables:**
-- ✅ Core library (`src/franklinwh/`)
+- ✅ Core library (`src/franklinwh_modbus/`)
 - ✅ CLI tool (`franklinwh_cli.py`)
 - ✅ Manual mode (charge/discharge/idle)
 - ✅ Basic conflict detection
@@ -239,10 +239,10 @@ Projects that will consume `franklinwh-modbus` as a dependency:
 ## File Index
 
 ### Core Implementation
-- `src/franklinwh/controller.py` - Main controller with Modbus interface
-- `src/franklinwh/modes.py` - Virtual mode implementations
-- `src/franklinwh/types.py` - Data types and enums
-- `src/franklinwh/monitor.py` - TUI dashboard (PARKED)
+- `src/franklinwh_modbus/controller.py` - Main controller with Modbus interface
+- `src/franklinwh_modbus/modes.py` - Virtual mode implementations
+- `src/franklinwh_modbus/types.py` - Data types and enums
+- `src/franklinwh_modbus/monitor.py` - TUI dashboard (PARKED)
 - `franklinwh_cli.py` - Command-line interface
 
 ### Documentation by Phase

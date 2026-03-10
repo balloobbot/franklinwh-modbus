@@ -33,7 +33,7 @@ else:
     state = 'IDLE'
 ```
 
-**Code Location:** `src/franklinwh/controller.py:read_battery_status()` — returns `battery_state` (derived) and `status_raw` (M713.Sta, always 0)
+**Code Location:** `src/franklinwh_modbus/controller.py:read_battery_status()` — returns `battery_state` (derived) and `status_raw` (M713.Sta, always 0)
 
 ---
 
@@ -55,7 +55,7 @@ else:
 dc_current = dc_power / dc_voltage  # Ohm's Law: I = P/V
 ```
 
-**Code Location:** `src/franklinwh/controller.py:read_battery_status()` (M714 section)
+**Code Location:** `src/franklinwh_modbus/controller.py:read_battery_status()` (M714 section)
 
 ---
 
@@ -252,7 +252,7 @@ sock.sendall(req)
 resp = sock.recv(256)
 ```
 
-**Code Location:** `src/franklinwh/controller.py:_read_extension_solar()`, `read_native_mode()`
+**Code Location:** `src/franklinwh_modbus/controller.py:_read_extension_solar()`, `read_native_mode()`
 
 ---
 

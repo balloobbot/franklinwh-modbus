@@ -8,7 +8,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 > **Note:** This is the Modbus TCP library (`pip install franklinwh-modbus`).  
 > For the Cloud API, see [franklinwh-python](https://pypi.org/project/franklinwh-python/).  
-> Python import: `from franklinwh import FranklinWHController`
+> Python import: `from franklinwh_modbus import FranklinWHController`
 
 > **Status:** Core library under active development, targeting PyPi publication.
 
@@ -70,7 +70,7 @@ pip install -e ".[dev]"
 ## Library Usage
 
 ```python
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 
 # Connect to aGate
 ctrl = FranklinWHController('192.168.0.110')
@@ -128,7 +128,7 @@ python3 franklinwh_cli.py -i 192.168.0.110 --stop
 
 ```
 franklinwh-modbus/
-├── src/franklinwh/          # Core library (the package)
+├── src/franklinwh_modbus/          # Core library (the package)
 │   ├── controller.py        # FranklinWHController — Modbus interface
 │   ├── modes.py             # VirtualModeController — control modes
 │   ├── types.py             # BatteryCommand, VirtualMode, enums

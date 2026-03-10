@@ -19,7 +19,7 @@ cd /Users/davidhona/dev/modbus && source venv/bin/activate && PYTHONPATH=src:. p
 // turbo
 ```bash
 cd /Users/davidhona/dev/modbus && source venv/bin/activate && python3 -c "
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 print('Battery:', ctrl.read_battery_status())

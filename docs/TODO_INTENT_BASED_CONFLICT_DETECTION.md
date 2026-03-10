@@ -141,7 +141,7 @@ Status:          ℹ️  NATURAL - Battery serving excess home load
 **Interface Changes:**
 
 ```python
-# src/franklinwh/controller.py
+# src/franklinwh_modbus/controller.py
 
 def check_state(
     self, 
@@ -193,7 +193,7 @@ else:
 **Virtual Mode Integration:**
 
 ```python
-# src/franklinwh/modes.py
+# src/franklinwh_modbus/modes.py
 
 class VirtualModeController:
     def check_mode_conflicts(self) -> List[str]:
@@ -234,7 +234,7 @@ class VirtualModeController:
 
 ## Files to Modify
 
-1. **src/franklinwh/controller.py**
+1. **src/franklinwh_modbus/controller.py**
    - `check_state()` - Add `requested_operation` parameter
    - New `detect_intent_conflict()` method
    - New `_is_natural_battery_activity()` helper
@@ -243,11 +243,11 @@ class VirtualModeController:
    - Pass intent flags to `check_state()`
    - Update conflict display logic
 
-3. **src/franklinwh/modes.py**
+3. **src/franklinwh_modbus/modes.py**
    - Pass mode intent to controller
    - Mode-specific conflict detection
 
-4. **src/franklinwh/types.py** (optional)
+4. **src/franklinwh_modbus/types.py** (optional)
    - Add `UserIntent` enum
    - Add `EnergyFlow` dataclass
 

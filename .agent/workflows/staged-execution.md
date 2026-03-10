@@ -85,7 +85,7 @@ stage[1]: Add alarm monitoring read methods
 - Added read_system_alarms() to controller
 - Added read_dc_port_alarms() to controller
 - Test results: PASS (read registers successfully)
-- Files changed: src/franklinwh/controller.py
+- Files changed: src/franklinwh_modbus/controller.py
 ```
 
 ---

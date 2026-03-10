@@ -3,7 +3,7 @@
 Complete guide for using the `franklinwh-modbus` library and CLI.
 
 > **Package name:** `pip install franklinwh-modbus`  
-> **Python import:** `from franklinwh import ...`  
+> **Python import:** `from franklinwh_modbus import ...`  
 > Not to be confused with `franklinwh-python` (Cloud API).
 
 ---
@@ -131,15 +131,15 @@ pip install franklinwh-modbus
 
 ```python
 # Core library imports (always available)
-from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
-from franklinwh import BatteryCommand, ControlMode, HealthStatus
+from franklinwh_modbus import FranklinWHController, VirtualModeController, VirtualMode
+from franklinwh_modbus import BatteryCommand, ControlMode, HealthStatus
 
 # For CLI/scripts with signal handling
-from franklinwh import run_with_signal_handling
+from franklinwh_modbus import run_with_signal_handling
 
 # Optional monitor import (requires 'pip install franklinwh[monitor]')
 try:
-    from franklinwh import CLIMonitor, MonitorConfig
+    from franklinwh_modbus import CLIMonitor, MonitorConfig
 except ImportError:
     pass  # rich not installed
 ```
@@ -167,7 +167,7 @@ ctrl = FranklinWHController('192.168.0.110')
 
 ### After (Library — v0.9.0)
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 ```
@@ -297,7 +297,7 @@ python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --target-soc-auto 95 --d
 ### Basic Connection
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 # Create controller
 ctrl = FranklinWHController(
@@ -319,7 +319,7 @@ ctrl.disconnect()
 ### Read Battery Status
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -338,7 +338,7 @@ ctrl.disconnect()
 ### Direct Battery Control
 
 ```python
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -367,7 +367,7 @@ ctrl.disconnect()
 ### Virtual Mode Controller
 
 ```python
-from franklinwh import (
+from franklinwh_modbus import (
     FranklinWHController,
     VirtualModeController,
     VirtualMode
@@ -393,7 +393,7 @@ ctrl.disconnect()
 ### Check Alarms
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -414,7 +414,7 @@ ctrl.disconnect()
 ### Health Check
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -432,7 +432,7 @@ ctrl.disconnect()
 ### Read Grid Status
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -449,7 +449,7 @@ ctrl.disconnect()
 ### Read Solar Status
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -474,7 +474,7 @@ ctrl.disconnect()
 ### Operation: Charge Until Target SoC
 
 ```python
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 import time
 
 ctrl = FranklinWHController('192.168.1.110')
@@ -506,7 +506,7 @@ ctrl.disconnect()
 ### Operation: Discharge Until Min SoC
 
 ```python
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 import time
 
 ctrl = FranklinWHController('192.168.1.110')
@@ -538,7 +538,7 @@ ctrl.disconnect()
 ### Operation: Monitor and Log
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 import time
 import json
 from datetime import datetime
@@ -583,7 +583,7 @@ finally:
 Check system state before sending commands to detect conflicts with aGate Cloud API:
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -619,7 +619,7 @@ ctrl.disconnect()
 Implement auto-revert functionality in your Python code:
 
 ```python
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 import threading
 import time
 
@@ -667,7 +667,7 @@ finally:
 Validate grid connection before operating:
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 ctrl = FranklinWHController('192.168.1.110')
 ctrl.connect()
@@ -755,7 +755,7 @@ VirtualModeController(
 **For library consumers** (e.g. FranklinWH Energy Manager):
 ```python
 import threading
-from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+from franklinwh_modbus import FranklinWHController, VirtualModeController, VirtualMode
 
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
@@ -771,7 +771,7 @@ vmc.run_continuous(duration_seconds=3600, stop_event=stop)
 
 **For CLI/scripts** (with Ctrl+C handling):
 ```python
-from franklinwh import VirtualModeController, run_with_signal_handling
+from franklinwh_modbus import VirtualModeController, run_with_signal_handling
 
 # Installs SIGINT/SIGTERM handlers, restores them on exit
 run_with_signal_handling(vmc, duration_seconds=3600)
@@ -813,7 +813,7 @@ run_with_signal_handling(vmc, duration_seconds=3600)
 python -c "
 import sys
 sys.path.insert(0, 'src')
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 print('✓ Import successful')
 "
 ```
@@ -826,7 +826,7 @@ print('✓ Import successful')
 ```python
 import sys
 sys.path.insert(0, '/path/to/modbus/src')  # Note: src/ subdirectory
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ```
 
 ### Connection Error: `No route to host`

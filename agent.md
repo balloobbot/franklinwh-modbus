@@ -1,7 +1,7 @@
 # AI Agent Development Guide — franklinwh-modbus
 
 > **Project**: `/Users/davidhona/dev/modbus/`
-> **Package**: `franklinwh-modbus` v0.9.0 (import as `from franklinwh import ...`)
+> **Package**: `franklinwh-modbus` v0.9.0 (import as `from franklinwh_modbus import ...`)
 > **Created**: 2026-02-18
 
 > **🛡️ See**: [SAFETY_CONTROLS.md](./docs/SAFETY_CONTROLS.md) for all safety rules (10 rules)  
@@ -15,7 +15,7 @@
 ## ⚠️ Package Naming
 
 - **Distribution name:** `franklinwh-modbus` (`pip install franklinwh-modbus`)
-- **Python import:** `from franklinwh import ...` (import name stays `franklinwh`)
+- **Python import:** `from franklinwh_modbus import ...` (import name is `franklinwh_modbus`)
 - **NOT** `franklinwh` — that name is taken by the Cloud API package
 - Always refer to this library as `franklinwh-modbus` in docs and conversations
 
@@ -27,7 +27,7 @@
 
 **ANY agent modifying the following MUST run hardware tests:**
 
-- `src/franklinwh/` package (controller, modes, types)
+- `src/franklinwh_modbus/` package (controller, modes, types)
 - `franklinwh_cli.py` (CLI tool)
 - Any Modbus register write sequences
 - Power calculation logic
@@ -88,7 +88,7 @@ python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
 python franklinwh_cli.py -i 192.168.0.110 --stop
 
 # Or via library
-python -c "from franklinwh import FranklinWHController; c=FranklinWHController('192.168.0.110'); c.connect(); c.reset_control_state(); c.disconnect()"
+python -c "from franklinwh_modbus import FranklinWHController; c=FranklinWHController('192.168.0.110'); c.connect(); c.reset_control_state(); c.disconnect()"
 ```
 
 **Reference:** [HARDWARE_TEST_GUIDE.md](./docs/HARDWARE_TEST_GUIDE.md), [TEST_QUICK_REFERENCE.md](./docs/TEST_QUICK_REFERENCE.md)

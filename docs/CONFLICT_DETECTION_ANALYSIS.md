@@ -33,7 +33,7 @@ The current conflict detection logic has a **fundamental limitation**: it only e
 ## Current Implementation
 
 ### Location
-`src/franklinwh/controller.py`, method `check_state()`, lines 1115-1153
+`src/franklinwh_modbus/controller.py`, method `check_state()`, lines 1115-1153
 
 ### Current Logic Flow
 
@@ -338,7 +338,7 @@ if native_mode == 'Self-Consumption':
 ### ✅ Interim Quick Fix - IMPLEMENTED 2026-03-01
 
 **Status:** ✅ **IMPLEMENTED**  
-**Location:** `src/franklinwh/controller.py`, `check_state()` method  
+**Location:** `src/franklinwh_modbus/controller.py`, `check_state()` method  
 **Impact:** Reduces ~80% of false positives in typical daytime scenarios
 
 **Implementation Details:**
@@ -379,7 +379,7 @@ Energy Flow:
 ```
 
 **Files Modified:**
-- `src/franklinwh/controller.py` - Added energy context reading and classification
+- `src/franklinwh_modbus/controller.py` - Added energy context reading and classification
 - `franklinwh_cli.py` - Added Energy Flow display, separated INFO from CONFLICTS
 
 **Note:** This is a band-aid fix. Full Option 2 (intent-based) implementation is still recommended for Phase 3.
@@ -455,15 +455,15 @@ if requested_operation == 'discharge' and battery_is_charging:
 ```
 
 **Files to Modify:**
-- `src/franklinwh/controller.py` - `check_state()` and new `detect_intent_conflict()`
+- `src/franklinwh_modbus/controller.py` - `check_state()` and new `detect_intent_conflict()`
 - `franklinwh_cli.py` - Pass `--charge`/`--discharge` intent to `check_state()`
-- `src/franklinwh/modes.py` - Pass mode intent from VirtualModeController
+- `src/franklinwh_modbus/modes.py` - Pass mode intent from VirtualModeController
 
 ---
 
 ## Files to Modify
 
-1. `src/franklinwh/controller.py`
+1. `src/franklinwh_modbus/controller.py`
    - `check_state()` method - add energy context
    - New helper method `classify_battery_activity()`
 
@@ -471,7 +471,7 @@ if requested_operation == 'discharge' and battery_is_charging:
    - `print_startup_summary()` - show energy flow context
    - Pass requested operation to `check_state()`
 
-3. `src/franklinwh/types.py` (optional)
+3. `src/franklinwh_modbus/types.py` (optional)
    - Add `EnergyFlow` dataclass for structured data
 
 ---
