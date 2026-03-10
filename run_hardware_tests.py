@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 
 
 def get_current_status():

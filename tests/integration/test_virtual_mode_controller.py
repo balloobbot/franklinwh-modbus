@@ -24,7 +24,7 @@ from unittest.mock import Mock, patch, MagicMock
 # Ensure project root is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from franklinwh import (
+from franklinwh_modbus import (
     VirtualModeController, 
     VirtualMode, 
     TOUSchedule,

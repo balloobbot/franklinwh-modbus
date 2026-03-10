@@ -28,7 +28,7 @@ import os
 # Add src to path for development (not needed if package is installed)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from franklinwh import (
+from franklinwh_modbus import (
     FranklinWHController,
     VirtualModeController,
     VirtualMode,
@@ -718,7 +718,7 @@ def main():
         
         # Launch monitor dashboard
         if args.monitor:
-            from franklinwh.monitor import CLIMonitor, MonitorConfig
+            from franklinwh_modbus.monitor import CLIMonitor, MonitorConfig
             
             # Disconnect the controller we just connected (monitor will create its own)
             ctrl.disconnect()
@@ -892,7 +892,7 @@ def main():
                 ctrl.reset_control_state()
             
             # Create virtual mode controller
-            from franklinwh import VirtualModeController, VirtualMode
+            from franklinwh_modbus import VirtualModeController, VirtualMode
             vmc = VirtualModeController(
                 ctrl,
                 max_charge_soc=args.max_charge_soc,
@@ -996,7 +996,7 @@ def main():
             
             if (has_duration or has_soc_limits or has_target_soc) and is_controlling:
                 # Run continuous control with SoC limits or target SoC
-                from franklinwh import VirtualModeController, VirtualMode
+                from franklinwh_modbus import VirtualModeController, VirtualMode
                 vmc = VirtualModeController(
                     ctrl,
                     max_charge_soc=args.max_charge_soc,

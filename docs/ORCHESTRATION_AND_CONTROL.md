@@ -131,8 +131,8 @@ The following table maps user-facing actions to their underlying orchestration a
 The library provides a **software-side timeout** via `threading.Timer`:
 
 ```python
-from franklinwh import FranklinWHController
-from franklinwh.types import BatteryCommand
+from franklinwh_modbus import FranklinWHController
+from franklinwh_modbus.types import BatteryCommand
 
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()

@@ -16,7 +16,7 @@ Timeout: 10s recommended (WiFi can be slow)
 ```
 
 ```python
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()  # Scans SunSpec models, probes extension writability
 ```
@@ -75,7 +75,7 @@ After exhaustive P1-P4 testing, only **5 of 48 M704 registers** accept writes:
 ### Python API
 
 ```python
-from franklinwh.types import BatteryCommand, ControlMode
+from franklinwh_modbus.types import BatteryCommand, ControlMode
 
 # Charge at 3000W
 cmd = BatteryCommand(power_watts=3000, mode=ControlMode.LIMIT_ABS)

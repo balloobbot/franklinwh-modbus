@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Test that franklinwh package can be imported without errors.
+Test that franklinwh_modbus package can be imported without errors.
 
 This test verifies the fix for DEFECT_REPORT_PACKAGE_IMPORT.md:
 https://github.com/franklinwh/modbus/issues/XXX
 
-The defect was: NameError when importing franklinwh without rich installed,
+The defect was: NameError when importing franklinwh_modbus without rich installed,
 because monitor.py used Layout as a return type annotation at class body level.
 
 Fix: Added 'from __future__ import annotations' to monitor.py to postpone
@@ -27,7 +27,7 @@ def test_import_core_modules():
     sys.path.insert(0, 'src')
     
     # These should always work
-    from franklinwh import (
+    from franklinwh_modbus import (
         FranklinWHController,
         VirtualModeController,
         VirtualMode,
@@ -53,13 +53,13 @@ def test_monitor_module_no_name_error():
     
     # Force reimport
     for mod in list(sys.modules.keys()):
-        if mod.startswith('franklinwh'):
+        if mod.startswith('franklinwh_modbus'):
             del sys.modules[mod]
     
     # Import monitor module - this should NOT raise NameError
     # thanks to 'from __future__ import annotations'
     try:
-        from franklinwh import monitor
+        from franklinwh_modbus import monitor
         print("✓ Monitor module imported without NameError")
         print(f"  HAS_RICH = {monitor.HAS_RICH}")
     except NameError as e:
@@ -73,7 +73,7 @@ def test_has_monitor_flag():
     """Test that HAS_MONITOR flag correctly indicates monitor availability."""
     sys.path.insert(0, 'src')
     
-    from franklinwh import HAS_MONITOR
+    from franklinwh_modbus import HAS_MONITOR
     
     # When rich is installed, this should be True
     # When rich is not installed, this should be False
@@ -87,7 +87,7 @@ def test_cli_monitor_availability():
     """Test that CLIMonitor is available when rich is installed."""
     sys.path.insert(0, 'src')
     
-    from franklinwh import HAS_MONITOR, CLIMonitor
+    from franklinwh_modbus import HAS_MONITOR, CLIMonitor
     
     if HAS_MONITOR:
         assert CLIMonitor is not None, "CLIMonitor should not be None when HAS_MONITOR=True"
@@ -105,7 +105,7 @@ def test_type_annotations_postponed():
     sys.path.insert(0, 'src')
     
     import inspect
-    from franklinwh import monitor
+    from franklinwh_modbus import monitor
     
     # Get return annotation of create_layout method
     sig = inspect.signature(monitor.CLIMonitor.create_layout)
@@ -129,7 +129,7 @@ import sys
 sys.path.insert(0, 'src')
 
 try:
-    from franklinwh import FranklinWHController, HAS_MONITOR
+    from franklinwh_modbus import FranklinWHController, HAS_MONITOR
     print(f"SUCCESS: FranklinWHController imported")
     print(f"HAS_MONITOR={HAS_MONITOR}")
     sys.exit(0)
@@ -160,7 +160,7 @@ except Exception as e:
 
 
 if __name__ == '__main__':
-    print("Testing franklinwh package import...\n")
+    print("Testing franklinwh_modbus package import...\n")
     
     tests = [
         ("Import core modules", test_import_core_modules),

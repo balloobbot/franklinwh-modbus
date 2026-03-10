@@ -37,7 +37,7 @@ franklinwh_control_standalone.py   ← DEPRECATED (frozen)
 ### 2. franklinwh_cli.py (CLI)
 - **Purpose**: Command-line interface
 - **Contains**: Argument parsing, main(), user interaction
-- **Uses**: franklinwh_modbus_library.py (or src/franklinwh/ package)
+- **Uses**: franklinwh_modbus_library.py (or src/franklinwh_modbus/ package)
 - **Status**: Active development target
 
 ### 3. franklinwh_control_standalone.py (DEPRECATED)

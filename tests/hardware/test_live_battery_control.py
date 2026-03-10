@@ -40,7 +40,7 @@ from dataclasses import dataclass, asdict
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'src'))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from franklinwh import FranklinWHController, BatteryCommand
+from franklinwh_modbus import FranklinWHController, BatteryCommand
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

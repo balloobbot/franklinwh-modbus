@@ -15,7 +15,7 @@ Reference document for verifying all library methods, CLI tools, and TUI monitor
 | Tool | Purpose | Command |
 |------|---------|---------|
 | `modbus_sunspec2_reader.py` | Raw SunSpec register dump (ground truth) | `python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 -dvalues --vals` |
-| Library API | `FranklinWHController` method testing | `from franklinwh import FranklinWHController` |
+| Library API | `FranklinWHController` method testing | `from franklinwh_modbus import FranklinWHController` |
 | CLI | Formatted status display | `python3 franklinwh_cli.py -i 192.168.0.110 --status` |
 | TUI Monitor | Live Rich dashboard | `python3 franklinwh_cli.py -i 192.168.0.110 --monitor` |
 
@@ -187,7 +187,7 @@ python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 -dvalues --vals >
 
 # 2. Run library methods (within ~10 seconds of raw read)
 python3 -c "
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 print('Battery:', ctrl.read_battery_status())

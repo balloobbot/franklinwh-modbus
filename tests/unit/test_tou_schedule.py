@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from franklinwh import TOUSchedule
+from franklinwh_modbus import TOUSchedule
 
 
 class TestTOUSchedule:
@@ -48,7 +48,7 @@ class TestTOUSchedule:
         schedule = TOUSchedule()
         
         # At 6pm (18:00) should be discharge (peak)
-        with patch('franklinwh.schedule.datetime') as mock_dt:
+        with patch('franklinwh_modbus.schedule.datetime') as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 1, 18, 0, 0)
             # Note: This requires mocking or the get_strategy to accept hour param
             # For now, just verify the method exists

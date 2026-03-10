@@ -60,7 +60,7 @@ def section(title):
 section("1. Package & Version")
 
 try:
-    import franklinwh
+    import franklinwh_modbus
     test("Package imports", True, f"v{franklinwh.__version__}")
     test("Version is 0.9.0", franklinwh.__version__ == '0.9.0')
 except ImportError as e:
@@ -74,26 +74,26 @@ except ImportError as e:
 section("2. Core Imports")
 
 try:
-    from franklinwh import FranklinWHController
+    from franklinwh_modbus import FranklinWHController
     test("FranklinWHController", True)
 except ImportError as e:
     test("FranklinWHController", False, str(e))
 
 try:
-    from franklinwh import VirtualModeController, run_with_signal_handling
+    from franklinwh_modbus import VirtualModeController, run_with_signal_handling
     test("VirtualModeController", True)
     test("run_with_signal_handling", True, repr(run_with_signal_handling))
 except ImportError as e:
     test("VirtualModeController / run_with_signal_handling", False, str(e))
 
 try:
-    from franklinwh import VirtualMode, ControlMode, BatteryCommand, HealthStatus
+    from franklinwh_modbus import VirtualMode, ControlMode, BatteryCommand, HealthStatus
     test("Type imports (VirtualMode, ControlMode, etc.)", True)
 except ImportError as e:
     test("Type imports", False, str(e))
 
 try:
-    from franklinwh import TOUSchedule, DEFAULT_SCHEDULE, ONGRID_MODES
+    from franklinwh_modbus import TOUSchedule, DEFAULT_SCHEDULE, ONGRID_MODES
     test("Schedule & constants imports", True)
 except ImportError as e:
     test("Schedule imports", False, str(e))
@@ -292,7 +292,7 @@ test("SIGINT handler restored after wrapper", handler != signal.SIG_DFL or True,
 section("8. TUI Monitor")
 
 if franklinwh.HAS_MONITOR:
-    from franklinwh import CLIMonitor, MonitorConfig
+    from franklinwh_modbus import CLIMonitor, MonitorConfig
     cfg = MonitorConfig(ip_address='127.0.0.1', theme='dark')
     test("MonitorConfig created", cfg is not None, f"theme={cfg.theme}")
     test("CLIMonitor class available", CLIMonitor is not None)
@@ -305,7 +305,7 @@ else:
 # ============================================================
 section("9. Hardware Constants")
 
-from franklinwh.constants import (
+from franklinwh_modbus.constants import (
     RUN_STATUS, FRANKLINWH_MODELS, FRANKLINWH_ACCESSORIES,
     DISPATCH_CODES, COUPLING_TYPES, dispatchCodeType, WaveType
 )

@@ -2,9 +2,9 @@
 """
 Setup script for franklinwh-modbus
 
-Note: Distribution name is 'franklinwh-modbus' (pip install franklinwh-modbus)
-but the Python import name is 'franklinwh' (from franklinwh import ...).
-This avoids conflict with the 'franklinwh' Cloud API package on PyPi.
+Note: Both the distribution name and the Python import use 'franklinwh_modbus'
+(pip install franklinwh-modbus, from franklinwh_modbus import ...).
+The 'franklinwh' namespace is reserved for the Cloud API package (franklinwh-python).
 """
 
 from setuptools import setup, find_packages

@@ -4,7 +4,7 @@ FranklinWH Modbus Battery Manager
 A Python library for controlling FranklinWH aGate battery systems via Modbus TCP.
 
 Example usage:
-    from franklinwh import FranklinWHController, VirtualModeController, VirtualMode
+    from franklinwh_modbus import FranklinWHController, VirtualModeController, VirtualMode
     
     # Connect to aGate
     ctrl = FranklinWHController('192.168.1.100')

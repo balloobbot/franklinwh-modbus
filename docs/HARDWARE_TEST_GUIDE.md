@@ -28,7 +28,7 @@ python run_hardware_tests.py --release
 # Method 3: Direct reset via Python
 python -c "
 import sys; sys.path.insert(0, 'src')
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 ctrl.reset_control_state()
@@ -358,7 +358,7 @@ with open('$latest') as f:
    ```bash
    python -c "
 import sys; sys.path.insert(0, 'src')
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 if ctrl.connect():
     ctrl.reset_control_state()

@@ -242,7 +242,7 @@ python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 --raw 15507:3
 
 # Library: read control status
 python3 -c "
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 print(ctrl.read_control_status())
@@ -252,7 +252,7 @@ ctrl.disconnect()
 
 # Library: healthcheck (includes zombie detection)
 python3 -c "
-from franklinwh import FranklinWHController
+from franklinwh_modbus import FranklinWHController
 ctrl = FranklinWHController('192.168.0.110')
 ctrl.connect()
 h = ctrl.healthcheck()

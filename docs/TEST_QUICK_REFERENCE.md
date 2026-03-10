@@ -29,7 +29,7 @@ python run_hardware_tests.py --release
 python franklinwh_cli.py -i 192.168.0.110 --stop
 
 # Method 3: Quick Python
-python -c "import sys; sys.path.insert(0, 'src'); from franklinwh import FranklinWHController; c=FranklinWHController('192.168.0.110'); c.connect(); c.reset_control_state(); print('Released'); c.disconnect()"
+python -c "import sys; sys.path.insert(0, 'src'); from franklinwh_modbus import FranklinWHController; c=FranklinWHController('192.168.0.110'); c.connect(); c.reset_control_state(); print('Released'); c.disconnect()"
 ```
 
 ## ✅ Post-Test Verification
