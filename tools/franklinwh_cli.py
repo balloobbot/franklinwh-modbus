@@ -657,17 +657,15 @@ def main():
             print("=" * 60)
             import urllib.request
             import json as _json
-            # Accept gateway ID directly from command line
+            # Accept gateway ID directly from command line, or auto-detect
             if args.check_span != 'AUTO':
                 gateway_id = args.check_span
             else:
-                # Try to auto-detect from controller
-                gateway_id = ctrl.gateway_id if hasattr(ctrl, 'gateway_id') else None
-                if not gateway_id:
-                    try:
-                        gateway_id = ctrl._read_extension_register_string(15500, 10)
-                    except Exception:
-                        pass
+                # Auto-detect: SunSpec Model 1 SN = aGate serial = gateway ID
+                nameplate = ctrl.read_nameplate()
+                gateway_id = nameplate.get('serial', '') or None
+                if gateway_id:
+                    print(f"  Auto-detected gateway: {gateway_id} (from SunSpec Model 1)")
             if not gateway_id:
                 print("  ❌ Cannot determine gateway ID for Cloud API call")
                 print("     Pass gateway ID manually or use franklinwh-python CLI")
