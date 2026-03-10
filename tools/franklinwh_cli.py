@@ -130,8 +130,8 @@ Examples:
     parser.add_argument('--stop', action='store_true', help='Stop control and exit')
     parser.add_argument('--clear-alarms', action='store_true', help='Clear/reset alarms (write to AlarmReset)')
     parser.add_argument('--test-extension-write', action='store_true', help='Test extension register writability (15507-15509)')
-    parser.add_argument('--check-span', metavar='GATEWAY_ID', nargs='?', const='AUTO',
-                       help='Check SPAN panel flag via Cloud API (pass aGate serial, e.g. 10060006A02F24170091)')
+    parser.add_argument('--check-span', action='store_true',
+                       help='Scan local network for SPAN panels and check extension register writability')
     
     # Schedule validation
     parser.add_argument('--show-schedule', metavar='FILE', help='Display schedule file')
@@ -650,43 +650,93 @@ def main():
             print_health(health)
             sys.exit(0 if health.healthy else 1)
         
-        # SPAN panel check (Cloud API)
+        # SPAN panel check (local network scan)
         if args.check_span:
             print("\n" + "=" * 60)
-            print("  SPAN PANEL CHECK (Cloud API)")
+            print("  SPAN PANEL CHECK (Local Network)")
             print("=" * 60)
             import urllib.request
             import json as _json
-            # Accept gateway ID directly from command line, or auto-detect
-            if args.check_span != 'AUTO':
-                gateway_id = args.check_span
-            else:
-                # Auto-detect: SunSpec Model 1 SN = aGate serial = gateway ID
-                nameplate = ctrl.read_nameplate()
-                gateway_id = nameplate.get('serial', '') or None
-                if gateway_id:
-                    print(f"  Auto-detected gateway: {gateway_id} (from SunSpec Model 1)")
-            if not gateway_id:
-                print("  ❌ Cannot determine gateway ID for Cloud API call")
-                print("     Pass gateway ID manually or use franklinwh-python CLI")
-                sys.exit(1)
+            import ipaddress
+            import socket
+            import concurrent.futures
             
-            api_url = f"https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting?gatewayId={gateway_id}"
-            req = urllib.request.Request(api_url)
-            if args.check_span != 'CHECK':
-                req.add_header('loginToken', args.check_span)
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    data = _json.loads(resp.read().decode())
-                if data.get('code') == 200:
-                    span_flag = data['result'].get('spanFlag', 0)
-                    print(f"  Gateway:  {gateway_id}")
-                    print(f"  spanFlag: {span_flag} {'✅ SPAN detected' if span_flag else '— no SPAN panel'}")
+            agate_ip = args.ip
+            print(f"  aGate IP: {agate_ip}")
+            
+            # Read nameplate for context
+            nameplate = ctrl.read_nameplate()
+            if nameplate.get('serial'):
+                print(f"  aGate SN: {nameplate['serial']}")
+            
+            # Determine subnet to scan (same /24 as aGate)
+            network = ipaddress.IPv4Network(f"{agate_ip}/24", strict=False)
+            print(f"  Scanning: {network} for SPAN panels (port 80)...")
+            
+            def _probe_span_ip(ip_str):
+                """Quick probe: is this IP a SPAN panel?"""
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.5)
+                    result = sock.connect_ex((ip_str, 80))
+                    sock.close()
+                    if result != 0:
+                        return None
+                    # Port 80 open — check for SPAN API
+                    url = f"http://{ip_str}/api/v1/status"
+                    req = urllib.request.Request(url)
+                    req.add_header('User-Agent', 'franklinwh-modbus/1.0')
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        data = _json.loads(resp.read().decode())
+                        if isinstance(data, dict):
+                            # SPAN panels return fields like 'panel', 'system', 'circuits'
+                            if any(k in data for k in ['panel', 'circuits', 'feeders', 'grid', 'system']):
+                                model = 'SPAN Panel'
+                                firmware = None
+                                if 'panel' in data and isinstance(data['panel'], dict):
+                                    model = data['panel'].get('model', model)
+                                    firmware = data['panel'].get('firmwareVersion')
+                                elif 'system' in data and isinstance(data['system'], dict):
+                                    model = data['system'].get('model', model)
+                                    firmware = data['system'].get('firmwareVersion')
+                                return {'ip': ip_str, 'model': model, 'firmware': firmware, 'data': data}
+                except Exception:
+                    pass
+                return None
+            
+            # Parallel scan the /24 subnet (skip network/broadcast/aGate)
+            span_found = []
+            ips_to_scan = [str(ip) for ip in network.hosts() if str(ip) != agate_ip]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
+                futures = {pool.submit(_probe_span_ip, ip): ip for ip in ips_to_scan}
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result:
+                        span_found.append(result)
+            
+            # Report results
+            print()
+            if span_found:
+                for span in span_found:
+                    print(f"  ✅ SPAN PANEL FOUND: {span['ip']}")
+                    print(f"     Model:    {span['model']}")
+                    if span.get('firmware'):
+                        print(f"     Firmware: {span['firmware']}")
+                print()
+                print(f"  → SPAN panel on same subnet as aGate ({agate_ip})")
+                print(f"  → Extension registers (15507-15509) may be WRITABLE")
+                # Check current extension register state
+                ext_writable = ctrl._span_writable
+                if ext_writable is True:
+                    print(f"  → Extension write test: ✅ CONFIRMED WRITABLE")
+                elif ext_writable is False:
+                    print(f"  → Extension write test: ❌ Still READ-ONLY")
+                    print(f"     (SPAN Modbus may need enabling in FranklinWH installer app)")
                 else:
-                    print(f"  ⚠️  API returned: {data.get('message', 'Unknown error')}")
-                    print(f"     You may need to pass a loginToken: --check-span YOUR_TOKEN")
-            except Exception as e:
-                print(f"  ❌ Cloud API error: {e}")
+                    print(f"  → Extension write test: ⚠️  Not yet tested")
+            else:
+                print(f"  — No SPAN panels found on {network}")
+                print(f"  → Extension registers will be READ-ONLY")
             sys.exit(0)
         
         # Check alarms (detailed display)

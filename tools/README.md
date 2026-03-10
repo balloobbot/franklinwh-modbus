@@ -89,6 +89,12 @@ python3 network_scanner.py 192.168.0.35 --devices span -v
 python3 network_scanner.py --mdns --devices span
 ```
 
+**Quick SPAN Check via main CLI** (no extra dependencies):
+```bash
+# Scans aGate's /24 subnet for SPAN panels, reports extension register status
+python3 franklinwh_cli.py -i 192.168.0.110 --check-span
+```
+
 **SPAN API Versions:**
 - **Gen 1 & 2 (MAIN 32)**: REST API on port 80/443
 - **Gen 3 (MAIN 40/MLO 48)**: gRPC protocol + HTTP for setup
