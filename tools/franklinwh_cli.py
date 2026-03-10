@@ -165,6 +165,8 @@ def print_status(ctrl: FranklinWHController):
     
     # Power values
     grid_power = grid.get('grid_power_w', 0)
+    conn_state = grid.get('connection_state', 'Unknown')
+    is_off_grid = conn_state == 'Disconnected'
     
     # Solar power - try multiple sources (Model 502 AC, extension total, fallback)
     # Priority: 1) Model 502 AC power, 2) Extension total_solar, 3) 0
@@ -211,7 +213,9 @@ def print_status(ctrl: FranklinWHController):
     else:
         print(f"     Battery:     {abs(battery_dc):>5.0f}W  IDLE")
     
-    if grid_power > 0:
+    if is_off_grid:
+        print(f"       Grid:   ✕     0W  OFF-GRID")
+    elif grid_power > 0:
         print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  IMPORTING")
     elif grid_power < 0:
         print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  EXPORTING")
@@ -277,8 +281,8 @@ def print_status(ctrl: FranklinWHController):
     if var:
         print(f"    Reactive Power:   {var:.0f}VAR")
     
-    print(f"    Grid Power:       {grid_power:.0f}W  ({'Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else 'Balanced')})")
-    print(f"    Connection:       {grid.get('connection_state', 'Unknown')}")
+    print(f"    Grid Power:       {grid_power:.0f}W  ({'OFF-GRID' if is_off_grid else ('Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else 'Balanced'))})")
+    print(f"    Connection:       {conn_state}{' ⚡ OFF-GRID' if is_off_grid else ''}")
     print(f"    Grid Mode:        {grid.get('grid_mode', 'Unknown')}")
     print(f"    Inverter State:   {grid.get('inverter_state', 'Unknown')}")
     
