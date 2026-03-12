@@ -376,7 +376,9 @@ The **energy manager** is a Flask/Python web application that consumes both this
 - [FRANKLINWH_MODBUS_GUIDE.md](./FRANKLINWH_MODBUS_GUIDE.md) — Implementation guide
 - `docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx` — Official SunSpec PICS certification file
 - `~/dev/franklinwh-energy-manager/README.md` — Energy Manager web app documentation
+- `~/dev/franklinwh-energy-manager/docs/traceability_matrix.md` — FEM requirements traceability matrix
 - `~/dev/franklinwh-python/` — FranklinWH Cloud API Python client
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — Modbus library architecture overview
 
 ---
 
