@@ -23,11 +23,14 @@ Documenting non-standard behaviors, missing registers, and implementation-specif
 
 **Observed:** Battery actively charging at -400W (M714.DCW), SoC 79% — M713.Sta remains 0 (OFF).
 
-**Workaround:** Derive battery state from M714 DCW power direction:
+**Workaround:** Derive battery state from M714 DCW power direction (±50W deadband):
 ```python
-if dc_power < -50:
+# M714.DCW sign convention (confirmed empirically 2026-03-10):
+#   positive = power INTO battery (Charging)
+#   negative = power OUT of battery (Discharging)
+if dc_power > 50:
     state = 'CHARGING'
-elif dc_power > 50:
+elif dc_power < -50:
     state = 'DISCHARGING'
 else:
     state = 'IDLE'
@@ -43,7 +46,7 @@ else:
 **Issue:** The DCA register in Model 714 returns 0 or is not implemented.
 
 **Standard SunSpec Model 714 Fields:**
-- `DCW` - DC Power (W) ✅ **Working** — negative=charging, positive=discharging
+- `DCW` - DC Power (W) ✅ **Working** — positive=charging (into battery), negative=discharging (out of battery)
 - `DCV` - DC Voltage (V) ✅ **Working** 
 - `DCA` - DC Current (A) ❌ **Not populated (returns 0)**
 - `Tmp` - Battery Temperature (°C) ✅ **Working**
@@ -270,6 +273,47 @@ The FranklinWH SunSpec XLSX file also confirms base address = 1.
 
 ---
 
+## Model 502 — Power Rounding (Scale Factor Quantization)
+
+**Discovered:** 2026-03-12 · **Severity:** Low (cosmetic) · **Reported to:** FranklinWH Support
+
+FranklinWH aGate SunSpec registers round power values to coarse resolution (~100W steps) due to integer registers with limited scale factors. Small power flows are quantized upward, making them appear much larger than actual.
+
+**Example:** Enphase Envoy S Metered standby draw (~50-100W parasitic load on the PV circuit at night) appears as **500-600W of "solar generation"** in both Modbus (`M502.OutPw`) and Cloud API readings. The aGate is the source of truth for both, so the coarse value propagates everywhere.
+
+**Impact:**
+- Solar power entities show non-zero values at night (confusing but not harmful)
+- `--status` shows `Solar: 500W Producing` when actual solar generation is 0W
+- Home load calculation (`(calc)`) is inflated by the phantom solar component
+- Energy totals may include phantom solar contribution from parasitic loads
+
+**No software fix possible** — the quantization happens in aGate firmware before the registers are read. The Cloud API mirrors the same coarse values since both originate from the aGate's internal metering.
+
+**Possible future mitigation:** Time-based solar gating (zero solar output between sunset and sunrise) or a configurable dead-band threshold. Neither is implemented yet.
+
+---
+
+## Serial Number Structure
+
+FranklinWH serial numbers encode device type, hardware revision, and unique ID:
+
+```
+10060006A02F24170091
+│       │  │        │
+│       │  │        └── Unique serial (last 8 chars)
+│       │  └─────────── Hardware revision (3 chars, e.g. "A02")
+│       └────────────── Device type prefix
+└────────────────────── Full serial (20 chars)
+```
+
+**Why this matters:**
+- Hardware revision determines capabilities — some revs have more/fewer functions
+- Extract rev from serial: `serial[8:11]` (e.g. `"A02"`)
+- Example: aGate `A02` vs `A03` may differ in supported Modbus registers
+- Available from `M1.SN` (Model 1 Common, address 40052)
+
+---
+
 ## General Notes
 
 - **Scale Factors:** Always read SF registers dynamically — they can change
@@ -280,5 +324,5 @@ The FranklinWH SunSpec XLSX file also confirms base address = 1.
 
 ---
 
-*Last Updated: 2026-03-08 (P1 control test results added)*  
+*Last Updated: 2026-03-12 (Power rounding quirk, serial number structure, DCW sign convention fix)*  
 *Device Tested: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*
