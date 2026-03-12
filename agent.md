@@ -50,45 +50,60 @@
 
 ---
 
-## ⚠️ MANDATORY: Hardware Test Tool Usage
+## ⚠️ MANDATORY: Live Validation Against Real Hardware
 
-### When MUST Use the Hardware Test Tool
+### When MUST Run Live Validation
 
-**ANY agent modifying the following MUST run hardware tests:**
+**ANY agent modifying the following MUST validate against the live aGate (192.168.0.110):**
 
 - `src/franklinwh_modbus/` package (controller, modes, types)
-- `franklinwh_cli.py` (CLI tool)
-- Any Modbus register write sequences
-- Power calculation logic
+- `tools/franklinwh_cli.py` (CLI tool)
+- Any Modbus register read/write logic
+- Power calculation or battery state derivation logic
+- Sign convention or unit conversion code
 - Safety limit validation code
+
+**Do NOT commit power/battery logic changes without live verification and documented results.**
+
+### Live Validation Tiers
+
+| Tier | What | Pre-Approved? | When Required |
+|------|------|---------------|---------------|
+| **Tier 1: Read-Only** | `--status`, `--healthcheck`, pytest | ✅ **Always safe, always run** | Every change |
+| **Tier 2: Low-Power Write** | Charge/discharge at ≤500W for ≤30s | ✅ **Pre-approved** | Power calc, sign convention, battery state changes |
+| **Tier 3: High-Power / Extended** | >500W or >30s duration | ❌ **Requires explicit user approval** | Mode testing, stress testing |
+
+> **Tier 2 is PRE-APPROVED.** Agents do not need to ask before running a 500W charge/discharge test to validate a power logic change. The safety mechanisms (auto-rollback, SoC checks, voltage checks) protect the hardware.
 
 ### Testing Process (MANDATORY)
 
 ```bash
-# STEP 1: Read current state
-python franklinwh_cli.py -i 192.168.0.110 --status
-python franklinwh_cli.py -i 192.168.0.110 --healthcheck
+# STEP 1: Read current state (Tier 1)
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --status
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --healthcheck
 
-# STEP 2: Run read-only tests (always safe)
-PYTHONPATH=src:. python -m pytest tests/ --tb=short
+# STEP 2: Run unit tests (Tier 1)
+source venv/bin/activate && PYTHONPATH=src:. python3 -m pytest tests/ --tb=short
 
-# STEP 3: Run proof-of-life smoke test
-python3 tests/test_smoke_proof_of_life.py
+# STEP 3: Low-power live validation (Tier 2 — pre-approved)
+# Test charge direction:
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --charge 500 --revert 30
+# Verify: --status shows battery CHARGING, power direction correct
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --status
 
-# STEP 4: Get user approval for write tests
-# DO NOT proceed without explicit "go" from user
+# Test discharge direction:
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --discharge 500 --revert 30
+# Verify: --status shows battery DISCHARGING, power direction correct
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --status
 
-# STEP 5: Run low-power write tests (if approved)
-python franklinwh_cli.py -i 192.168.0.110 --mode manual --power 500
+# STEP 4: MANDATORY - Release control
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --stop
 
-# STEP 6: MANDATORY - Release control
-python franklinwh_cli.py -i 192.168.0.110 --stop
+# STEP 5: MANDATORY - Verify release
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
 
-# STEP 7: MANDATORY - Verify release
-python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
-python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
-
-# STEP 8: Record results in in_flight_work.md
+# STEP 6: Document results in tests/results/YYYY-MM-DD_<description>.md
 ```
 
 ### Safety Checklist (Before ANY Write Test)
