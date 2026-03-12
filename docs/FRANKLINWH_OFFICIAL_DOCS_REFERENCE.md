@@ -364,6 +364,7 @@ The **energy manager** is a Flask/Python web application that consumes both this
 - **Battery dispatch** API (`/api/dispatch`) sends M704 commands via `controller.send_command()`
 - **Virtual modes** can be orchestrated via the web dashboard or API
 - **MQTT entities** published to HA include sensors (SoC, power, voltage) and select controls (operating mode)
+- **Home Assistant**: `http://192.168.0.109:8123` — [FranklinWH device](http://192.168.0.109:8123/config/devices/device/a1a85ae1bce62df260b5ddc529ebf68f)
 
 ---
 
