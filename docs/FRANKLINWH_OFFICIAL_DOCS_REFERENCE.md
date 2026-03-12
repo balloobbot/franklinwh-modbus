@@ -3,7 +3,7 @@
 > **Purpose**: Reference guide summarizing official FranklinWH features and their Modbus TCP accessibility.  
 > **Source**: [FranklinWH Support](https://www.franklinwh.com/support/overview/), [FranklinWH Service Desk](https://service.franklinwh.com/en/support/solutions/)  
 > **Extracted**: 2026-03-12  
-> **Last Updated**: 2026-03-12
+> **Last Updated**: 2026-03-12 (added SPAN, SunSpec references)
 
 ---
 
@@ -167,12 +167,68 @@ EV-to-home power support:
 
 ---
 
+## SPAN Panel Integration
+
+**Source**: [SPAN Commissioning](https://service.franklinwh.com/en/support/solutions/articles/73000635545), [Checking aGate-SPAN Communication](https://service.franklinwh.com/en/support/solutions/articles/73000625802)
+
+SPAN smart electrical panels integrate with FranklinWH via the aGate's **ETH2 Ethernet port**. This integration is what enables "SPAN Modbus" — the write-access unlock for extension registers 15507-15509.
+
+### Commissioning Steps (Installer)
+1. Complete FranklinWH system commissioning first
+2. In FranklinWH app: **Settings → Modbus → SPAN Panel**
+3. Enable "Connect to SPAN Panel" → Confirm
+4. Verify Ethernet cable between aGate ETH2 and SPAN panel
+5. Firmware **≥ R06** required (auto-prompted if older)
+6. Expected message: "The FHP is ready for SPAN panel integration"
+7. SPAN panel should then read Modbus data from the aGate (FHP)
+
+### Communication Troubleshooting
+- **ETH2 LED on + blinking**: Communication active ✅
+- **ETH2 LED on + NOT blinking**: No IP address assigned from SPAN — network config issue
+- **ETH2 LED off**: Physical cable issue — check cable, connectors, use data cable tester
+- Certified SPAN installers have access to SPAN commissioning app with ESS wiring diagrams
+- FranklinWH support cannot access the SPAN commissioning app
+
+### Modbus TCP Implications
+- With SPAN integration active: Ext.15507 (mode), 15508 (self reserve), 15509 (TOU reserve) become **writable**
+- Without SPAN: these registers are **read-only** (writes silently rejected)
+- Our `--check-span` command (local network scan) can detect SPAN panel presence on the local subnet
+- Extension register write probe tests writability during `connect()` — see `controller.py:_probe_extension_writable()`
+
+---
+
+## SunSpec Alliance Membership
+
+**Source**: [SunSpec Contributing Members — FranklinWH](https://sunspec.org/contributing-members/franklin-wh/) (members-only, 403 for public access)
+
+FranklinWH is a **contributing member** of the SunSpec Alliance. Their aGate implements SunSpec 2 models:
+
+| Model | Standard Name | aGate Implementation |
+|-------|---------------|---------------------|
+| 1 | Common | ✅ Manufacturer, Model, Serial, Firmware |
+| 502 | Metrology | ✅ Solar PV power (OutPw) |
+| 701 | DER Info | ✅ Grid power, voltage, frequency, connection state |
+| 702-703 | DER Capacity/Rating | ✅ Max charge/discharge rates |
+| 704 | DER Control | ✅ **Only writable model** — WSetPct, WSetEna |
+| 705-712 | DER Status/Pricing | ✅ Read-only (partially populated) |
+| 713 | DER Storage Capacity | ✅ SoC, SoH, energy (Sta always 0 — quirk) |
+| 714 | DER Storage Status | ✅ DC power, voltage, temp, energy |
+| 715 | DER Control 3 | ✅ Read-only (LocRemCtl, heartbeat — non-functional) |
+
+**SunSpec PICS file**: `docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx` (local copy)
+
+> [!WARNING]
+> The PICS document claims some features as "supported" that our live testing has proven non-functional (WMaxLimPct, ControllerHb, WSetRvrtTms). See [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) for discrepancies.
+
+---
+
 ## Related Documents
 
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware register quirks and known defects
 - [VIRTUAL_MODE_SPECIFICATIONS.md](./VIRTUAL_MODE_SPECIFICATIONS.md) — Virtual mode definitions and validation targets
 - [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) — M704/M715 register map
 - [FRANKLINWH_MODBUS_GUIDE.md](./FRANKLINWH_MODBUS_GUIDE.md) — Implementation guide
+- `docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx` — Official SunSpec PICS certification file
 
 ---
 
@@ -194,3 +250,6 @@ EV-to-home power support:
 | Virtual Power Plant | https://www.franklinwh.com/support/overview/virtual-power-plant |
 | Tariff Settings | https://www.franklinwh.com/support/overview/tariff-settings |
 | Direct Connect | https://www.franklinwh.com/support/overview/direct-connect |
+| SPAN Commissioning | https://service.franklinwh.com/en/support/solutions/articles/73000635545 |
+| aGate-SPAN Communication | https://service.franklinwh.com/en/support/solutions/articles/73000625802 |
+| SunSpec Alliance (FranklinWH) | https://sunspec.org/contributing-members/franklin-wh/ |
