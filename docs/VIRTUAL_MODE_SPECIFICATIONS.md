@@ -1,190 +1,289 @@
 # Virtual Mode Specifications & Validation Targets
 
-> **Purpose**: Define exactly what each mode does, how it uses M704 writes, and what we expect to observe during hardware validation.
-> **Last Updated**: 2026-03-12
+> **Purpose**: Define what each mode does, power sources, load priorities, and validation targets for hardware testing.  
+> **Last Updated**: 2026-03-12  
+> **References**: [Understanding Operating Modes](https://service.franklinwh.com/en/support/solutions/articles/73000647816), [Emergency Backup](https://service.franklinwh.com/en/support/solutions/articles/73000649111), [Time of Use](https://service.franklinwh.com/en/support/solutions/articles/73000647820), [System Operation Mode](https://www.franklinwh.com/support/overview/system-operation-mode)
+
+---
+
+## ⚠️ Primary Constraint: FranklinWH Modbus TCP Implementation
+
+Everything in this document is shaped by what the aGate actually exposes via Modbus TCP:
+
+| Capability | Status | Detail |
+|-----------|--------|--------|
+| **Read battery state** | ✅ | SoC, power, voltage, temp, energy (M713, M714) |
+| **Read grid/solar/inverter** | ✅ | Power, voltage, frequency, status (M701, M502) |
+| **Read aGate native mode** | ✅ | Ext.15507 (Emergency/Self-Consumption/TOU/Manual) — read-only |
+| **Write battery power** | ✅ | M704 WSetPct, WSet, WSetEna — the ONLY writable control |
+| **Change operating mode** | ❌ | Ext.15507 is read-only without SPAN Modbus unlock |
+| **Control reserve SoC** | ❌ | Ext.15508-15509 are read-only without SPAN unlock |
+| **Control solar PV** | ❌ | No writable registers for PV curtailment or production |
+| **Control smart circuits** | ❌ | Not exposed via Modbus TCP at all |
+| **See generator/V2L** | ❌ | Not exposed via Modbus TCP |
+| **Hardware reversion timer** | ❌ | WSetRvrtTms accepted but never executes (quirk) |
+| **Hardware heartbeat** | ❌ | ControllerHb silently ignored (quirk) |
+
+> [!CAUTION]
+> **Our ONLY control lever is M704 battery power commands.** Everything else — mode, reserves, solar, smart circuits, load shedding — is either read-only or invisible. All virtual modes are constrained to: "tell the battery how many watts to charge or discharge." The aGate's native mode runs in parallel and resumes the instant we release control.
+
+---
+
+## FranklinWH aGate X — System Architecture
+
+### Power Sources
+
+| Source | On-Grid | Off-Grid | Modbus Visible | Controllable via M704 |
+|--------|---------|----------|----------------|----------------------|
+| **Solar PV (Proximal)** | ✅ | ✅ | ✅ `M502.OutPw`, `Ext.15502-15503` | ❌ (read-only) |
+| **Solar PV (Remote via aPbox/aHub)** | ✅ | ✅ | ✅ `Ext.15504-15505` | ❌ (read-only) |
+| **Grid** | ✅ | ❌ | ✅ `M701.W` | Indirect (via battery charge/discharge) |
+| **Generator** | ❌ | ✅ | ❌ (not visible via Modbus TCP) | ❌ |
+| **V2L (Vehicle-to-Load)** | ❌ | ✅ | ❌ (not visible via Modbus TCP) | ❌ |
+| **Battery (aPower)** | ✅ | ✅ | ✅ `M714.DCW`, `M713.SoC` | ✅ M704 WSetPct/WSet |
+
+### AC Input/Output Capacity
+
+| Interface | Rating | Notes |
+|-----------|--------|-------|
+| **AC Input 1 (Solar/Grid)** | 63A / circuit | Proximal PV or grid |
+| **AC Input 2 (Solar/Grid)** | 63A / circuit | Proximal PV or grid |
+| **Max Inverter Power** | 5000W continuous | `M703.WRtg` |
+| **Max Charge Rate** | 5000W | `M703.MaxChaRte` |
+| **Max Discharge Rate** | 5000W | `M703.MaxDisChaRte` |
+| **Smart Circuits** | 2–3 per aGate | ⚠️ NOT visible via Modbus TCP |
+
+### Curtailment
+
+| Scenario | Condition | What Happens |
+|----------|-----------|--------------|
+| **On-Grid: Battery Full** | SoC = 100%, excess solar | Excess exported to grid (if export allowed) |
+| **On-Grid: Export Restricted** | Grid export disabled by utility | Solar production curtailed by aGate |
+| **Off-Grid: Battery Full** | SoC = 100%, excess solar | aGate curtails solar (shuts down PV production) |
+| **Off-Grid: Overload** | Home load > inverter + battery capacity | aGate load-sheds (Smart Circuits first) |
+| **PV Capacity Limit** | Solar > 2× AC input (10kW+) | Hardware limit, not software-controllable |
+
+> **Smart Circuits** are controlled by the aGate firmware and are NOT visible or controllable via Modbus TCP. They appear in the FranklinWH app only.
 
 ---
 
 ## Two Control Layers
 
-The FranklinWH system has **two independent control layers** that run in parallel:
+The FranklinWH system has **two independent control layers** running in parallel:
 
 | Layer | Source | Registers | Can We Change? |
 |-------|--------|-----------|----------------|
-| **aGate Native** | FranklinWH Cloud/App | Ext.15507 (OnGridMode) | ❌ Read-only without SPAN unlock |
+| **aGate Native** | FranklinWH Cloud/App | Ext.15507 (OnGridMode) | ❌ Read-only without SPAN Modbus unlock |
 | **Virtual (Ours)** | `modes.py` via M704 | WSetEna, WSetPct, WSet | ✅ Always writable |
 
-Our virtual modes **override** the aGate's native behavior by sending M704 power commands every 5 seconds. The native mode keeps running in the background — when we release control (`--stop`), the aGate resumes its native mode immediately.
+Our virtual modes **override** the aGate's native battery behavior by sending M704 power commands every 5 seconds. The native mode keeps running in the background — when we release control (`--stop`), the aGate resumes its native mode immediately.
+
+> [!IMPORTANT]
+> We can only control **battery charge/discharge power** via M704. We CANNOT:
+> - Change the aGate's operating mode (Ext.15507) without SPAN unlock
+> - Control Smart Circuit load shedding
+> - Directly control solar PV production or curtailment
+> - Control grid import/export limits (only indirect via battery)
 
 ---
 
 ## aGate Native Modes (Ext.15507 — Read Only)
 
-These are what the FranklinWH app sets. We can READ them but not change them (without SPAN Modbus unlock).
+These are what the FranklinWH app sets. We can READ them but not WRITE them (without SPAN Modbus unlock).
 
-| Value | Mode | Behavior |
-|-------|------|----------|
-| 0 | **Emergency Backup** | Charges battery to reserve %, holds it there. Minimal discharge unless outage. |
-| 1 | **Self-Consumption** | Maximizes self-use of solar. Discharges to cover home load, charges from excess solar. |
-| 2 | **TOU (Time-of-Use)** | Charges during off-peak, discharges during peak. Schedule-driven. |
-| 3 | **Manual** | User-specified behavior (rarely used from app). |
+### Mode 0: Emergency Backup
+
+| Aspect | Behavior |
+|--------|----------|
+| **Intent** | Keep battery at 100% for outage resilience |
+| **Load Priority** | 1. Solar → Home, 2. Grid → Home, 3. Solar → Battery, 4. Grid → Battery |
+| **Battery** | Charges to 100% from solar + grid. Does NOT discharge for self-consumption. |
+| **Grid (on-grid)** | Primary power source for home loads. Battery held in reserve. |
+| **Off-Grid** | Battery powers home. Solar recharges battery (curtails if full). |
+| **Ext.15507** | `0` |
+
+### Mode 1: Self-Consumption
+
+| Aspect | Behavior |
+|--------|----------|
+| **Intent** | Maximize solar self-use, minimize grid import |
+| **Load Priority** | 1. Solar → Home, 2. Solar → Battery, 3. Battery → Home, 4. Grid → Home (last resort) |
+| **Battery** | Charges from excess solar. Discharges to cover home load when solar insufficient. |
+| **Grid (on-grid)** | Import only when battery depleted AND solar insufficient. Export excess when battery full. |
+| **Off-Grid** | Battery + solar power home. Solar curtailed if battery full. |
+| **Reserve** | User-configurable reserve % (Ext.15508). Battery won't discharge below reserve. |
+| **Ext.15507** | `2` |
+
+### Mode 2: Time-of-Use (TOU)
+
+| Aspect | Behavior |
+|--------|----------|
+| **Intent** | Arbitrage — charge off-peak, discharge on-peak |
+| **Load Priority (On-Peak)** | 1. Solar → Home, 2. Battery → Home, 3. Grid → Home (avoid) |
+| **Load Priority (Off-Peak)** | 1. Solar → Home, 2. Solar → Battery, 3. Grid → Battery, 4. Grid → Home |
+| **Battery (On-Peak)** | Discharges to power home, avoiding expensive grid import |
+| **Battery (Off-Peak)** | Charges from solar + cheap grid power |
+| **Grid** | Minimize import during peak. Allow import during off-peak. |
+| **Schedule** | User defines: Super Off-Peak, Off-Peak, Mid-Peak, On-Peak periods |
+| **Reserve** | User-configurable reserve % (Ext.15509). Battery won't discharge below. |
+| **Ext.15507** | `1` |
+
+### Mode 3: Manual
+
+| Aspect | Behavior |
+|--------|----------|
+| **Intent** | User/API-directed battery behavior |
+| **Ext.15507** | `3` |
 
 ---
 
 ## Virtual Modes (Our Library — `modes.py`)
 
+These modes run in our software and send M704 commands every 5 seconds. They **override** the aGate native mode's battery behavior.
+
+### Load Priority Reference
+
+How each virtual mode prioritizes power sources for covering home load:
+
+| Priority | Self-Consumption | Emergency Backup | Grid Zero | Peak Shave | TOU (On-Peak) | TOU (Off-Peak) | Manual |
+|----------|------------------|------------------|-----------|------------|---------------|----------------|--------|
+| 1st | Solar | Solar+Grid→Battery | Solar | Solar | Solar | Solar→Battery | User-set |
+| 2nd | Battery discharge | Hold at target | Battery discharge | Idle (<threshold) | Battery discharge | Grid→Battery | — |
+| 3rd | Grid import | Idle (no discharge) | — (target=0W grid) | Battery (>threshold) | Grid import | Grid→Home | — |
+| 4th | — | — | — | Grid import | — | — | — |
+
+> **Key difference**: Emergency Backup **never discharges** to cover home load (on-grid). Self-Consumption always tries battery before grid.
+
+---
+
 ### 1. `self_consumption` — Default Mode
 
-**Intent**: Maximize use of solar/battery, minimize grid import. Behaves like the aGate app's Self-Consumption mode.
+**Intent**: Maximize solar/battery self-use. Matches aGate Self-Consumption (Ext.15507=2).
 
-**Algorithm** (`_calc_self_consumption`):
+**Power Flow (Our Implementation)**:
 ```
 IF SoC >= target_soc:
-    IF solar > home: charge from excess solar
-    IF solar < home: discharge to cover shortfall
-    IF solar = home: idle (0W)
+    excess_solar = solar - home
+    IF excess_solar > 0: charge from excess solar (up to max)
+    IF excess_solar < 0: discharge to cover shortfall
+    IF excess_solar = 0: idle
 ELSE (SoC < target):
-    FULL POWER CHARGE (to reach target ASAP — matches vendor behavior)
+    FULL POWER CHARGE from grid+solar (to reach target ASAP)
 ```
 
-**Parameters**:
-- `target_soc` (default: 100%) — charge target
-- `self_reserve_pct` (default: 20%) — minimum SoC before stopping discharge
+**Parameters**: `target_soc` (100%), `self_reserve_pct` (20%)
 
 **Validation Targets**:
-- [ ] Night, SoC < target: should charge at max power from grid
-- [ ] Night, SoC >= target: should discharge to cover home load
-- [ ] Day with solar, SoC < target: should charge from solar + grid
-- [ ] Day with excess solar, SoC >= target: should charge only from excess solar
+- [ ] Night, SoC < target: charge at max from grid
+- [ ] Night, SoC ≥ target: discharge to cover home load
+- [ ] Day, excess solar: charge from excess only
+- [ ] SoC at reserve: stop discharging
 
 ---
 
 ### 2. `emergency_backup` — Keep Battery Full
 
-**Intent**: Keep battery charged for potential outages. Charges to target, then holds.
+**Intent**: Keep battery charged for outages. Matches aGate Emergency Backup (Ext.15507=0).
 
-**Algorithm** (`_calc_emergency_backup`):
+**Power Flow**:
 ```
-IF SoC >= target: idle (0W)
-ELSE: charge at high power (proportional to gap)
+IF SoC >= target: idle (0W) — do NOT discharge
+ELSE: charge proportionally (higher power when further from target)
 ```
 
-**Parameters**:
-- `target_soc` (default: 95%) — backup target
+**Parameters**: `target_soc` (95%)
 
 **Validation Targets**:
-- [ ] SoC < target: should charge at high power
-- [ ] SoC >= target: should idle (0W, no discharge)
-- [ ] Key difference from self_consumption: does NOT discharge to cover home load
+- [ ] SoC < target: charge at high power
+- [ ] SoC ≥ target: idle (0W, no discharge even with home load)
+- [ ] **Key**: battery never discharges to cover home load on-grid
 
 ---
 
 ### 3. `grid_zero` — Minimize Grid Interaction
 
-**Intent**: Keep grid power near zero. Battery covers any shortfall, absorbs any excess.
+**Intent**: Keep `M701.W` (grid power) as close to 0W as possible. Not a native aGate mode.
 
-**Algorithm** (`_calc_grid_zero`):
+**Power Flow**:
 ```
 net_load = home - solar
-IF net_load > 0: discharge to cover (battery supplements grid)
-IF net_load < 0 AND SoC < target: charge from excess solar
-IF net_load < 0 AND SoC >= target: idle
+IF net_load > 0: discharge to cover (grid import → 0W)
+IF net_load < 0 AND SoC < target: charge from excess (grid export → 0W)
+IF net_load < 0 AND SoC >= target: idle (excess exports)
 ```
 
-**Parameters**:
-- `target_soc` (default: 100%)
-- `grid_zero_buffer` (default: 100W)
+**Parameters**: `target_soc` (100%), `grid_zero_buffer` (100W)
 
 **Validation Targets**:
-- [ ] Home > solar: battery should discharge, grid import near 0W
-- [ ] Solar > home: battery should charge from excess, grid export near 0W
-- [ ] Key metric: `M701.W` (grid power) should stay close to 0W
+- [ ] Home > solar: `M701.W` near 0W (battery discharging)
+- [ ] Solar > home: `M701.W` near 0W (battery absorbing excess)
 
 ---
 
 ### 4. `peak_shave` — Reduce Peak Grid Demand
 
-**Intent**: Discharge battery only when home load exceeds a threshold. Reduces demand charges.
+**Intent**: Discharge only when home load exceeds a threshold. Reduces demand charges.
 
-**Algorithm** (`_calc_peak_shave`):
+**Power Flow**:
 ```
-IF home > peak_shave_threshold AND SoC > min_discharge + 5%:
-    discharge to cover excess above threshold
+IF home > threshold AND SoC > min + 5%:
+    discharge = home - threshold (cap at max_discharge)
 ELSE: idle (0W)
 ```
 
-**Parameters**:
-- `peak_shave_threshold` (default: 2000W) — discharge only above this load
-- `min_discharge_soc` — minimum SoC
+**Parameters**: `peak_shave_threshold` (2000W), `min_discharge_soc`
 
 **Validation Targets**:
-- [ ] Home < 2000W: battery should idle
-- [ ] Home > 2000W: battery should discharge just enough to bring grid below threshold
-- [ ] SoC near min_discharge: should stop discharging
+- [ ] Home < 2000W: battery idle
+- [ ] Home > 2000W: battery discharges (threshold - home), grid caps at threshold
 
 ---
 
 ### 5. `time_of_use` — Schedule-Based Arbitrage
 
-**Intent**: Charge during off-peak hours, discharge during peak hours. Uses a TOU schedule definition.
+**Intent**: Match aGate TOU (Ext.15507=1). Charge off-peak, discharge on-peak.
 
-**Algorithm** (`_calc_time_of_use`):
+**Power Flow**:
 ```
-strategy = schedule.get_strategy()  # "charge", "discharge", "grid_zero", "solar_priority"
+strategy = schedule.get_strategy()  // "charge", "discharge", "grid_zero", "solar_priority"
 
-IF strategy == "charge":
-    charge at max power (add solar if available)
-IF strategy == "discharge":
-    discharge to cover home load
-IF strategy == "grid_zero":
-    → delegates to grid_zero algorithm
-IF strategy == "solar_priority":
-    charge only from solar, else self_consumption
+"charge":    charge at max (solar + grid)
+"discharge": discharge to cover home load
+"grid_zero": → grid_zero algorithm
+"solar_priority": charge from solar only, else self_consumption
 ```
 
-**Parameters**:
-- TOU schedule (JSON/YAML with time periods and strategies)
-- `target_soc` — charge limit
-- `min_soc` / `max_soc` from schedule
+**Parameters**: TOU schedule (JSON), `target_soc`, `min_soc`/`max_soc` per period
 
 **Validation Targets**:
-- [ ] During "charge" period: battery should charge
-- [ ] During "discharge" period: battery should discharge
-- [ ] Period transitions: should switch behavior at boundary
-- [ ] SoC limits: should respect min/max per period
+- [ ] During "charge" period: battery charges
+- [ ] During "discharge" period: battery discharges
+- [ ] Period transition: switches behavior at boundary
 
 ---
 
 ### 6. `manual` — Direct Power Control
 
-**Intent**: User specifies exact power. Simplest mode.
+**Intent**: User specifies exact watts. Simplest mode.
 
-**Algorithm** (`_calc_manual`):
-```
-RETURN manual_power_w  # Whatever the user set
-```
-
-**Parameters**:
-- `manual_power_w` — power in watts (positive=charge, negative=discharge)
+**Power Flow**: `return manual_power_w`
 
 **Validation Targets**:
-- [x] Positive value → battery charges (**validated 2026-03-12**)
-- [x] Negative value → battery discharges (**validated 2026-03-12**)
-- [ ] Zero → battery idles
+- [x] Positive → CHARGING (**validated 2026-03-12**)
+- [x] Negative → DISCHARGING (**validated 2026-03-12**)
+- [ ] Zero → IDLE
 
 ---
 
 ## Safety Systems (All Modes)
 
-Applied after every mode calculation:
-
 | Safety | Trigger | Action |
 |--------|---------|--------|
-| **SoC Hard Limit** | SoC ≥ 99.5% (charge) or ≤ 0.5% (discharge) | Block command entirely |
-| **SoC Ramp** | Within `soc_ramp_window` (10%) of limit | Linearly reduce power |
-| **Inverter Limit** | Power > 5000W | Cap at rated maximum |
-| **Load Safety** | Home load > 90% of capacity | Reduce discharge to prevent overload |
-| **Alarm Check** | Blocking alarms active | Stop operation (if safety checks enabled) |
+| **SoC Hard Limit** | SoC ≥ 99.5% or ≤ 0.5% | Block command |
+| **SoC Ramp** | Within 10% of limit | Linearly reduce power |
+| **Inverter Limit** | Power > 5000W | Cap at rated max |
+| **Load Safety** | Home > 90% of capacity | Reduce discharge |
+| **Alarm Block** | Blocking alarms active | Stop operation |
 
 ---
 
@@ -192,17 +291,17 @@ Applied after every mode calculation:
 
 ### Tier 2 Tests (Pre-Approved, ≤500W, ≤30s)
 
-| # | Test | Mode | Expects | Verify |
-|---|------|------|---------|--------|
-| 1 | Manual charge | `--charge 500` | CHARGING 500W | M714.DCW positive ✅ |
-| 2 | Manual discharge | `--discharge 500` | DISCHARGING 500W | M714.DCW negative ✅ |
-| 3 | Manual idle | `--mode manual --power 0` | IDLE 0W | M714.DCW ~0W |
-| 4 | Self-consumption (SoC < target) | `--mode self_consumption --target-soc 99` | CHARGING at max | Grid importing |
-| 5 | Self-consumption (SoC > target) | `--mode self_consumption --target-soc 50` | DISCHARGING | Grid power reduced |
-| 6 | Emergency backup (SoC < target) | `--mode emergency_backup --target-soc 99` | CHARGING | Grid importing |
-| 7 | Emergency backup (SoC > target) | `--mode emergency_backup --target-soc 50` | IDLE (0W) | No discharge |
+| # | Test | CLI Command | Expect | Verify |
+|---|------|-------------|--------|--------|
+| 1 | Manual charge | `--charge 500` | CHARGING | M714.DCW positive ✅ |
+| 2 | Manual discharge | `--discharge 500` | DISCHARGING | M714.DCW negative ✅ |
+| 3 | Manual idle | `--mode manual --power 0` | IDLE | M714.DCW ~0W |
+| 4 | Self-consumption (below target) | `--mode self_consumption --target-soc 99` | CHARGING max | Grid importing |
+| 5 | Self-consumption (above target) | `--mode self_consumption --target-soc 50` | DISCHARGING | Grid reduced |
+| 6 | Emergency backup (below target) | `--mode emergency_backup --target-soc 99` | CHARGING | Grid importing |
+| 7 | Emergency backup (above target) | `--mode emergency_backup --target-soc 50` | IDLE (0W) | No discharge |
 | 8 | Grid zero | `--mode grid_zero` | Varies | M701.W near 0W |
-| 9 | Peak shave (below threshold) | `--mode peak_shave` | IDLE | No battery activity |
+| 9 | Peak shave (below threshold) | `--mode peak_shave` | IDLE | No battery |
 
 ### Post-Each-Test (Mandatory)
 ```bash
