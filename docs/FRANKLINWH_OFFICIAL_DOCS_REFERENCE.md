@@ -309,6 +309,64 @@ If a user has SPAN + aGate, a combined integration could:
 
 ---
 
+## `franklinwh-energy-manager` — Web App Integration Layer
+
+**Location**: `~/dev/franklinwh-energy-manager` (private project)
+
+The **energy manager** is a Flask/Python web application that consumes both this `franklinwh-modbus` library and the `franklinwh-python` Cloud API client, acting as the integration bridge to **Home Assistant** via MQTT Discovery.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│         Admin Dashboard (Flask :9090)        │
+├──────────┬──────────┬───────────────────────┤
+│  Cloud   │  Modbus  │  Hybrid Provider      │
+│ Provider │ Provider │  (Modbus → Cloud      │
+│ (API)    │ (TCP)    │   fallback)           │
+├──────────┴──────────┴───────────────────────┤
+│        Service Engine (poll + health)       │
+├─────────────────────────────────────────────┤
+│    MQTT Publisher (HA Discovery + State)    │
+├─────────────────────────────────────────────┤
+│        Entity Registry (SQLite)            │
+└──────────┬────────────────────┬─────────────┘
+      ┌────▼────┐         ┌────▼────────┐
+      │  MQTT   │         │ FranklinWH  │
+      │ Broker  │         │   aGate     │
+      └────┬────┘         └─────────────┘
+      ┌────▼────┐
+      │  Home   │
+      │Assistant│
+      └─────────┘
+```
+
+### Provider Modes
+
+| Mode | Data Source | Latency | Battery Control | Entities |
+|------|------------|---------|-----------------|----------|
+| `cloud` | FranklinWH Cloud API only | ~60s | ❌ (read-only) | All (solar, battery, grid, modes, history) |
+| `modbus` | Modbus TCP to aGate only | ~5s | ✅ M704 dispatch | SunSpec registers only (subset) |
+| `hybrid` | Both (Modbus priority) | ~5s | ✅ M704 dispatch | Full set — Modbus overrides Cloud for real-time |
+
+### Key Dependencies
+
+| Library | Role |
+|---------|------|
+| `franklinwh-modbus` (this repo) | Modbus TCP provider — controller, modes, CLI |
+| `franklinwh-python` | Cloud API provider — async HTTP client |
+| `paho-mqtt` | MQTT publisher for Home Assistant Discovery |
+| `Flask` / `Gunicorn` | Web server for admin dashboard and REST API |
+
+### How It Uses `franklinwh-modbus`
+
+- **Modbus Provider** imports `FranklinWHController` for hardware reads
+- **Battery dispatch** API (`/api/dispatch`) sends M704 commands via `controller.send_command()`
+- **Virtual modes** can be orchestrated via the web dashboard or API
+- **MQTT entities** published to HA include sensors (SoC, power, voltage) and select controls (operating mode)
+
+---
+
 ## Related Documents
 
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware register quirks and known defects
@@ -316,6 +374,8 @@ If a user has SPAN + aGate, a combined integration could:
 - [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) — M704/M715 register map
 - [FRANKLINWH_MODBUS_GUIDE.md](./FRANKLINWH_MODBUS_GUIDE.md) — Implementation guide
 - `docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx` — Official SunSpec PICS certification file
+- `~/dev/franklinwh-energy-manager/README.md` — Energy Manager web app documentation
+- `~/dev/franklinwh-python/` — FranklinWH Cloud API Python client
 
 ---
 
