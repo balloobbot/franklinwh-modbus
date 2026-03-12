@@ -222,6 +222,93 @@ FranklinWH is a **contributing member** of the SunSpec Alliance. Their aGate imp
 
 ---
 
+## SPAN API — Local LAN Integration (Public Beta)
+
+**Source**: [SPAN API Client Docs (GitHub)](https://github.com/spanio/SPAN-API-Client-Docs), [Introducing SPAN API (Blog)](https://www.span.io/blog/introducing-span-api-and-span-home-on-premise-public-beta)
+
+> [!IMPORTANT]
+> If a user has both a SPAN Panel and FranklinWH aGate, the SPAN API could fill most of the capability gaps that Modbus TCP leaves open — particularly **per-circuit control/monitoring** and **EV visibility**.
+
+### Overview
+
+SPAN API is a **local-only LAN API** (no cloud) running directly on the SPAN Panel, providing:
+- **MQTT pub/sub** via eBus/Homie convention (port 8883 MQTTS)
+- **REST endpoints** for auth, config, file downloads (port 80/443)
+- **Per-circuit relay control** — turn individual circuits on/off
+- **Per-circuit power monitoring** — real-time watt/energy readings per circuit
+- **SPAN Drive (EV charger) status** — charging state, energy usage via Homie node `energy.ebus.device.evse`
+
+### Status & Compatibility
+
+| Item | Detail |
+|------|--------|
+| **Hardware** | SPAN Panel MAIN 32 only (MAIN 40, MLO 48, MLO 24 planned H2 2026) |
+| **Firmware** | r202603+ (rollout completed Feb 2026) |
+| **License** | Personal, non-commercial use only. Commercial requires SPAN Fleet Manager license. |
+| **Protocol** | MQTT (primary) + REST (auth/admin). Homie Convention topics. |
+| **Security** | Local LAN only, credential-based, self-signed TLS |
+| **Support** | Community via GitHub. No SPAN customer support for API. |
+| **v1 REST** | Deprecated — sunset December 31, 2026. Migrate to MQTT/Homie + v2 REST. |
+
+### Authentication
+
+Two methods to obtain `hopPassphrase`:
+1. **Proof-of-proximity**: Press SPAN Panel door switch 3× rapidly → auth open for ~15 min
+2. **SPAN Home app**: Settings → passphrase page
+
+```bash
+# Example auth setup (from SPAN scripts)
+span-auth setup                    # Uses door bypass
+span-auth setup -p YOUR_PASSPHRASE # Using known passphrase
+# Credentials saved to ~/.span-auth.json
+```
+
+### MQTT Topic Structure
+
+```
+ebus/5/[panel-serial]/[node-id]/[property-id]
+```
+
+Clients subscribe to SPAN Panel topics for real-time circuit power data and publish to control relays.
+
+### Capabilities vs Modbus TCP — Gap Analysis
+
+| Capability | Modbus TCP | SPAN API | Combined |
+|-----------|------------|----------|----------|
+| **Battery SoC/power** | ✅ M713/M714 | ❌ | Modbus |
+| **Battery charge/discharge control** | ✅ M704 | ❌ | Modbus |
+| **Grid power/voltage** | ✅ M701 | Maybe (via panel main breaker) | Modbus |
+| **Solar PV production** | ✅ M502 | Maybe (via PV circuits) | Modbus |
+| **Per-circuit power monitoring** | ❌ | ✅ | **SPAN API fills gap** |
+| **Per-circuit relay on/off** | ❌ | ✅ | **SPAN API fills gap** |
+| **Smart circuit load shedding** | ❌ | ✅ (manual relay control) | **SPAN API fills gap** |
+| **EV/SPAN Drive status** | ❌ | ✅ `energy.ebus.device.evse` | **SPAN API fills gap** |
+| **Operating mode change** | ❌ (without SPAN) | ❌ | Neither (app only) |
+| **Go Off-Grid** | ❌ | ❌ | Neither (app only) |
+| **Generator visibility** | ❌ | ❌ | Neither |
+| **Solar curtailment** | ❌ | ❌ | Neither (firmware only) |
+
+### SPAN Home On-Premise (Beta)
+
+Browser-based web app running on LAN via SPAN API:
+- Access SPAN Panel during outages (no internet needed)
+- View panel status, per-circuit power
+- Toggle circuits on/off
+- Adjust backup priorities
+- Access via SPAN Home app "connection lost" banner or Settings → On-premise settings
+
+### Potential Integration with `franklinwh-modbus`
+
+If a user has SPAN + aGate, a combined integration could:
+1. **Modbus TCP** → battery control (M704), system status (M701/M713/M714)
+2. **SPAN API (MQTT)** → per-circuit power monitoring, relay control, EV status
+3. **Combined** → smarter load shedding (shed circuits via SPAN when battery low), per-circuit demand response, EV-aware battery scheduling
+
+> [!NOTE]
+> This would be a future Phase 4+ feature. Requires user to have both SPAN Panel (MAIN 32+) and FranklinWH aGate, with SPAN integration commissioned.
+
+---
+
 ## Related Documents
 
 - [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) — Hardware register quirks and known defects
@@ -232,7 +319,7 @@ FranklinWH is a **contributing member** of the SunSpec Alliance. Their aGate imp
 
 ---
 
-## Official FranklinWH URLs
+## Official URLs
 
 | Topic | URL |
 |-------|-----|
@@ -253,3 +340,6 @@ FranklinWH is a **contributing member** of the SunSpec Alliance. Their aGate imp
 | SPAN Commissioning | https://service.franklinwh.com/en/support/solutions/articles/73000635545 |
 | aGate-SPAN Communication | https://service.franklinwh.com/en/support/solutions/articles/73000625802 |
 | SunSpec Alliance (FranklinWH) | https://sunspec.org/contributing-members/franklin-wh/ |
+| **SPAN API Client Docs** | https://github.com/spanio/SPAN-API-Client-Docs |
+| **SPAN API Blog Post** | https://www.span.io/blog/introducing-span-api-and-span-home-on-premise-public-beta |
+
