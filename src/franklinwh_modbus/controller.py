@@ -396,7 +396,10 @@ class FranklinWHController:
                 'status_raw': m713.Sta.value,  # Always 0 on FranklinWH (quirk)
             }
             
-            # Model 714 - Battery DC power (DCW: negative=charging, positive=discharging)
+            # Model 714 - Battery DC power
+            # FranklinWH aGate M714.DCW sign convention (confirmed empirically):
+            #   positive = power INTO battery (Charging)
+            #   negative = power OUT of battery (Discharging)
             m714 = self.get_model(714)
             if m714:
                 try:
@@ -410,9 +413,9 @@ class FranklinWHController:
                     
                     # Derive battery state from DC power direction (±50W deadband)
                     # FranklinWH M713.Sta is always 0 (OFF) — cannot rely on it
-                    if dc_power < -50:
+                    if dc_power > 50:
                         result['battery_state'] = 'CHARGING'
-                    elif dc_power > 50:
+                    elif dc_power < -50:
                         result['battery_state'] = 'DISCHARGING'
                     else:
                         result['battery_state'] = 'IDLE'
