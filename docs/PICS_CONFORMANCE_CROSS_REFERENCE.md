@@ -239,26 +239,41 @@ M715: LocRemCtl (1089, R-only as declared).
 
 ---
 
-## Hardware Reversion Safety (Keepalive)
+## Hardware Reversion Safety — Test Result
 
-With WSetRvrtTms, WSetEnaRvrt, and WSetRvrt all verified working, the aGate supports a hardware dead-man switch:
+> **CRITICAL FINDING:** The WSetRvrtTms countdown is cosmetic. It does NOT physically revert power or disable VPP when it reaches 0.
+
+### Reversion Efficacy Test (2026-03-13 22:52 AEDT)
+
+**Setup:** VPP active (WSetEna=1, WSetPct=-500), WSetRvrt=0, WSetEnaRvrt=1, WSetRvrtTms=30.
 
 ```
-Startup:
-  1. WSetRvrt=0       (322, int32) ─► revert to 0W idle on timeout
-  2. WSetEnaRvrt=1    (326)        ─► enable reversion
-  3. WSetRvrtTms=60   (327, uint32)─► 60s countdown
-
-Keepalive loop (every 45s):
-  1. WSetRvrtTms=60   (327)        ─► refresh countdown
-  2. Read WSetRvrtRem  (329)       ─► confirm countdown health
-
-Monitor:
-  WSetRvrtRem (329)   ─► should always be >15s
-  If <15s without refresh ─► connection problem
+     T  WSetEna  WSetPct  RvrtRem  Notes
+   ──  ───────  ───────  ───────  ────────────────────
+    1s        1     -500       27  counting down
+    6s        1     -500       22  counting down
+   11s        1     -500       17  counting down
+   16s        1     -500       12  counting down
+   21s        1     -500        7  counting down
+   27s        1     -500        1  counting down
+   31s        1     -500        0  EXPIRY ZONE
+   36s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
+   41s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
+   46s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
 ```
 
-> **Open question:** Does the WSetRvrtTms countdown actually revert power when it reaches 0? In our earlier test, WSetEna persisted at 1 after the 60s timer expired. A dedicated test is needed: set timer to 30s, wait 35s, read WSetPct — did it change to the WSetRvrt value?
+**Final state (16s post-expiry):** WSetEna=1, WSetPct=-500, WSetRvrtRem=0.
+**Cleanup:** VPP was **force-released** by test script calling `reset_control_state()`. Device did **NOT** auto-release.
+
+**Facts:**
+- Countdown mechanism works perfectly (28→22→17→12→7→1→0)
+- 16s after countdown reached 0: WSetEna=1 (PERSISTS), WSetPct=-500 (UNCHANGED)
+- No physical power change observed at the battery
+- VPP release was forced by the test script, NOT by the device
+- **Untested:** whether the device would eventually auto-release at a longer delay (60s, 120s, etc.)
+- The dead-man switch is **non-functional for power reversion** within the tested window (16s post-expiry)
+
+**Implication:** WSetRvrtTms cannot be used as a hardware crash-recovery mechanism. The software watchdog (`controller.py` timeout) remains the **only** safety mechanism for reverting power after loss of communication.
 
 ---
 
@@ -272,7 +287,11 @@ PICS Source: PICS_span_20230711_SPANcomments20230803.xlsx
 
 Issue 1 — LocRemCtl permanently Local
   M715.LocRemCtl (1089) returns Local=1 with no path to Remote.
-  CtrlModes (M702.248) = 14271 declares FIXED_VAR as available.
+  CtrlModes (M702.248) = 14271 declares FIXED_VAR (bit 2) and
+  FIXED_PF (bit 3) as firmware-available, contradicting the
+  non-functional VarSetEna and strengthening the case that a
+  Modbus access gate exists (LocRemCtl or equivalent) that is
+  not documented in PICS.
   This causes cascading silent-discard on:
     - M704.VarSetEna (331)     declared supported RW
     - M704.WMaxLimPctEna (310) declared supported RW
@@ -285,15 +304,64 @@ Issue 2 — WMax (251) write silently discarded
   PICS declares supported RW (0-10000).
   Tested: FC06/FC16, values 100/1000/5000/10000, settle 0.5-5s,
           with and without VPP. ALL silently discarded.
+  Note: WSet (320) accepts values 0-10000W and works correctly.
+  If WMax is intended as a ceiling on WSet, the absence of WMax
+  write capability means the only power ceiling is WMaxRtg (227)
+  = 10000W (read-only hardware rating). No software curtailment
+  ceiling is achievable via PICS-declared registers.
   REQUEST: Confirm if SPAN Modbus unlock is required.
 
 Issue 3 — Scale factor WMaxLimPct_SF (350) returns 0xFFFF
   PICS declares supported R with value -1.
   Actual: 0xFFFF (unimplemented).
   REQUEST: Confirm implementation status.
+
+Issue 4 — CtrlModes declares FIXED_VAR available but Modbus
+          path is non-functional
+  M702.CtrlModes (248) = 14271 (0x37BF)
+  Bit 2 (FIXED_VAR) = 1 — firmware declares reactive power available
+  Bit 3 (FIXED_PF)  = 1 — firmware declares PF control available
+  Yet M704.VarSetEna (331) silently discards all writes (0/160 tests).
+  VarSetEna is the ONLY SunSpec Modbus path to exercise FIXED_VAR.
+  No alternative Modbus registers expose reactive power control.
+  REQUEST: Clarify whether CtrlModes bitmask represents hardware
+  capability or Modbus-controllable capability. If the former,
+  update PICS documentation to define this distinction explicitly.
+Issue 5 — WSetRvrtTms countdown does not revert power
+  PICS declares WSetRvrtTms (327) as supported RW.
+  Countdown mechanism works (28→22→...→0), but WSetEna and
+  WSetPct are unchanged after expiry. No physical power
+  reversion occurs. This defeats the SunSpec dead-man switch
+  safety mechanism.
+  REQUEST: Confirm implementation status of reversion
+  behaviour at countdown expiry.
+```
+
+---
+
+## Document Status
+
+```
+CLOSED — no further testing warranted:
+  ✅ PCS rate registers (unimplemented, 0xFFFF confirmed)
+  ✅ WSet group (318-329) — fully functional
+  ✅ WSetRvrt (322) — reversion target writable and sticky
+  ✅ M702 unimplemented registers — all match PICS
+
+CLOSED — PICS violation filed:
+  ⚠️ WMaxLimPctEna (310)       — 0/32  (Issue 1)
+  ⚠️ VarSetEna (331)           — 0/32  (Issue 1)
+  ⚠️ ControllerHb (1092)       — 0/53  (Issue 1)
+  ⚠️ WMax (251)                — 0/27  (Issue 2)
+  ⚠️ WMaxLimPct_SF (350)       — 0xFFFF (Issue 3)
+  ⚠️ CtrlModes contradiction   — (Issue 4)
+  🔴 WSetRvrtTms non-reversion — (Issue 5, SAFETY)
+
+OPEN — test required before production sign-off:
+  🟡 PFWInjEna (298) functional outcome
 ```
 
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 22:40 AEDT*
+*Last updated: 2026-03-13 23:00 AEDT*
