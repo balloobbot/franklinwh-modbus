@@ -293,6 +293,55 @@ M715: LocRemCtl (1089, R-only as declared).
 
 ---
 
+## Alarm Observability (2026-03-13 23:30 AEDT)
+
+### Alarm Probe Test Results
+
+All alarm registers read 0 across all probe conditions:
+
+| Test | M701.Alrm | M714.PrtAlrms | DERMode | Notes |
+|------|-----------|---------------|---------|-------|
+| Baseline (VPP active) | [0,0] | [0,0] | [0,1] | — |
+| WSet=15000 (150% WMaxRtg) | [0,0] | [0,0] | [0,1] | **Accepted, no clamp** |
+| WSetPct=+1500 (+150%) | [0,0] | [0,0] | [0,1] | **Accepted, readback=1500** |
+| WSetPct=-1500 (-150%) | [0,0] | [0,0] | [0,1] | **Accepted, readback=-1500** |
+| AlarmReset (1094)=1 | [0,0] | [0,0] | [0,1] | Write OK, readback=0 (auto-clear) |
+
+Additional observations:
+- **OpCtl (1095):** reads 0 (idle)
+- **MnAlrmInfo (193):** static placeholder string `"Manufacturer custom error info"` — not dynamic alarm data
+- **AlarmReset (1094):** accepts write, auto-clears to 0, no latched alarms exposed
+
+### Input Validation Finding
+
+> **⚠️ No input validation or clamping on WSet/WSetPct values.**
+
+The device accepted WSet=15000W (150% of WMaxRtg=10000W) and WSetPct=±1500 (±150%) without any Modbus exception, alarm, or clamping. Values read back exactly as written. Software must enforce range limits independently.
+
+### Alarm Architecture Assessment
+
+```
+PICS-violated writes (WMaxLimPctEna, VarSetEna, etc.)
+        │
+        ▼
+  ┌─────────────┐
+  │ Access gate  │  ← LocRemCtl=Local filter (hypothesised)
+  └─────────────┘
+        │
+        │  Write silently dropped HERE
+        │  Never reaches alarm-generating subsystem
+        ▼
+  ┌─────────────────────────┐
+  │ Control execution layer  │  ← alarms live here
+  └─────────────────────────┘
+```
+
+**Assessment:** Silent-discard architecture places the access gate upstream of alarm-generating subsystems. PICS-violated writes do not reach the control execution layer and therefore produce no alarms — by design or by omission.
+
+M701.Alrm bits (GROUND_FAULT, DC_OVER_VOLT, AC_DISCONNECT, etc.) are hardware/grid event triggers — none are triggerable via Modbus write under normal operating conditions.
+
+---
+
 ## PICS Violation Report Template
 
 ```
@@ -424,4 +473,4 @@ Given WSetRvrtTms non-reversion (Issue 4) and ControllerHb non-functional (Issue
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:15 AEDT*
+*Last updated: 2026-03-13 23:32 AEDT*
