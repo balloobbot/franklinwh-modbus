@@ -24,6 +24,9 @@ from .types import (
     BatteryCommand,
     HealthStatus,
     ONGRID_MODES,
+    ALARM_BITS,
+    PICS_STATUS,
+    DEFAULT_MAX_POWER_W,
 )
 
 from .schedule import TOUSchedule, DEFAULT_SCHEDULE
@@ -48,6 +51,9 @@ __all__ = [
     'BatteryCommand',
     'HealthStatus',
     'ONGRID_MODES',
+    'ALARM_BITS',
+    'PICS_STATUS',
+    'DEFAULT_MAX_POWER_W',
     # Schedule
     'TOUSchedule',
     'DEFAULT_SCHEDULE',

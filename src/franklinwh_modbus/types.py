@@ -8,6 +8,9 @@ the FranklinWH Modbus library.
 from enum import Enum, IntEnum
 from dataclasses import dataclass
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ControlMode(IntEnum):
@@ -28,6 +31,10 @@ class VirtualMode(Enum):
     MANUAL = "manual"
 
 
+# Default max power rating (overridden by M702 discovery)
+DEFAULT_MAX_POWER_W = 10000
+
+
 @dataclass
 class BatteryCommand:
     """Battery control command.
@@ -36,9 +43,27 @@ class BatteryCommand:
         power_watts: Target power in watts
                      Positive = charge, negative = discharge, 0 = idle
         mode: Control mode (usually LIMIT_ABS for absolute wattage)
+    
+    Note:
+        power_watts is clamped to [-DEFAULT_MAX_POWER_W, DEFAULT_MAX_POWER_W]
+        at construction time. The controller applies a second clamp using
+        actual device ratings from M702. The device itself performs NO
+        input validation (PICS Issue 5).
     """
     power_watts: float
     mode: ControlMode = ControlMode.LIMIT_ABS
+    
+    def __post_init__(self):
+        """Validate and clamp power_watts to safe range."""
+        limit = DEFAULT_MAX_POWER_W
+        if abs(self.power_watts) > limit:
+            original = self.power_watts
+            self.power_watts = max(-limit, min(limit, self.power_watts))
+            logger.warning(
+                f"BatteryCommand: {original}W exceeds ±{limit}W limit "
+                f"— clamped to {self.power_watts}W. "
+                f"Device has NO input validation (PICS Issue 5)."
+            )
 
 
 @dataclass
@@ -147,4 +172,50 @@ ONGRID_MODES = {
     1: 'Self-Consumption',
     2: 'TOU',
     3: 'Manual',
+}
+
+
+# M701 Alarm bitmask definitions (DERInfo.Alrm)
+# Per SunSpec Model 701, each bit indicates an active alarm condition
+ALARM_BITS = {
+    0: 'GROUND_FAULT',
+    1: 'DC_OVER_VOLT',
+    2: 'AC_DISCONNECT',
+    3: 'DC_DISCONNECT',
+    4: 'GRID_DISCONNECT',
+    5: 'CABINET_OPEN',
+    6: 'MANUAL_SHUTDOWN',
+    7: 'OVER_TEMP',
+    8: 'OVER_FREQUENCY',
+    9: 'UNDER_FREQUENCY',
+    10: 'AC_OVER_VOLT',
+    11: 'AC_UNDER_VOLT',
+    12: 'BLOWN_STRING_FUSE',
+    13: 'UNDER_TEMP',
+    14: 'MEMORY_LOSS',
+    15: 'HW_TEST_FAILURE',
+}
+
+
+# PICS conformance status — what actually works on FranklinWH aGate X
+# Firmware: V10R01B04D00, tested 2026-03-13
+PICS_STATUS = {
+    # FUNCTIONAL — works as declared
+    'WSetEna': 'functional',       # M704.318 — VPP enable
+    'WSetMod': 'functional',       # M704.319 — mode select
+    'WSet': 'functional',          # M704.320 — power setpoint (W)
+    'WSetPct': 'functional',       # M704.324 — power setpoint (%)
+    'PFWInjEna': 'cosmetic',       # M704.298 — writable but gates nothing (Issue 6)
+    
+    # COSMETIC — register mechanics work but no physical effect
+    'WSetRvrt': 'cosmetic',        # M704.322 — reversion target sticky (Issue 4)
+    'WSetEnaRvrt': 'cosmetic',     # M704.326 — writable but reversion never fires
+    'WSetRvrtTms': 'cosmetic',     # M704.327 — countdown works, no reversion (SAFETY)
+    'WSetRvrtRem': 'cosmetic',     # M704.329 — countdown readback, cosmetic
+    
+    # BLOCKED — silently discards writes (0/160 tests)
+    'WMaxLimPctEna': 'blocked',    # M704.310 — Issue 1
+    'VarSetEna': 'blocked',        # M704.331 — Issue 1
+    'ControllerHb': 'blocked',     # M715.1092 — Issue 1
+    'WMax': 'blocked',             # M702.251 — Issue 2
 }

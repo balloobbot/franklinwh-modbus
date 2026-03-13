@@ -46,6 +46,7 @@ class FranklinWHController:
         unit_id: int = 2,  # FranklinWH default
         timeout: float = 10.0,
         base_address: int = 0,  # sunspec2 uses 0 for auto/scan
+        auto_release_orphan: bool = False,  # Release orphaned VPP on connect
     ):
         if not SUNSPEC_AVAILABLE:
             raise ImportError("sunspec2 package is required. Install with: pip install sunspec2")
@@ -55,6 +56,7 @@ class FranklinWHController:
         self.unit_id = unit_id
         self.timeout = timeout
         self.base_address = base_address
+        self.auto_release_orphan = auto_release_orphan
         self.dev: Optional[SunSpecModbusClientDeviceTCP] = None
         self.models: dict = {}
         self._span_writable: Optional[bool] = None
@@ -105,11 +107,47 @@ class FranklinWHController:
             # Run extension write test (non-blocking, informational)
             self._test_extension_writability()
             
+            # Check for orphaned VPP state from previous session
+            self._check_orphaned_vpp()
+            
             return True
             
         except Exception as e:
             logger.error(f"Connection failed: {e}")
             return False
+    
+    def _check_orphaned_vpp(self) -> None:
+        """Check if VPP was left active from a previous session.
+        
+        Reads WSetEna (318) and warns if VPP is active without a software
+        timer. This catches crash/restart scenarios where the hardware
+        has no auto-recovery (PICS Issue 4: WSetRvrtTms is cosmetic).
+        """
+        try:
+            m704 = self.get_model(704)
+            if not m704:
+                return
+            m704.read()
+            wset_ena = getattr(m704, 'WSetEna', None)
+            if wset_ena and wset_ena.value == 1:
+                wset_pct = getattr(m704, 'WSetPct', None)
+                pct_val = wset_pct.value if wset_pct else '?'
+                logger.warning(
+                    f"ORPHANED VPP DETECTED: WSetEna=1, WSetPct={pct_val}. "
+                    f"Device was left in VPP mode from a previous session. "
+                    f"Hardware reversion is cosmetic (PICS Issue 4) — "
+                    f"no automatic recovery exists."
+                )
+                if self.auto_release_orphan:
+                    logger.warning("auto_release_orphan=True — releasing orphaned VPP state")
+                    self.reset_control_state()
+                else:
+                    logger.warning(
+                        "Set auto_release_orphan=True in constructor to "
+                        "auto-release, or call reset_control_state() manually."
+                    )
+        except Exception as e:
+            logger.debug(f"Orphan check failed (non-critical): {e}")
     
     def _test_extension_writability(self) -> Dict[str, Any]:
         """
@@ -975,7 +1013,19 @@ class FranklinWHController:
             logger.warning(f"Failed to read M702 ratings: {e}; using defaults")
     
     def _validate_power(self, power_watts: float) -> float:
-        """Safety clamp: ensure requested power doesn't exceed device ratings."""
+        """Safety clamp: ensure requested power doesn't exceed device ratings.
+        
+        CRITICAL: The device has NO input validation at the Modbus layer
+        (PICS Issue 5). WSet=15000 (150% of WMaxRtg) is silently accepted
+        without alarm or clamping. This software clamp is the ONLY
+        protection against out-of-range setpoints.
+        
+        Args:
+            power_watts: Requested power in watts
+            
+        Returns:
+            Clamped power value within device ratings
+        """
         is_charge = power_watts > 0
         limit = self.RATED_MAX_CHARGE_W if is_charge else self.RATED_MAX_DISCHARGE_W
         if abs(power_watts) > limit:
@@ -1019,7 +1069,12 @@ class FranklinWHController:
             command: BatteryCommand with power_watts and direction
             duration_s: Optional software timeout in seconds. After this
                 duration, reset_control_state() is called automatically.
-                Hardware reversion (WSetRvrtTms) does NOT work on FranklinWH.
+                
+                SAFETY NOTE (PICS Issue 4): Hardware WSetRvrtTms is COSMETIC.
+                The countdown runs but WSetEna and WSetPct are unchanged at
+                expiry. Observed for 186s post-expiry with no reversion.
+                This software timeout (duration_s) is the ONLY safety
+                mechanism. Set this for ALL unattended VPP operations.
             dry_run: If True, report what would happen without writing
         """
         def _do_send():
