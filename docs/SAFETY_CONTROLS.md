@@ -290,6 +290,12 @@ This prevents unnecessary grid charging when battery is already above target.
 | Battery (M713) | 41039 | FAULT status |
 | Solar (M502) | 41104 | Input over voltage |
 
+> **PICS Finding (2026-03-13):** M701.Alrm and M714.PrtAlrms read 0 across ALL tests,
+> including over-range writes (WSet=15000W). Alarms are hardware/grid event triggers only.
+> No Modbus-write condition triggers alarms under normal operation. Silent-discard
+> architecture prevents PICS-violated writes from reaching alarm subsystem.
+> See [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md) — Alarm Observability.
+
 ### Blocking Behavior
 
 If critical alarms detected:
@@ -335,4 +341,53 @@ On Ctrl+C (SIGINT):
 
 ---
 
-*Last Updated: February 22, 2026*
+## ⚠️ PICS HARDWARE SAFETY — Sole Software Protection
+
+> **CRITICAL (2026-03-13 PICS Testing):** The FranklinWH aGate X has **zero functional hardware safety mechanisms** for VPP crash recovery on firmware V10R01B04D00.
+
+### What Doesn't Work
+
+| Mechanism | Register | Status |
+|-----------|----------|--------|
+| **Dead-man reversion** | WSetRvrtTms (327) | ❌ Countdown cosmetic — no reversion at expiry |
+| **Controller heartbeat** | ControllerHb (1092) | ❌ Silently discards all writes |
+| **Input validation** | WSet/WSetPct | ❌ Accepts 150% of rating without alarm |
+
+### Software Watchdog Requirements (Sole Safety Mechanism)
+
+| Scenario | Required Response |
+|----------|------------------|
+| **Modbus TCP connection lost** | Detect within N seconds, call `reset_control_state()` |
+| **Controller process crash** | OS-level supervisor must restart AND release VPP on startup |
+| **Host power loss** | On restore: read WSetEna (318), if =1 release before dispatch |
+| **Dispatch timeout** | Detect stale dispatch, call `reset_control_state()` |
+
+> `reset_control_state()` must write WSetEna=0 explicitly. No hardware path does this.
+
+### Library Implementation
+
+- **Startup orphan check:** `_check_orphaned_vpp()` detects WSetEna=1 on connect
+- **Auto-release:** `FranklinWHController(auto_release_orphan=True)` releases orphaned VPP
+- **Software timeout:** `send_command(duration_s=300)` auto-resets after 5 minutes
+- **Input clamping:** `BatteryCommand.__post_init__()` + `_validate_power()` enforce limits
+
+### Production Gate Clearance Conditions
+
+```
+Issue 4 mitigation:
+  □ Software watchdog covers all 4 scenarios above
+  □ Watchdog timeout ≤ 60s (configurable)
+  □ reset_control_state() explicitly writes WSetEna=0
+  □ Startup checks WSetEna (318), releases if =1
+  □ Documented as sole safety mechanism
+Issue 5 mitigation:
+  □ WSet clamped to [0, WMaxRtg] before write
+  □ WSetPct clamped to [-1000, 1000] before write
+  □ Unit test coverage for clamp boundaries
+```
+
+**Full Details:** [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md)
+
+---
+
+*Last Updated: 2026-03-14 (PICS hardware safety findings, alarm probe results)*

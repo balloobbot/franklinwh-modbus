@@ -359,6 +359,59 @@ FranklinWH serial numbers encode device type, hardware revision, and unique ID:
 
 ---
 
+## Model 704 — Hardware Reversion is Cosmetic (PICS Issue 4)
+
+**Issue:** WSetRvrtTms (327) countdown works (30→0), but **does NOT revert power** at expiry. WSetEna and WSetPct are unchanged 186 seconds post-expiry. The SunSpec dead-man switch is non-functional.
+
+**Evidence:** 186s extended observation, WSetRvrtTms=1 (1s edge case) also non-functional. Corroborated by FranklinWH app (VPP persisted), MQTT, and Home Assistant.
+
+**Severity:** CRITICAL — combined with non-functional ControllerHb (1092), there is **zero hardware safety mechanism** on this firmware.
+
+**Workaround:** Software-only dead-man via `send_command(duration_s=N)` in `controller.py`:
+```python
+# Software timeout is the ONLY safety mechanism
+ctrl.send_command(BatteryCommand(-5000), duration_s=300)  # 5min auto-release
+```
+
+**Code Location:** `controller.py` — `send_command()` docstring documents this explicitly.
+
+**Full Details:** [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md) — Issue 4
+
+---
+
+## Model 704 — No Input Validation on WSet/WSetPct (PICS Issue 5)
+
+**Issue:** The device accepts WSet=15000W (150% of WMaxRtg=10000W) and WSetPct=±1500 (±150%) without Modbus exception, alarm, or clamping. Values read back exactly as written.
+
+**Severity:** HIGH — downstream clamping status unknown. Software must enforce range limits.
+
+**Workaround:** Two layers of clamping in the library:
+1. `BatteryCommand.__post_init__()` — clamps to ±10000W at construction time
+2. `controller._validate_power()` — clamps to device-reported WMaxRtg at write time
+
+**Code Location:** `types.py` and `controller.py`
+
+**Full Details:** [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md) — Issue 5
+
+---
+
+## Model 704 — Reactive Power Not Controllable (All Paths Exhausted)
+
+**Issue:** No Modbus-accessible reactive power or PF control path exists on this firmware.
+
+**Paths tested:**
+| Path | Register | Result |
+|------|----------|--------|
+| VarSetEna (331) | M704 | Silently discards all writes — 0/160 tests |
+| PFWInjEna (298) | M704 | Writable but PF setpoints (267/268) are 0xFFFF |
+| CtrlModes FIXED_VAR | M702 | Firmware claims available but no Modbus path |
+
+**Conclusion:** The device manages reactive power internally. This is **final** — no further investigation paths remain.
+
+**Full Details:** [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md) — Issues 1, 3, 6
+
+---
+
 ## General Notes
 
 - **Scale Factors:** Always read SF registers dynamically — they can change
@@ -370,5 +423,5 @@ FranklinWH serial numbers encode device type, hardware revision, and unique ID:
 
 ---
 
-*Last Updated: 2026-03-13 (VPP Mode handoff architecture, SunSpec2 Compliance Matrix, PCS write-probe results, SunSpec sequencing reference)*  
+*Last Updated: 2026-03-14 (PICS Issue 4 reversion cosmetic, Issue 5 no input validation, reactive power exhausted)*  
 *Device Tested: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*

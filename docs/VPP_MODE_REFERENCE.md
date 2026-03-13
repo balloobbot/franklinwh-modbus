@@ -101,3 +101,33 @@ docs/images/vpp_3_during_standby.png
 docs/images/vpp_4_during_discharging.png
 docs/images/vpp_5_after_self_consumption.png
 ```
+
+---
+
+## VPP Capability Summary (PICS Conformance — 2026-03-13)
+
+```
+WHAT WORKS:    Active power dispatch via WSet/WSetPct.
+               Accepts any value — software MUST clamp to valid range.
+WHAT DOESN'T:  Reactive power (all paths exhausted, final).
+               PF control. Curtailment ceiling. Hardware reversion.
+               Heartbeat. Input validation.
+SAFETY (x2):  1. Hardware dead-man is cosmetic — no self-recovery.
+              2. No input validation — software is range enforcement.
+              Both must be addressed before unattended deployment.
+```
+
+### Register Functional Status
+
+| Register | Status | Notes |
+|----------|:------:|-------|
+| WSetEna (318) | ✅ | VPP enable — works |
+| WSet (320) | ✅ | Power setpoint — no clamping! |
+| WSetPct (324) | ✅ | Percentage setpoint — no clamping! |
+| WSetRvrtTms (327) | ⚠️ | Countdown cosmetic — **does not revert** |
+| WMaxLimPctEna (310) | ❌ | Silently discards writes |
+| VarSetEna (331) | ❌ | Silently discards writes |
+| ControllerHb (1092) | ❌ | Silently discards writes |
+| PFWInjEna (298) | ⚠️ | Writable but gates nothing |
+
+**Full Details:** [`PICS_CONFORMANCE_CROSS_REFERENCE.md`](./PICS_CONFORMANCE_CROSS_REFERENCE.md)
