@@ -1,46 +1,48 @@
 # In-Flight Work
 
-**Status:** ✅ COMPLETE — All groups tested  
-**Date:** 2026-03-13  
-**Commit:** `c2e48e4` (initial doc updates), pending commit (final test results)
+**Status:** 🟡 PICS improvements — 13/21 complete  
+**Date:** 2026-03-14  
+**Last Commits:** `0c44cc7` (library safety), `d862c16` (docs)
 
 ---
 
-## SunSpec 6-Phase Re-Test Suite — COMPLETE
+## Completed This Session
 
-### Results Summary
+### PICS Conformance Document — FINALIZED ✅
+- 6 violations filed, 186s reversion observation, 160+ permutations
+- External review applied (dual hypothesis, systemic safety, clearance conditions)
+- Commit chain: `a7325d4` → `c51e0cf` (11 commits)
+- **Ready for vendor submission**
 
-| Group | Register | Result | Previous |
-|:-----:|----------|:------:|:--------:|
-| A | VarSetEna (331) | ❌ Enable silently discarded | ❌ same |
-| B | WMaxLimPctEna (310) | ❌ Enable silently discarded | ❌ same |
-| **C** | **WSetRvrtTms (327)** | **✅ WORKS!** 60s accepted | ❌ was "non-functional" |
-| **C** | **WSetEnaRvrt (326)** | **✅ WORKS!** Readback=1 | untested |
-| **C** | **WSetRvrtRem (329)** | **✅ Countdown active** (59→55→52) | ❌ was "never activates" |
-| C | ControllerHb (1092) | ❌ Confirmed non-functional | ❌ same |
-| D | WChaRteMax (259) | ❌ 0xFFFF, writes discarded | ❌ same |
-| D | WDisChaRteMax (260) | ❌ 0xFFFF, writes discarded | ❌ same |
-| D | VAChaRteMax (261) | ❌ 0xFFFF, writes discarded | untested |
-| D | VADisChaRteMax (262) | ❌ 0xFFFF, writes discarded | untested |
-| D | WMax (251) | ❌ Write=5000, readback=0 | untested |
+### Library Safety Improvements — DONE ✅
+- `_check_orphaned_vpp()` — detects WSetEna=1 on connect
+- `auto_release_orphan=True` constructor flag
+- `BatteryCommand.__post_init__()` — clamps ±10000W
+- `ALARM_BITS`, `PICS_STATUS`, `DEFAULT_MAX_POWER_W` in types.py
+- Enhanced docstrings (PICS Issues 4+5)
 
-### Open Investigation
-
-WSetRvrtTms countdown was active (59→55→52), but after the 60s timer expired:
-- WSetEna was **still 1** (VPP not auto-disabled)
-- WSetPct was **-100** (power not reverted?)
-
-Does the countdown actually revert the power setpoint, or is it cosmetic? This needs a dedicated test:
-1. Set WSetRvrtTms=30, WSetEnaRvrt=1, WSetPct=-10 (500W charge)
-2. Wait 35 seconds
-3. Read WSetPct — did it change to the reversion value?
-4. Read WSetEna — did VPP mode auto-disable?
-
-### Reference Documents
-
-- [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) — 6-phase protocol
-- [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) — Updated compliance matrix
+### Documentation — DONE ✅
+- QUIRKS.md: reversion cosmetic, no validation, reactive exhausted
+- SAFETY_CONTROLS.md: hardware safety section + clearance conditions
+- VPP_MODE_REFERENCE.md: capability summary
 
 ---
 
-*Last updated: 2026-03-13 21:41 AEDT*
+## Remaining (8 items)
+
+| # | Item | File | Priority |
+|---|------|------|:--------:|
+| 6 | `read_alarm_snapshot()` method | controller.py | 🟡 |
+| 7 | `read_reversion_status()` method | controller.py | 🟡 |
+| 9 | TUI timer + alarm display | monitor.py | 🟡 |
+| 11 | `--alarm` CLI flag | franklinwh_cli.py | 🟡 |
+| 12 | `--reversion-status` CLI flag | franklinwh_cli.py | 🟡 |
+| 13 | `--safety-check` CLI flag | franklinwh_cli.py | 🟠 |
+| 14 | Startup orphan warning for `--start` | franklinwh_cli.py | 🟢 |
+| 21 | `safety_audit.py` standalone | tools/ | 🟢 |
+
+**Full plan:** See artifact `implementation_plan.md` in conversation `13992edd`
+
+---
+
+*Last updated: 2026-03-14 01:03 AEDT*
