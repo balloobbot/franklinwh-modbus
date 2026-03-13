@@ -37,20 +37,20 @@ All "unimplemented" registers match exactly (0xFFFF). **WMax (251)** is declared
 
 | Addr | Point | PICS Status | PICS R/W | Our Test Result | Match? |
 |:----:|-------|:-----------:|:--------:|:---------------:|:------:|
-| 298 | PFWInjEna | supported | RW | ✅ Writable | ✅ |
+| 298 | PFWInjEna | supported | RW | Writable/sticky ✅ but PF setpoints 0xFFFF | **⚠️ Issue 6** |
 | **310** | **WMaxLimPctEna** | **supported** | **RW** | **❌ Write accepted, readback=0** | **⚠️ VIOLATION** |
 | 311 | WMaxLimPct | supported | RW (0-100) | Readable (1000), but enable won't stick | Partial |
 | 312 | WMaxLimPctRvrt | unimplemented | RW | 0xFFFF ✅ | ✅ Expected |
 | 313 | WMaxLimPctEnaRvrt | unimplemented | RW | 0xFFFF ✅ | ✅ Expected |
 | **318** | **WSetEna** | **supported** | **RW** | **✅ WORKS (VPP Mode)** | **✅** |
 | 319 | WSetMod | supported | RW | ✅ Works | ✅ |
-| 320 | WSet | supported | RW (0-10000) | ✅ Works | ✅ |
-| 322 | WSetRvrt | supported | RW (0-10000) | Not tested independently | — |
-| 324 | WSetPct | supported | RW (0-100) | ✅ Works | ✅ |
-| 325 | WSetPctRvrt | supported | RW (0-100) | Not tested independently | — |
-| **326** | **WSetEnaRvrt** | **supported** | **RW** | **✅ WORKS! Readback=1** | **✅** |
-| **327** | **WSetRvrtTms** | **supported** | **RW (0-4294967294)** | **✅ WORKS! 60s accepted, countdown active** | **✅** |
-| 329 | WSetRvrtRem | supported | R | ✅ Countdown: 59→55→52 | ✅ |
+| 320 | WSet | supported | RW (0-10000) | ✅ Works (no clamping — see Alarms) | ✅ |
+| 322 | WSetRvrt | supported | RW (0-10000) | Writable/sticky ✅ (cosmetic — Issue 4) | ⚠️ |
+| 324 | WSetPct | supported | RW (0-100) | ✅ Works (no clamping — see Alarms) | ✅ |
+| 325 | WSetPctRvrt | supported | RW (0-100) | Not tested | — |
+| **326** | **WSetEnaRvrt** | **supported** | **RW** | Writable/sticky ✅ (cosmetic — Issue 4) | **⚠️** |
+| **327** | **WSetRvrtTms** | **supported** | **RW** | Countdown works but reversion does NOT fire | **🔴 Issue 4** |
+| 329 | WSetRvrtRem | supported | R | Countdown: 30→...→0 ✅ (cosmetic — Issue 4) | ⚠️ |
 | **331** | **VarSetEna** | **supported** | **RW** | **❌ Write accepted, readback=0** | **⚠️ VIOLATION** |
 | 332 | VarSetMod | supported | RW | Readable (1), accepts write | ✅ |
 | 333 | VarSetPri | supported | RW | Readable (2), accepts write | ✅ |
@@ -62,7 +62,9 @@ All "unimplemented" registers match exactly (0xFFFF). **WMax (251)** is declared
 
 ### M704 Takeaway
 
-WSet group (318-329) works perfectly — PICS matches reality. **But WMaxLimPctEna (310) and VarSetEna (331) are declared "supported RW" yet silently discard writes.** These are PICS conformance violations.
+WSet active power control (318/319/320/324) works correctly and matches PICS. WSetRvrt (322), WSetEnaRvrt (326), WSetRvrtTms (327), and WSetRvrtRem (329) all operate as declared at the register level — countdown is active and reversion target is sticky. **HOWEVER:** reversion efficacy testing confirmed the countdown is cosmetic — WSetEna and WSetPct unchanged 186s after expiry. The dead-man switch does not physically revert power (**SAFETY CRITICAL — Issue 4**).
+
+WMaxLimPctEna (310) and VarSetEna (331) silently discard all writes (0/160 tests). PFWInjEna (298) is writable but gates unimplemented setpoint registers — no physical PF effect (**Issue 6**).
 
 ---
 
@@ -73,8 +75,8 @@ WSet group (318-329) works perfectly — PICS matches reality. **But WMaxLimPctE
 | 1089 | LocRemCtl | supported | **R** | Read-only ✅ (always Local=1) | ✅ |
 | 1090 | DERHb | supported | R | Always 0 | ✅ |
 | **1092** | **ControllerHb** | **supported** | **RW** | **❌ Write accepted, readback=0** | **⚠️ VIOLATION** |
-| 1094 | AlarmReset | supported | RW | Not tested | — |
-| 1095 | OpCtl | supported | RW | Not tested | — |
+| 1094 | AlarmReset | supported | RW | Write OK, auto-clears to 0, no latched alarms | ✅ |
+| 1095 | OpCtl | supported | RW | Reads 0 (idle). ⚠️ Write not tested (safety) | — |
 
 ### M715 Takeaway
 
@@ -177,7 +179,13 @@ M715: LocRemCtl (1089, R-only as declared).
 
 2. **4 registers declared "supported RW" fail tests (0/160):** WMaxLimPctEna, VarSetEna, ControllerHb, WMax. All exhibit identical behavior: FC06/FC16 success, readback unchanged. Exhaustively tested across settle times, values, sequencing, and VPP state.
 
-3. **WSet group (318-329) fully functional** — WSetRvrtTms WORKS (countdown active), WSetRvrt WORKS (reversion target sticky). Matches PICS.
+3. **WSet active power control works** — WSetEna, WSetMod, WSet, WSetPct all functional. WSetRvrtTms countdown works but reversion does NOT fire at expiry (Issue 4, SAFETY CRITICAL).
+
+4a. **All reactive power and PF control paths exhausted — none viable:**
+   - **Path 1 — VarSetEna (331):** BLOCKED. Silently discards all writes. 0/160 tests. (Issue 1)
+   - **Path 2 — PFWInjEna (298):** DEAD END. Enable writable but PF setpoints (267/268) unimplemented (0xFFFF). No physical PF effect. (Issue 6)
+   - **Path 3 — CtrlModes FIXED_VAR:** Firmware claims available (bit 2=1) but no functional Modbus path exists. (Issue 3)
+   - **Conclusion:** Reactive power and PF are NOT controllable via any Modbus register on this firmware.
 
 4. **CtrlModes (M702.248) bitmask = 14271 = 0x37BF:**
    ```
@@ -422,6 +430,59 @@ Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY CRITICAL)
   deferred to a future firmware version, provide target
   firmware version and timeline. This blocks production
   deployment of any unattended VPP control application.
+
+Issue 5 — No input validation on WSet/WSetPct (SAFETY HIGH)
+  Severity: HIGH — software must enforce all range limits.
+
+  WSet (320) accepted 15000W (150% of WMaxRtg=10000W).
+  WSetPct (324) accepted ±1500 (±150% of rated range).
+  Both values read back exactly as written.
+  No Modbus exception code returned.
+  No alarm raised (M701.Alrm=0, M714.PrtAlrms=0).
+  DERMode unchanged ([0,1]) — device treated over-limit
+  values as valid setpoints.
+
+  PICS declares WSet range as 0-10000W, WSetPct as 0-100.
+  Device does not enforce these bounds at the Modbus layer.
+
+  Consequence: A software bug, corrupt message, or integer
+  overflow that produces an out-of-range setpoint will be
+  silently accepted. No hardware protection exists.
+
+  REQUEST: Confirm whether firmware-level clamping is
+  applied downstream of Modbus acceptance (i.e., does
+  WSet=15000 actually command 15000W or is it clamped
+  internally to WMaxRtg=10000W before execution?).
+  If not clamped internally, this is an input validation
+  defect.
+
+Issue 6 — PFWInjEna (298) enable gates unimplemented setpoints
+  PICS declares PFWInjEna (298), PFOvrExt (267), PFUndExt (268),
+  and PF reversion group as supported RW.
+  PFWInjEna is writable/sticky (toggle 0↔1 confirmed).
+  PFOvrExt (267), PFUndExt (268), and all PF reversion
+  registers return 0xFFFF (unimplemented).
+  No physical PF change observed across any toggle condition.
+
+  PF readings during test (near-zero real power — noise floor):
+    Idle:        PF=-2,   Var=-725
+    PFWInjEna=0: PF=11,   Var=-732
+    PFWInjEna=1: PF=-13,  Var=-737
+    VPP active:  PF=965,  Var=-623, W=3002
+
+  PF variation is load-dependent, not PFWInjEna-dependent.
+  ±13 PF delta at near-zero watts is measurement noise.
+  Var delta across all conditions = 12 Var (noise floor).
+
+  Conclusion: PFWInjEna gates setpoint registers that do not
+  exist in this firmware. Not a viable reactive power path.
+  This is the final reactive power path exhausted — no
+  Modbus-accessible reactive power control exists on this
+  firmware version.
+
+  REQUEST: Confirm implementation status of PF setpoint
+  registers (267/268). Update PICS to reflect unimplemented
+  status or provide firmware version where these are available.
 ```
 
 ---
@@ -429,30 +490,37 @@ Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY CRITICAL)
 ## Document Status
 
 ```
-CLOSED — no further testing warranted:
-  ✅ PCS rate registers (unimplemented, 0xFFFF confirmed)
-  ✅ WSet group (318-329) — control path fully functional
-  ✅ WSetRvrt (322) — writable/sticky (cosmetic — see Issue 4)
-  ✅ WSetEnaRvrt (326) — writable/sticky (cosmetic — see Issue 4)
-  ✅ WSetRvrtRem (329) — countdown works (cosmetic — see Issue 4)
+CLOSED — all items resolved:
+  ✅ PCS rate registers — unimplemented, 0xFFFF confirmed
+  ✅ WSet active power control (318/319/320/324) — fully functional
+  ✅ WSetRvrt (322) — writable/sticky (cosmetic — Issue 4)
+  ✅ WSetEnaRvrt (326) — writable/sticky (cosmetic — Issue 4)
+  ✅ WSetRvrtRem (329) — countdown works (cosmetic — Issue 4)
   ✅ M702 unimplemented registers — all match PICS
+  ✅ M701/M714 alarms = 0 across all probe conditions
+  ✅ AlarmReset (1094) — writable, auto-clears, no latched alarms
+  ✅ MnAlrmInfo (193) — static placeholder, not dynamic
+  ✅ PFWInjEna (298) — writable but non-functional, Issue 6 filed
+  ✅ Reactive power — ALL paths exhausted, none viable (final)
 
-CLOSED — PICS violation filed:
-  ⚠️ WMaxLimPctEna (310)       — 0/32  (Issue 1)
-  ⚠️ VarSetEna (331)           — 0/32  (Issue 1)
-  ⚠️ ControllerHb (1092)       — 0/53  (Issue 1)
-  ⚠️ WMax (251)                — 0/27  (Issue 2)
-  ⚠️ CtrlModes contradiction   — (Issue 3)
-  🔴 WSetRvrtTms non-reversion — (Issue 4, SAFETY CRITICAL)
-  🔴 WSetEnaRvrt cosmetic      — (Issue 4, corollary)
+PICS VIOLATIONS FILED (6 issues):
+  ⚠️  Issue 1 — LocRemCtl gate (WMaxLimPctEna/VarSetEna/ControllerHb)
+  ⚠️  Issue 2 — WMax (251) silently discarded
+  ⚠️  Issue 3 — CtrlModes claims FIXED_VAR, no Modbus path exists
+  🔴  Issue 4 — WSetRvrtTms cosmetic, reversion never fires  ← SAFETY
+  🔴  Issue 5 — No input validation on WSet/WSetPct       ← SAFETY
+  ⚠️  Issue 6 — PFWInjEna gates unimplemented setpoint registers
 
-OPEN — test required before production sign-off:
-  (none remaining — all items closed)
+OPEN:
+  🟡 OpCtl (1095) write behaviour — low priority, requires
+     physical site access. Non-blocking for VPP deployment.
 
 PRODUCTION GATE:
-  🔴 Issue 4 MUST be resolved or formally accepted as a
-     known risk with documented software mitigations before
-     any unattended production deployment.
+  🔴 Issue 4 — reversion non-functional (SAFETY CRITICAL)
+  🔴 Issue 5 — no input validation (SAFETY HIGH)
+     Software must clamp WSet to [0, WMaxRtg] and
+     WSetPct to [-1000, 1000] before writing.
+     No hardware protection exists.
 ```
 
 ---
@@ -472,5 +540,20 @@ Given WSetRvrtTms non-reversion (Issue 4) and ControllerHb non-functional (Issue
 
 ---
 
+## Capability Summary (Handoff)
+
+```
+WHAT WORKS:    Active power dispatch via WSet/WSetPct.
+               Accepts any value — software MUST clamp to valid range.
+WHAT DOESN'T:  Reactive power (all paths exhausted, final).
+               PF control. Curtailment ceiling. Hardware reversion.
+               Heartbeat. Input validation.
+SAFETY (x2):  1. Hardware dead-man is cosmetic — no self-recovery.
+              2. No input validation — software is range enforcement.
+              Both must be addressed before unattended deployment.
+```
+
+---
+
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:32 AEDT*
+*Last updated: 2026-03-13 23:38 AEDT*
