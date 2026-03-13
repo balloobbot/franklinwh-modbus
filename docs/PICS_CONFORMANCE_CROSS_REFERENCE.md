@@ -29,7 +29,7 @@
 
 ### M702 Takeaway
 
-All "unimplemented" registers match exactly (0xFFFF). The only surprise is **WMax (251)** which PICS declares as "supported RW" (0-10000) but our write was silently discarded (readback=0). This may need SPAN Modbus unlock.
+All "unimplemented" registers match exactly (0xFFFF). **WMax (251)** is declared "supported RW" (0-10000) but FC06 write of 5000 returned success while readback remained 0 (silent discard — no Modbus exception).
 
 ---
 
@@ -82,14 +82,21 @@ WSet group (318-329) works perfectly — PICS matches reality. **But WMaxLimPctE
 
 ---
 
-## PICS Conformance Violations Summary
+## Failed Tests Against PICS Claims
 
-| # | Register | PICS Claims | Actual Behavior | Severity |
-|:-:|----------|:-----------:|:---------------:|:--------:|
-| 1 | **WMaxLimPctEna (310)** | supported RW | Write silently discarded | **HIGH** — prevents power limit control |
-| 2 | **VarSetEna (331)** | supported RW | Write silently discarded | **HIGH** — prevents reactive power control |
-| 3 | **ControllerHb (1092)** | supported RW | Write silently discarded | **HIGH** — prevents heartbeat safety |
-| 4 | **WMax (251)** | supported RW (0-10000) | Write=5000, readback=0 | **MEDIUM** — may need SPAN unlock |
+The following registers are declared "supported RW" in the PICS but **fail to persist writes.** In all cases:
+- **Modbus FC06 (Write Single Register) returned success** — no exception code
+- **Readback immediately after showed the original/default value** — write silently discarded
+- **No Modbus-layer error** (no 0x01 Illegal Function, 0x02 Illegal Address, etc.)
+
+| # | Register | PICS Claims | Write Value | FC06 Response | Readback | Error Pattern |
+|:-:|----------|:-----------:|:-----------:|:------------:|:--------:|:-------------:|
+| 1 | **WMaxLimPctEna (310)** | supported RW | 1 | ✅ Success | 0 | Silent discard |
+| 2 | **VarSetEna (331)** | supported RW | 1 | ✅ Success | 0 | Silent discard |
+| 3 | **ControllerHb (1092)** | supported RW | 1, then 2 | ✅ Success | 0, then None | Silent discard |
+| 4 | **WMax (251)** | supported RW (0-10000) | 5000 | ✅ Success | 0 | Silent discard |
+
+> **Root cause unknown.** We have no evidence for why these fail. Possible explanations include firmware gating, SPAN Modbus unlock requirement, or incorrect PICS declaration — but all are speculation without further evidence.
 
 ### Features Correctly Declared as Unimplemented
 
@@ -101,17 +108,17 @@ WSetEna, WSetMod, WSet, WSetPct, WSetEnaRvrt, WSetRvrtTms, WSetRvrtRem, PFWInjEn
 
 ---
 
-## Implications
+## Facts Only Summary
 
-1. **PCS rate registers:** We can STOP investigating these — PICS declares them "unimplemented" and our tests confirm. No firmware update will change this without a new PICS.
+1. **PCS rate registers:** PICS declares "unimplemented", hardware returns 0xFFFF. **Case closed.**
 
-2. **VarSetEna and WMaxLimPctEna:** File as PICS violations with FranklinWH. The PICS declares them "supported" but they don't work. This may indicate these features require SPAN Modbus unlock or are behind a firmware gate.
+2. **4 registers declared "supported RW" fail tests:** WMaxLimPctEna, VarSetEna, ControllerHb, WMax. All exhibit identical behavior: FC06 success, readback unchanged. Root cause unknown.
 
-3. **ControllerHb:** Same — PICS violation. The heartbeat is declared supported but doesn't function.
+3. **WSetRvrtTms is correctly declared and WORKS** — validates our 6-phase re-test methodology.
 
-4. **WSetRvrtTms is correctly declared and WORKS** — this validates our re-test methodology.
+4. **WSet group (318-329) fully functional** — matches PICS declaration exactly.
 
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 21:52 AEDT*
+*Last updated: 2026-03-13 22:00 AEDT*
