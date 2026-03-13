@@ -336,16 +336,41 @@ Issue 3 — CtrlModes declares FIXED_VAR available but Modbus
   REQUEST: Clarify whether CtrlModes bitmask represents hardware
   capability or Modbus-controllable capability. If the former,
   update PICS documentation to define this distinction explicitly.
-Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY)
+Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY CRITICAL)
+  Severity: CRITICAL — safety architecture, not just conformance.
+
   PICS declares WSetRvrtTms (327) as supported RW.
   Countdown mechanism works (30→23→...→0), but WSetEna and
   WSetPct are unchanged after expiry. Observed for 186s (3+ min)
   post-expiry with NO forced cleanup — device never auto-released.
+  Edge case tested: WSetRvrtTms=1 (1s timer) also produces no
+  reversion — eliminates zero-value special-meaning interpretation.
   No alarms raised (M701.Alrm=0, M714.PrtAlrms=0).
   Corroborated by user via FHP app (VPP persisted) and MQTT.
-  This defeats the SunSpec dead-man switch safety mechanism.
-  REQUEST: Confirm implementation status of reversion
-  behaviour at countdown expiry.
+
+  SunSpec Model 704 dead-man reversion is the specification-
+  defined mechanism for protecting physical assets when Modbus
+  communication is lost. A cosmetic countdown with no physical
+  effect eliminates this protection entirely.
+
+  Consequence: With ControllerHb also non-functional (Issue 1),
+  there is NO hardware-enforced safety mechanism on this device.
+  Loss of the controlling software process (crash, OOM, host
+  power loss) will leave the device in its last commanded state
+  indefinitely with no self-recovery path.
+
+  The software watchdog (controller.py) is currently the ONLY
+  safety mechanism. This is a single point of failure that
+  cannot be mitigated via any PICS-declared Modbus register.
+
+  Additional finding: WSetEnaRvrt (326) readback=1 (sticky),
+  but the reversion it enables never fires. This register is
+  also effectively cosmetic in current firmware.
+
+  REQUEST: Confirm implementation status. If reversion is
+  deferred to a future firmware version, provide target
+  firmware version and timeline. This blocks production
+  deployment of any unattended VPP control application.
 ```
 
 ---
@@ -355,8 +380,10 @@ Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY)
 ```
 CLOSED — no further testing warranted:
   ✅ PCS rate registers (unimplemented, 0xFFFF confirmed)
-  ✅ WSet group (318-329) — fully functional
-  ✅ WSetRvrt (322) — reversion target writable and sticky
+  ✅ WSet group (318-329) — control path fully functional
+  ✅ WSetRvrt (322) — writable/sticky (cosmetic — see Issue 4)
+  ✅ WSetEnaRvrt (326) — writable/sticky (cosmetic — see Issue 4)
+  ✅ WSetRvrtRem (329) — countdown works (cosmetic — see Issue 4)
   ✅ M702 unimplemented registers — all match PICS
 
 CLOSED — PICS violation filed:
@@ -365,13 +392,35 @@ CLOSED — PICS violation filed:
   ⚠️ ControllerHb (1092)       — 0/53  (Issue 1)
   ⚠️ WMax (251)                — 0/27  (Issue 2)
   ⚠️ CtrlModes contradiction   — (Issue 3)
-  🔴 WSetRvrtTms non-reversion — (Issue 4, SAFETY, 186s observed)
+  🔴 WSetRvrtTms non-reversion — (Issue 4, SAFETY CRITICAL)
+  🔴 WSetEnaRvrt cosmetic      — (Issue 4, corollary)
 
 OPEN — test required before production sign-off:
   🟡 PFWInjEna (298) functional outcome
+     (may be only surviving indirect reactive power path)
+
+PRODUCTION GATE:
+  🔴 Issue 4 MUST be resolved or formally accepted as a
+     known risk with documented software mitigations before
+     any unattended production deployment.
 ```
 
 ---
 
+## Software Watchdog Requirements
+
+Given WSetRvrtTms non-reversion (Issue 4) and ControllerHb non-functional (Issue 1), the software watchdog is the **sole safety mechanism**. It must cover:
+
+| Scenario | Required Response |
+|----------|------------------|
+| **Modbus TCP connection lost** | Detect within N seconds, call `reset_control_state()` |
+| **Controller process crash** | OS-level supervisor (systemd, Docker restart) must restart AND release on startup if VPP was active |
+| **Host power loss** | On restore: read WSetEna (318), if =1 call `reset_control_state()` before accepting new dispatch |
+| **Dispatch timeout** | Detect stale dispatch (no new setpoint received), call `reset_control_state()` |
+
+> **NOTE:** `reset_control_state()` must write WSetEna=0 explicitly. There is no hardware path that will do this automatically.
+
+---
+
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:00 AEDT*
+*Last updated: 2026-03-13 23:10 AEDT*
