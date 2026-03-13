@@ -379,6 +379,7 @@ Issue 1 — LocRemCtl permanently Local
   Testing: 0/160 across FC06/FC16, settle 0.5-5s, ±VPP, + sequenced.
   REQUEST: Document the mechanism to transition to Remote mode,
            OR update PICS to reflect actual constraints.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
 
 Issue 2 — WMax (251) write silently discarded
   PICS declares supported RW (0-10000).
@@ -390,6 +391,7 @@ Issue 2 — WMax (251) write silently discarded
   = 10000W (read-only hardware rating). No software curtailment
   ceiling is achievable via PICS-declared registers.
   REQUEST: Confirm if SPAN Modbus unlock is required.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
 
 Issue 3 — CtrlModes declares FIXED_VAR available but Modbus
           path is non-functional
@@ -402,6 +404,7 @@ Issue 3 — CtrlModes declares FIXED_VAR available but Modbus
   REQUEST: Clarify whether CtrlModes bitmask represents hardware
   capability or Modbus-controllable capability. If the former,
   update PICS documentation to define this distinction explicitly.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
 Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY CRITICAL)
   Severity: CRITICAL — safety architecture, not just conformance.
 
@@ -551,6 +554,7 @@ PRODUCTION GATE — Software Mitigation Clearance Conditions:
   Issue 5 mitigation:
     □ WSet clamped to [0, WMaxRtg] before write
     □ WSetPct clamped to [-1000, 1000] before write
+      (scaled: SF=-1, so 1000 = 100.0% — see WMaxLimPct_SF addr 350)
     □ Unit test coverage for clamp boundary conditions
     □ Vendor confirms downstream clamping status (informational)
 ```
@@ -588,4 +592,4 @@ SAFETY (x2):  1. Hardware dead-man is cosmetic — no self-recovery.
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:46 AEDT*
+*Last updated: 2026-03-13 23:56 AEDT*
