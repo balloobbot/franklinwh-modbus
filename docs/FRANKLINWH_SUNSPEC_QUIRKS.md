@@ -193,20 +193,23 @@ See [VPP_MODE_COMPLETE_EXTRACTION.md](../archive/docs/VPP_MODE_COMPLETE_EXTRACTI
 | Feature | SunSpec2 Spec | FranklinWH Reality | Library Workaround | Vendor Fix? |
 |---------|--------------|-------------------|-------------------|-------------|
 | LocRemCtl handoff | Remote (0) enables writes | Always Local (1), read-only; yet M704 writes work | None needed — power writes accepted despite Local | Report as spec deviation |
-| Controller heartbeat | Client writes ControllerHb; DER monitors | Not verified with proper sequencing† | Not implemented — no alternative | May work with proper phased protocol |
-| Reversion timer (WSetRvrtTms) | DER counts down, auto-reverts power | Not verified with proper sequencing† | Software `threading.Timer` via `duration_s` | May work with proper phased protocol |
+| Controller heartbeat | Client writes ControllerHb; DER monitors | ❌ Confirmed non-functional (write accepted, readback=0) | Not implemented — no alternative | Report as defect |
+| Reversion timer (WSetRvrtTms) | DER counts down, auto-reverts power | ✅ **WORKS with proper sequencing!** Timer=60s accepted, countdown active (59→55→52) | Software `threading.Timer` via `duration_s` (may become optional) | N/A — working correctly |
+| Reversion enable (WSetEnaRvrt) | Enables reversion behavior | ✅ **WORKS!** Readback=1 after write | N/A | N/A — working correctly |
 | Battery state (M713.Sta) | Reflects CHARGING/DISCHARGING/IDLE | Always 0 (OFF) | Derived from M714.DCW ±50W deadband | Report; workaround is robust |
 | DC Current (M714.DCA) | Reports battery DC current | Always 0 | Calculated: I = P/V from DCW/DCV | Report; workaround is robust |
 | Ramp rate (WRmp) | Smooths power transitions | Returns None (unimplemented) | Software SoC ramp via `--soc-ramp-window` | Report; software ramp is different concept |
 | Extension register writes | N/A (vendor-specific) | Read-only without SPAN Modbus unlock | Cloud API bypass (Tier 2) for mode changes | SPAN unlock required; vendor provisioning |
 | VPP Mode activation | WSetEna=1 starts remote DER control | ✅ Works — activates VPP Mode (exclusive) | None needed — works as intended | N/A — working correctly |
-| Command persistence | WSetRvrtTms reverts after timeout | Commands persist indefinitely | Software timer + `reset_control_state()` | Tied to WSetRvrtTms re-test |
+| Command persistence | WSetRvrtTms reverts after timeout | WSetRvrtTms countdown active; WSetEna persists after timer expiry (partial implementation?) | Software timer + `reset_control_state()` remains recommended | Investigate: does countdown actually revert power? |
 | Throttle % (ThrotPct) | Reports inverter power curtailment % | ✅ Readable (40180), always 0% in testing | None — read-only info point | N/A — may activate under thermal/grid stress |
 | Throttle source (ThrotSrc) | Bitfield of throttle cause | 0xFFFFFFFF (unimplemented) | Not implemented — no alternative | Report; no workaround possible |
-| Grid charge/discharge limits | `WChaRteMax` (40259, RW) / `WDisChaRteMax` (40260, RW) | Registers return 0xFFFF. Not verified with proper sequencing† | Cloud API `setPowerControl` is only known path | May work with proper phased protocol |
-| Max power limit (WMaxLimPct) | Caps inverter output at % of rated | Not verified with proper sequencing† | Not implemented | May work with proper phased protocol |
+| Grid charge/discharge limits | `WChaRteMax` / `WDisChaRteMax` (RW per spec) | ❌ Confirmed: registers return 0xFFFF, writes silently discarded even with VPP + proper sequencing | Cloud API `setPowerControl` is only path | Report as defect |
+| VA charge/discharge limits | `VAChaRteMax` / `VADisChaRteMax` (RW per spec) | ❌ Confirmed: 0xFFFF, writes discarded | Cloud API only | Report as defect |
+| Max power limit (WMaxLimPct) | Caps inverter output at % of rated | ❌ **Confirmed non-functional.** WMaxLimPctEna write silently discarded (readback=0). WMaxLimPct readable (1000) but enable never sticks | Not implemented | Report as defect |
+| Reactive power enable (VarSetEna) | Enables reactive power control | ❌ **Confirmed non-functional.** Write accepted, readback=0 (silently discarded). VarSetMod/VarSetPri readable but VarMaxInj/Abs=0xFFFF | Not implemented | Report as defect |
 
-> † **Sequencing caveat:** These features were tested with rapid-fire writes, not the proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 100-500ms inter-phase settling. Re-verification required. See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
+> **Test methodology:** All features re-tested 2026-03-13 using proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 200-500ms inter-phase settling. See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
 >
 > **Test evidence:** [2026-03-13_pcs_charge_rate_write_probe.md](../tests/results/2026-03-13_pcs_charge_rate_write_probe.md), [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md)
 
@@ -225,8 +228,8 @@ Model 715 `LocRemCtl` (addr 1089 base-1) reports `1` = **Local Control** and is 
 
 **FranklinWH violates this fundamentally.** The aGate:
 - ✅ Accepts M704 power writes (WSetEna, WSetPct, WSetMod) despite being in Local mode
-- ❌ Ignores M715 lifecycle writes (ControllerHb — not verified with proper sequencing)
-- ⚠️ Accepts WSetRvrtTms config writes — countdown behavior not verified with proper sequencing
+- ❌ Ignores M715 lifecycle writes (ControllerHb — **confirmed non-functional** even with proper sequencing)
+- ✅ **WSetRvrtTms WORKS** with proper sequencing (countdown active, 59→55→52)
 
 This creates a **selective-write hybrid** that is non-standard:
 
@@ -235,8 +238,8 @@ This creates a **selective-write hybrid** that is non-standard:
 | Power writes (WSetPct) | ❌ Reject | ✅ Accepts |
 | Power enable (WSetEna) | ❌ Reject | ✅ Accepts |
 | Reversion config (WSetRvrtTms) | ❌ Reject | ✅ Accepts value |
-| Reversion countdown (WSetRvrtRem) | N/A | ⚠️ Not verified with proper sequencing |
-| Controller heartbeat (ControllerHb) | ❌ Reject | ⚠️ Not verified with proper sequencing |
+| Reversion countdown (WSetRvrtRem) | N/A | ✅ **Active!** Counts down correctly (59→55→52) |
+| Controller heartbeat (ControllerHb) | ❌ Reject | ❌ **Confirmed non-functional** (write accepted, readback=0) |
 | DER heartbeat (DERHb) | N/A | ❌ Always 0 |
 | LocRemCtl write | Allow | ❌ Read-only |
 
@@ -246,9 +249,11 @@ This creates a **selective-write hybrid** that is non-standard:
 
 1. **VPP Mode provides clean control handoff:** When `WSetEna=1`, the aGate suspends native mode and grants exclusive Modbus control. This is cooperative, not conflicting.
 
-2. **Software watchdog remains critical:** Until WSetRvrtTms is re-verified with proper SunSpec phased sequencing, the software timer (`duration_s` / `--revert`) is the only safety net for crash-orphan recovery.
+2. **Hardware reversion timer available:** WSetRvrtTms **works** — the aGate counts down and (potentially) reverts the power setpoint. However, WSetEna may persist after timer expiry. Further investigation needed on whether power actually reverts or just the countdown is cosmetic.
 
-3. **Virtual modes operate within VPP Mode:** Our virtual Self-Consumption/TOU/Peak-Shave modes work by calculating power targets and issuing M704 commands while VPP Mode is active.
+3. **ControllerHb remains non-functional:** Even with proper sequencing, heartbeat writes are silently discarded. Software watchdog (`duration_s` / `--revert`) remains the primary safety mechanism.
+
+4. **Virtual modes operate within VPP Mode:** Our virtual Self-Consumption/TOU/Peak-Shave modes work by calculating power targets and issuing M704 commands while VPP Mode is active.
 
 4. **Library vs consumer boundary:** The library exposes `send_command()` and `reset_control_state()`. Crash recovery, watchdog timers, and session lifecycle are **consumer responsibilities** (e.g. FEM's `ModbusControlService`).
 
