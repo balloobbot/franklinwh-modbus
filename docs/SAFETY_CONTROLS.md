@@ -228,7 +228,7 @@ tail -100 data/logs/franklinwh.log | grep -c "ERROR"
 ## ⚡ OPERATIONAL SAFETY: Conflict Detection
 
 ### Purpose
-Prevent the script from fighting with aGate Cloud API or native operating modes.
+Prevent orphaned VPP Mode sessions or conflicting control when VPP Mode is not cleanly managed.
 
 ### How It Works
 
@@ -251,7 +251,7 @@ The script detects conflicts in two ways:
 
 ⚠️  Use --reset-on-start to force takeover
 ⚠️  Or change aGate mode in vendor app first
-⚠️  Exiting to avoid fighting with aGate control!
+⚠️  Exiting — VPP Mode not active, cannot override native control!
 ```
 
 ### Resolution Options

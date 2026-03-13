@@ -149,20 +149,29 @@ m704.WSetPct.value = -pct_raw  # Invert for hardware
 
 ---
 
-## ⚠️ Write Access Asymmetry — The Core FranklinWH Quirk
+## ⚠️ Write Access Asymmetry & VPP Mode Handoff
 
 > **This is the most significant implementation quirk affecting library design.**
 
-### The Problem
+### Control Architecture: VPP Mode Clean Handoff
 
-FranklinWH creates a **split-brain control architecture** where two independent control planes exist with different write access:
+When `WSetEna=1` is written to M704, the aGate **automatically activates VPP Mode** (exclusive remote control). This is a **clean handoff**, not a split-brain architecture:
+
+1. **`WSetEna=1`** → aGate activates VPP Mode, native mode (Self-Consumption/TOU) is **suspended**
+2. **M704 commands** control battery power exclusively while VPP is active
+3. **`WSetEna=0`** → VPP deactivates, native mode **cleanly resumes**
+
+See [VPP_MODE_COMPLETE_EXTRACTION.md](../archive/docs/VPP_MODE_COMPLETE_EXTRACTION.md) for the original discovery.
+
+### Write Access Table
 
 | Control Plane | Registers | Read | Write | What It Controls |
 |---------------|-----------|------|-------|------------------|
-| **SunSpec Standard** | M704 (40xxx) | ✅ | ✅ | Battery power (WSet, WSetPct, WSetEna) |
+| **SunSpec M704** | 40318-40354 | ✅ | ✅ | Battery power via VPP Mode (WSet, WSetPct, WSetEna) |
 | **FranklinWH Extensions** | 15507-15509 | ✅ | ❌ Read-Only* | Operating mode, SoC reserves |
+| **M702 Rate Settings** | 40259-40262 | ✅ | ❌ (tested 2026-03-13) | Charge/discharge rate limits |
 
-*Write access requires **SPAN Modbus** unlock — enabled by FranklinWH Support for owners of SPAN electrical panels. The aGate's Ethernet port passes through the SPAN Panel, which controls Modbus access.
+*Extension write access requires **SPAN Modbus** unlock — enabled by FranklinWH Support for SPAN panel owners.
 
 ### What This Means in Practice
 
@@ -173,8 +182,38 @@ FranklinWH creates a **split-brain control architecture** where two independent 
 │ ✅ Discharge battery at 2000W          ❌ Set reserve to 30% │
 │ ✅ Set idle (stop charge/discharge)    ❌ Switch to Backup   │
 │ ✅ Read all status + extensions        ❌ Change any mode    │
+│ ✅ Release control (native resumes)    ❌ Set PCS rate limits│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### SunSpec2 Compliance Matrix
+
+> See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) for proper phased sequencing protocol.
+
+| Feature | SunSpec2 Spec | FranklinWH Reality | Library Workaround | Vendor Fix? |
+|---------|--------------|-------------------|-------------------|-------------|
+| LocRemCtl handoff | Remote (0) enables writes | Always Local (1), read-only; yet M704 writes work | None needed — power writes accepted despite Local | Report as spec deviation |
+| Controller heartbeat | Client writes ControllerHb; DER monitors | Not verified with proper sequencing† | Not implemented — no alternative | May work with proper phased protocol |
+| Reversion timer (WSetRvrtTms) | DER counts down, auto-reverts power | Not verified with proper sequencing† | Software `threading.Timer` via `duration_s` | May work with proper phased protocol |
+| Battery state (M713.Sta) | Reflects CHARGING/DISCHARGING/IDLE | Always 0 (OFF) | Derived from M714.DCW ±50W deadband | Report; workaround is robust |
+| DC Current (M714.DCA) | Reports battery DC current | Always 0 | Calculated: I = P/V from DCW/DCV | Report; workaround is robust |
+| Ramp rate (WRmp) | Smooths power transitions | Returns None (unimplemented) | Software SoC ramp via `--soc-ramp-window` | Report; software ramp is different concept |
+| Extension register writes | N/A (vendor-specific) | Read-only without SPAN Modbus unlock | Cloud API bypass (Tier 2) for mode changes | SPAN unlock required; vendor provisioning |
+| VPP Mode activation | WSetEna=1 starts remote DER control | ✅ Works — activates VPP Mode (exclusive) | None needed — works as intended | N/A — working correctly |
+| Command persistence | WSetRvrtTms reverts after timeout | Commands persist indefinitely | Software timer + `reset_control_state()` | Tied to WSetRvrtTms re-test |
+| Throttle % (ThrotPct) | Reports inverter power curtailment % | ✅ Readable (40180), always 0% in testing | None — read-only info point | N/A — may activate under thermal/grid stress |
+| Throttle source (ThrotSrc) | Bitfield of throttle cause | 0xFFFFFFFF (unimplemented) | Not implemented — no alternative | Report; no workaround possible |
+| Grid charge/discharge limits | `WChaRteMax` (40259, RW) / `WDisChaRteMax` (40260, RW) | Registers return 0xFFFF. Not verified with proper sequencing† | Cloud API `setPowerControl` is only known path | May work with proper phased protocol |
+| Max power limit (WMaxLimPct) | Caps inverter output at % of rated | Not verified with proper sequencing† | Not implemented | May work with proper phased protocol |
+
+> † **Sequencing caveat:** These features were tested with rapid-fire writes, not the proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 100-500ms inter-phase settling. Re-verification required. See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
+>
+> **Test evidence:** [2026-03-13_pcs_charge_rate_write_probe.md](../tests/results/2026-03-13_pcs_charge_rate_write_probe.md), [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md)
+
+### Crash-Orphan Risk
+
+> [!CAUTION]
+> If the consumer application crashes while `WSetEna=1`, the aGate remains in VPP Mode indefinitely. There is no hardware timeout to auto-revert (WSetRvrtTms behavior unverified). The library provides `reset_control_state()` for graceful shutdown, but **crash recovery is a consumer responsibility**, not a library concern.
 
 ### The LocRemCtl Paradox (Model 715) — TESTED 2026-03-08
 
@@ -186,8 +225,8 @@ Model 715 `LocRemCtl` (addr 1089 base-1) reports `1` = **Local Control** and is 
 
 **FranklinWH violates this fundamentally.** The aGate:
 - ✅ Accepts M704 power writes (WSetEna, WSetPct, WSetMod) despite being in Local mode
-- ❌ Ignores M715 lifecycle writes (ControllerHb — value silently discarded)
-- ⚠️ Accepts WSetRvrtTms config writes BUT does not execute the countdown behavior
+- ❌ Ignores M715 lifecycle writes (ControllerHb — not verified with proper sequencing)
+- ⚠️ Accepts WSetRvrtTms config writes — countdown behavior not verified with proper sequencing
 
 This creates a **selective-write hybrid** that is non-standard:
 
@@ -196,8 +235,8 @@ This creates a **selective-write hybrid** that is non-standard:
 | Power writes (WSetPct) | ❌ Reject | ✅ Accepts |
 | Power enable (WSetEna) | ❌ Reject | ✅ Accepts |
 | Reversion config (WSetRvrtTms) | ❌ Reject | ✅ Accepts value |
-| Reversion countdown (WSetRvrtRem) | N/A | ❌ Never activates |
-| Controller heartbeat (ControllerHb) | ❌ Reject | ❌ Silently ignores |
+| Reversion countdown (WSetRvrtRem) | N/A | ⚠️ Not verified with proper sequencing |
+| Controller heartbeat (ControllerHb) | ❌ Reject | ⚠️ Not verified with proper sequencing |
 | DER heartbeat (DERHb) | N/A | ❌ Always 0 |
 | LocRemCtl write | Allow | ❌ Read-only |
 
@@ -205,13 +244,13 @@ This creates a **selective-write hybrid** that is non-standard:
 
 ### Design Implications
 
-1. **Cannot rely on hardware lifecycle features:** Heartbeat and reversion must be implemented **in software** (application-side watchdog timer).
+1. **VPP Mode provides clean control handoff:** When `WSetEna=1`, the aGate suspends native mode and grants exclusive Modbus control. This is cooperative, not conflicting.
 
-2. **Conflicting Control Sources:** The aGate's Cloud API mode continues running while Modbus power commands override battery behavior. Commands don't expire via hardware timer — they persist until manually reset or the connection is lost.
+2. **Software watchdog remains critical:** Until WSetRvrtTms is re-verified with proper SunSpec phased sequencing, the software timer (`duration_s` / `--revert`) is the only safety net for crash-orphan recovery.
 
-3. **Virtual Modes Are Illusions:** Our "virtual" Self-Consumption/TOU/Peak-Shave modes cannot actually change the aGate's operating mode — they can only fight against it using M704 power commands.
+3. **Virtual modes operate within VPP Mode:** Our virtual Self-Consumption/TOU/Peak-Shave modes work by calculating power targets and issuing M704 commands while VPP Mode is active.
 
-4. **Intent-Based Conflict Detection Must Account for This:** The conflict detection system (see `TODO_INTENT_BASED_CONFLICT_DETECTION.md`) must understand that the aGate's native mode (read from extension 15507) will always be exerting its own intent in parallel.
+4. **Library vs consumer boundary:** The library exposes `send_command()` and `reset_control_state()`. Crash recovery, watchdog timers, and session lifecycle are **consumer responsibilities** (e.g. FEM's `ModbusControlService`).
 
 5. **SPAN Modbus Unlock Changes Everything:** If write access to extensions is enabled, the library could fully control the aGate — changing modes, setting reserves, etc. This is a fundamentally different operating mode that the library should detect and adapt to.
 
@@ -233,8 +272,9 @@ def _probe_extension_writable(self):
 
 ### Related
 
-- `docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md` — Must be re-evaluated given this asymmetry
-- `docs/VERIFICATION_BASELINE.md` — Extension register access table
+- [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) — Proper 6-phase SunSpec control protocol
+- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Re-scoped with VPP handoff model
+- [VPP_MODE_COMPLETE_EXTRACTION.md](../archive/docs/VPP_MODE_COMPLETE_EXTRACTION.md) — Original VPP Mode discovery
 
 ---
 
@@ -318,11 +358,12 @@ FranklinWH serial numbers encode device type, hardware revision, and unique ID:
 
 - **Scale Factors:** Always read SF registers dynamically — they can change
 - **Model Discovery:** aGate implements models 1, 502, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715
-- **Write Sequencing:** Model 704 requires specific write sequence (STOP → CONFIG → ENABLE → VERIFY)
+- **Write Sequencing:** All SunSpec DER control groups require proper phased sequencing (Phase 0-5). See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md)
+- **Timing:** Minimum 100-500ms inter-phase settling. aGate round-trip ~98ms average. Do not rapid-fire writes.
 - **Timeout:** WiFi networks to the aGate can be slow; always use configurable timeout (default 10s)
-- **Batch Writes:** `tools/modbus_sunspec_readwrite.py` has batch write capability (untested)
+- **Addressing:** M715 registers accessible only at base-1 addresses. M704 works at both base-1 and base-40000.
 
 ---
 
-*Last Updated: 2026-03-12 (Power rounding quirk, serial number structure, DCW sign convention fix)*  
+*Last Updated: 2026-03-13 (VPP Mode handoff architecture, SunSpec2 Compliance Matrix, PCS write-probe results, SunSpec sequencing reference)*  
 *Device Tested: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*

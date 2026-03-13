@@ -36,9 +36,9 @@ See: `docs/FRANKLINWH_SUNSPEC_QUIRKS.md` → "Write Access Asymmetry" for full d
 
 1. **Phase 2 (Energy Context Enhancement):** ✅ Still valid — reads only, no writes needed.
 
-2. **Phase 3 (Intent-Based Conflict Detection):** ⚠️ **Needs rethinking.** The design assumes we detect conflicts between what the *user asked for* and what the *aGate is doing*. But there's a third actor: **the aGate's native mode** (Self-Consumption, TOU, etc.) which continues running in parallel and will override Modbus commands when they expire.
+2. **Phase 3 (Intent-Based Conflict Detection):** ⚠️ **Needs rethinking.** With VPP Mode discovery (2026-03-13), we now know `WSetEna=1` **suspends** the aGate's native mode (Self-Consumption, TOU, etc.) rather than running in parallel. The conflict model is simpler: during VPP Mode, the library has exclusive battery control. Conflict detection is only needed when VPP is **not** active or during the transition window.
 
-3. **Virtual Mode Controller (modes.py):** ⚠️ **Fundamentally limited.** Virtual modes cannot change the aGate's OnGridMode — they can only fight against it using M704 power commands that eventually timeout.
+3. **Virtual Mode Controller (modes.py):** ✅ **Operates within VPP Mode.** Virtual modes issue M704 power commands while VPP Mode (`WSetEna=1`) provides exclusive control. Native mode is suspended, not fighting. Commands persist until explicitly reset or a software timeout fires (hardware reversion timer unverified — see [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md)).
 
 ### Revised Conflict Model
 
@@ -61,7 +61,7 @@ The conflict detection should model **three-way intent**:
    but it expires   observe this      influence this
 ```
 
-**True conflict exists when:** The aGate's native mode intent *opposes* the user's Modbus command AND the power balance cannot be explained by natural energy flow (solar/load).
+**True conflict exists when:** VPP Mode is **not** active (`WSetEna=0`) AND the aGate's native mode behavior *opposes* the user's expected intent, OR during VPP Mode when the measured power does not match the commanded setpoint (indicating firmware override or safety limit).
 
 ### Two Operating Modes
 
@@ -69,7 +69,7 @@ The library should detect and adapt to the write capability:
 
 | Mode | Extension Writes | Control Strategy |
 |------|-----------------|------------------|
-| **Standard** (current) | ❌ Read-only | M704 power override only; commands expire; aGate native mode runs in parallel |
+| **Standard** (current) | ❌ Read-only | M704 power via VPP Mode (`WSetEna=1`); native mode **suspended** during VPP; crash-orphan risk if consumer crashes |
 | **SPAN Unlocked** (future) | ✅ Full write | Can set mode, reserves, full control — intent-based detection works as originally designed |
 
 ### Recommendation
@@ -327,3 +327,5 @@ def test_night_charge_with_discharge_intent_is_conflict():
 - [CONFLICT_DETECTION_ANALYSIS.md](./CONFLICT_DETECTION_ANALYSIS.md) - Full analysis
 - [SOC_VALIDATION_IMPLEMENTATION.md](./SOC_VALIDATION_IMPLEMENTATION.md) - Related SoC work
 - [VPP_MODE_DISCOVERY.md](./VPP_MODE_DISCOVERY.md) - Virtual mode documentation
+- [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) - Proper 6-phase SunSpec control protocol
+- [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) - VPP Mode handoff & SunSpec2 Compliance Matrix

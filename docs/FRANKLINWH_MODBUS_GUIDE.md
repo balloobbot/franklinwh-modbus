@@ -118,11 +118,11 @@ M715 `LocRemCtl` (addr 1089) is **read-only, always "Local" (1)**. Per SunSpec 2
 | Feature | SunSpec 2 Expects | FranklinWH Does |
 |---------|-------------------|-----------------|
 | Power writes (WSetPct) | ❌ Reject | ✅ Accepts |
-| Reversion countdown | N/A | ❌ Never activates |
-| Controller heartbeat | ❌ Reject | ❌ Silently ignores |
+| Reversion countdown | N/A | ⚠️ Not verified with proper sequencing† |
+| Controller heartbeat | ❌ Reject | ⚠️ Not verified with proper sequencing† |
 | LocRemCtl write | Allow | ❌ Read-only |
 
-**Impact:** All lifecycle features (heartbeat, reversion timer) must be implemented in **software**.
+**Impact:** All lifecycle features (heartbeat, reversion timer) currently implemented in **software**. †Re-verification with proper SunSpec 6-phase sequencing pending — see [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
 
 ### 5.2 Command Persistence
 
@@ -291,9 +291,10 @@ h = ctrl.healthcheck()
 
 | Test | Result | Evidence |
 |------|--------|----------|
-| P1: Heartbeat + Reversion | ❌ Non-functional | [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md) |
-| P2: WMaxLimPct | ❌ Read-only | [2026-03-08_p2p4_control_tests.md](../tests/results/2026-03-08_p2p4_control_tests.md) |
-| P3: VarSet | ❌ Read-only | Same file |
+| P1: Heartbeat + Reversion | ⚠️ Not verified with proper sequencing† | [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md) |
+| P2: WMaxLimPct | ⚠️ Not verified with proper sequencing† | [2026-03-08_p2p4_control_tests.md](../tests/results/2026-03-08_p2p4_control_tests.md) |
+| P3: VarSet | ⚠️ Not verified with proper sequencing† | Same file |
+| PCS WChaRteMax/WDisChaRteMax | ⚠️ Not verified with proper sequencing† | [2026-03-13_pcs_charge_rate_write_probe.md](../tests/results/2026-03-13_pcs_charge_rate_write_probe.md) |
 | P4: WRmp | ❌ Unimplemented | Same file |
 | PFWInjEna | ✅ Writable | Same file |
 | Extension write-probe | ❌ Read-only | [2026-03-08_extension_write_probe.md](../tests/results/2026-03-08_extension_write_probe.md) |
