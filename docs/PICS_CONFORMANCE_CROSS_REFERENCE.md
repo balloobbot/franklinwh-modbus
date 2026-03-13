@@ -157,15 +157,17 @@ The following registers are declared "supported RW" in the PICS but **fail to pe
 
 ### Features Correctly Declared as Unimplemented
 
-M702: WChaRteMax (259), WDisChaRteMax (260), VAChaRteMax (261), VADisChaRteMax (262), VarMaxInj (257), VarMaxAbs (258) — all return 0xFFFF.
-M704: WMaxLimPctRvrt (312), WMaxLimPctEnaRvrt (313), VarSetRvrt (336), WRmp (345) — all return 0xFFFF or None.
+M702: WChaRteMax (259), WDisChaRteMax (260), VAChaRteMax (261), VADisChaRteMax (262), VarMaxInj (257), VarMaxAbs (258), **PFOvrExt (267)**, **PFUndExt (268)** — all return 0xFFFF.
+M704: WMaxLimPctRvrt (312), WMaxLimPctEnaRvrt (313), VarSetRvrt (336), WRmp (345), **PFWInjEnaRvrt (299)**, **PFWInjRvrtTms (300)**, **PFWAbsEna (304)**, **PFWAbsEnaRvrt (305)** — all return 0xFFFF.
 
 ### Features That Match PICS
 
-M704: WSetEna (318), WSetMod (319), WSet (320), WSetPct (324), **WSetRvrt (322)**, WSetEnaRvrt (326), WSetRvrtTms (327), WSetRvrtRem (329), PFWInjEna (298).
+M704: WSetEna (318), WSetMod (319), WSet (320), WSetPct (324), **WSetRvrt (322)**, WSetEnaRvrt (326), WSetRvrtTms (327), WSetRvrtRem (329), **PFWInjEna (298)**.
 M715: LocRemCtl (1089, R-only as declared).
 
-> **WSetRvrt (322) verified 2026-03-13:** Write=2500, readback=[0, 2500] ✅ STICKY. The reversion target is writable and persists.
+> **WSetRvrt (322) verified:** Write=2500, readback=[0, 2500] ✅ STICKY.
+
+> **PFWInjEna (298) verified:** Write toggle 0↔1 works ✅ STICKY. However, PF setpoint registers (PFOvrExt/PFUndExt) are 0xFFFF, and the entire PF reversion group (PFWInjEnaRvrt, PFWAbsEna, PFWAbsEnaRvrt) is 0xFFFF. No observable physical PF change when toggling. **Enable register works but there is nothing to enable — NOT a viable reactive power path.**
 
 ---
 
@@ -396,8 +398,7 @@ CLOSED — PICS violation filed:
   🔴 WSetEnaRvrt cosmetic      — (Issue 4, corollary)
 
 OPEN — test required before production sign-off:
-  🟡 PFWInjEna (298) functional outcome
-     (may be only surviving indirect reactive power path)
+  (none remaining — all items closed)
 
 PRODUCTION GATE:
   🔴 Issue 4 MUST be resolved or formally accepted as a
@@ -423,4 +424,4 @@ Given WSetRvrtTms non-reversion (Issue 4) and ControllerHb non-functional (Issue
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:10 AEDT*
+*Last updated: 2026-03-13 23:15 AEDT*
