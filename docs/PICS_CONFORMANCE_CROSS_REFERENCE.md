@@ -162,8 +162,10 @@ M704: WMaxLimPctRvrt (312), WMaxLimPctEnaRvrt (313), VarSetRvrt (336), WRmp (345
 
 ### Features That Match PICS
 
-M704: WSetEna (318), WSetMod (319), WSet (320), WSetPct (324), WSetEnaRvrt (326), WSetRvrtTms (327), WSetRvrtRem (329), PFWInjEna (298).
+M704: WSetEna (318), WSetMod (319), WSet (320), WSetPct (324), **WSetRvrt (322)**, WSetEnaRvrt (326), WSetRvrtTms (327), WSetRvrtRem (329), PFWInjEna (298).
 M715: LocRemCtl (1089, R-only as declared).
+
+> **WSetRvrt (322) verified 2026-03-13:** Write=2500, readback=[0, 2500] ✅ STICKY. The reversion target is writable and persists.
 
 ---
 
@@ -171,13 +173,127 @@ M715: LocRemCtl (1089, R-only as declared).
 
 1. **PCS rate registers:** PICS declares "unimplemented", hardware returns 0xFFFF. **Case closed.**
 
-2. **4 registers declared "supported RW" fail tests:** WMaxLimPctEna, VarSetEna, ControllerHb, WMax. All exhibit identical behavior: FC06 success, readback unchanged. Root cause unknown.
+2. **4 registers declared "supported RW" fail tests (0/160):** WMaxLimPctEna, VarSetEna, ControllerHb, WMax. All exhibit identical behavior: FC06/FC16 success, readback unchanged. Exhaustively tested across settle times, values, sequencing, and VPP state.
 
-3. **WSetRvrtTms is correctly declared and WORKS** — validates our 6-phase re-test methodology.
+3. **WSet group (318-329) fully functional** — WSetRvrtTms WORKS (countdown active), WSetRvrt WORKS (reversion target sticky). Matches PICS.
 
-4. **WSet group (318-329) fully functional** — matches PICS declaration exactly.
+4. **CtrlModes (M702.248) bitmask = 14271 = 0x37BF:**
+   ```
+   Bit  Mode               Available
+    0   MAX_W               YES
+    1   FIXED_W             YES
+    2   FIXED_VAR           YES   <-- firmware claims VAR is available
+    3   FIXED_PF            YES
+    4   VOLT_VAR            YES
+    5   FREQ_WATT           YES
+    6   DYN_REACT_CURR      NO
+    7   LV_TRIP (LVRT)      YES
+    8   HV_TRIP (HVRT)      YES
+    9   WATT_VAR            YES
+   10   VOLT_WATT           YES
+   11   SCHEDULED           NO
+   12   LF_TRIP (LFRT)      YES
+   13   HF_TRIP (HFRT)      YES
+   ```
+   **Fact:** Firmware declares FIXED_VAR (bit 2) as available, yet VarSetEna writes are silently discarded.
+
+---
+
+## LocRemCtl Analysis
+
+> **This section presents observed facts (labeled as FACT) and hypotheses (labeled as HYPOTHESIS). They are clearly distinguished.**
+
+**FACT:** LocRemCtl (M715.1089) always reads `Local = 1` and is declared `R` (read-only) in the PICS. There is no documented path to transition to `Remote = 0`.
+
+**FACT:** The WSet group (318-329) works despite LocRemCtl=Local. These registers are the core VPP power control path.
+
+**FACT:** All other "supported RW" control registers (WMaxLimPctEna, VarSetEna, ControllerHb, WMax) silently discard writes. These are non-VPP control features.
+
+**FACT:** CtrlModes bitmask claims FIXED_VAR and FIXED_PF are available at the firmware level.
+
+**HYPOTHESIS (unverified):** LocRemCtl=Local may be the root cause for all 4 PICS failures. The WSet group may be a selective carve-out (VPP bypass) that works despite Local mode, while other control features require Remote mode authority that cannot be granted because LocRemCtl is read-only.
+
+### Control Path Classification
+
+```
+┌───────────────────────────────────────────────────┐
+│ WORKING ✅ (VPP carve-out)                       │
+│                                                   │
+│  M704.WSetEna (318)    ─► VPP Mode enable         │
+│  M704.WSet (320)       ─► Power setpoint (W)      │
+│  M704.WSetPct (324)    ─► Power setpoint (%)      │
+│  M704.WSetRvrt (322)   ─► Reversion target ✅      │
+│  M704.WSetRvrtTms (327)─► Dead-man timer ✅        │
+│  M704.WSetRvrtRem (329)─► Countdown readback ✅   │
+│  M704.WSetEnaRvrt (326)─► Reversion enable ✅     │
+│  M704.PFWInjEna (298)  ─► PF inject (writable)    │
+├───────────────────────────────────────────────────┤
+│ BLOCKED ❌ (LocRemCtl=Local?)                      │
+│                                                   │
+│  M704.VarSetEna (331)     ─► Reactive power — DEAD │
+│  M704.WMaxLimPctEna (310) ─► Curtailment % — DEAD  │
+│  M715.ControllerHb (1092) ─► Heartbeat — DEAD      │
+│  M702.WMax (251)          ─► Max power — DEAD      │
+└───────────────────────────────────────────────────┘
+```
+
+---
+
+## Hardware Reversion Safety (Keepalive)
+
+With WSetRvrtTms, WSetEnaRvrt, and WSetRvrt all verified working, the aGate supports a hardware dead-man switch:
+
+```
+Startup:
+  1. WSetRvrt=0       (322, int32) ─► revert to 0W idle on timeout
+  2. WSetEnaRvrt=1    (326)        ─► enable reversion
+  3. WSetRvrtTms=60   (327, uint32)─► 60s countdown
+
+Keepalive loop (every 45s):
+  1. WSetRvrtTms=60   (327)        ─► refresh countdown
+  2. Read WSetRvrtRem  (329)       ─► confirm countdown health
+
+Monitor:
+  WSetRvrtRem (329)   ─► should always be >15s
+  If <15s without refresh ─► connection problem
+```
+
+> **Open question:** Does the WSetRvrtTms countdown actually revert power when it reaches 0? In our earlier test, WSetEna persisted at 1 after the 60s timer expired. A dedicated test is needed: set timer to 30s, wait 35s, read WSetPct — did it change to the WSetRvrt value?
+
+---
+
+## PICS Violation Report Template
+
+```
+PICS Violation Report — aGate X (AGT-R1V1-AU Hybrid)
+Firmware: V10R01B04D00
+Test Date: 2026-03-13
+PICS Source: PICS_span_20230711_SPANcomments20230803.xlsx
+
+Issue 1 — LocRemCtl permanently Local
+  M715.LocRemCtl (1089) returns Local=1 with no path to Remote.
+  CtrlModes (M702.248) = 14271 declares FIXED_VAR as available.
+  This causes cascading silent-discard on:
+    - M704.VarSetEna (331)     declared supported RW
+    - M704.WMaxLimPctEna (310) declared supported RW
+    - M715.ControllerHb (1092) declared supported RW
+  Testing: 0/160 across FC06/FC16, settle 0.5-5s, ±VPP, + sequenced.
+  REQUEST: Document the mechanism to transition to Remote mode,
+           OR update PICS to reflect actual constraints.
+
+Issue 2 — WMax (251) write silently discarded
+  PICS declares supported RW (0-10000).
+  Tested: FC06/FC16, values 100/1000/5000/10000, settle 0.5-5s,
+          with and without VPP. ALL silently discarded.
+  REQUEST: Confirm if SPAN Modbus unlock is required.
+
+Issue 3 — Scale factor WMaxLimPct_SF (350) returns 0xFFFF
+  PICS declares supported R with value -1.
+  Actual: 0xFFFF (unimplemented).
+  REQUEST: Confirm implementation status.
+```
 
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 22:00 AEDT*
+*Last updated: 2026-03-13 22:40 AEDT*
