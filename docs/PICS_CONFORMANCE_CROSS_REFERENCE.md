@@ -39,7 +39,7 @@ All "unimplemented" registers match exactly (0xFFFF). **WMax (251)** is declared
 |:----:|-------|:-----------:|:--------:|:---------------:|:------:|
 | 298 | PFWInjEna | supported | RW | Writable/sticky ✅ but PF setpoints 0xFFFF | **⚠️ Issue 6** |
 | **310** | **WMaxLimPctEna** | **supported** | **RW** | **❌ Write accepted, readback=0** | **⚠️ VIOLATION** |
-| 311 | WMaxLimPct | supported | RW (0-100) | Readable (1000), but enable won't stick | Partial |
+| 311 | WMaxLimPct | supported | RW (0-100) | Readable (1000). Earlier write=500 readback=500 may be cache artifact (see note). Phase 3: readback=1000 after write=500 | ⚠️ Unreliable |
 | 312 | WMaxLimPctRvrt | unimplemented | RW | 0xFFFF ✅ | ✅ Expected |
 | 313 | WMaxLimPctEnaRvrt | unimplemented | RW | 0xFFFF ✅ | ✅ Expected |
 | **318** | **WSetEna** | **supported** | **RW** | **✅ WORKS (VPP Mode)** | **✅** |
@@ -127,7 +127,7 @@ The following registers are declared "supported RW" in the PICS but **fail to pe
 
 | Variable | Why Not | Risk |
 |----------|---------|:----:|
-| **Unit ID 1 or 126** | Library auto-detects UID=2; not varied | LOW — reads work at UID=2 |
+| **Unit ID 1 or 126** | Library auto-detects UID=2; not varied | LOW — reads work at UID=2. UID=126 is SunSpec discovery UID; may expose different register map or commissioning interface. Worth one quick scan session. |
 | **Cloud API VPP verification** | No FEM running during test | MEDIUM — VPP may not have fully activated |
 | **Base address ±1** | Library SunSpec scan confirms addresses | LOW — reads return correct values |
 | **FC15 (Write Multiple Coils)** | Registers are holding registers, not coils | NONE — not applicable |
@@ -221,7 +221,14 @@ M715: LocRemCtl (1089, R-only as declared).
 
 **FACT:** CtrlModes bitmask claims FIXED_VAR and FIXED_PF are available at the firmware level.
 
-**HYPOTHESIS (unverified):** LocRemCtl=Local may be the root cause for all 4 PICS failures. The WSet group may be a selective carve-out (VPP bypass) that works despite Local mode, while other control features require Remote mode authority that cannot be granted because LocRemCtl is read-only.
+**HYPOTHESIS A (Access Gate — unverified):** LocRemCtl=Local may be the root cause. The WSet group may be a selective VPP carve-out that works despite Local mode, while other features require Remote authority.
+
+**HYPOTHESIS B (Firmware Stub — competing):** The failing registers may be unimplemented stubs that ACK at the Modbus transport layer but are not wired to any control subsystem. This is architecturally distinct from a gate:
+```
+Hypothesis A: Write → [LocRemCtl=Local filter] → dropped
+Hypothesis B: Write → Modbus transport ACK → /dev/null (not wired)
+```
+**Why this matters:** If A, the vendor fix is documenting/exposing the Remote transition path. If B, the vendor must implement the register handlers — a larger firmware effort. Both hypotheses produce identical test results (silent discard). Filing both with the vendor is recommended.
 
 ### Control Path Classification
 
@@ -431,6 +438,16 @@ Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY CRITICAL)
   firmware version and timeline. This blocks production
   deployment of any unattended VPP control application.
 
+  SYSTEMIC SAFETY FAILURE NOTE:
+  ControllerHb (Issue 1) and WSetRvrtTms (Issue 4) are
+  designed as complementary safety mechanisms in SunSpec:
+    Controller → ControllerHb → DERHb echo → if stops →
+    WSetRvrtTms fires → power reverts
+  BOTH mechanisms are non-functional simultaneously on this
+  firmware. This is not two independent bugs — it is a
+  complete failure of the SunSpec M704+M715 safety architecture.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
+
 Issue 5 — No input validation on WSet/WSetPct (SAFETY HIGH)
   Severity: HIGH — software must enforce all range limits.
 
@@ -455,6 +472,7 @@ Issue 5 — No input validation on WSet/WSetPct (SAFETY HIGH)
   internally to WMaxRtg=10000W before execution?).
   If not clamped internally, this is an input validation
   defect.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
 
 Issue 6 — PFWInjEna (298) enable gates unimplemented setpoints
   PICS declares PFWInjEna (298), PFOvrExt (267), PFUndExt (268),
@@ -483,6 +501,7 @@ Issue 6 — PFWInjEna (298) enable gates unimplemented setpoints
   REQUEST: Confirm implementation status of PF setpoint
   registers (267/268). Update PICS to reflect unimplemented
   status or provide firmware version where these are available.
+  Filed: 2026-03-13 | Firmware: V10R01B04D00 | Status: OPEN
 ```
 
 ---
@@ -521,6 +540,19 @@ PRODUCTION GATE:
      Software must clamp WSet to [0, WMaxRtg] and
      WSetPct to [-1000, 1000] before writing.
      No hardware protection exists.
+
+PRODUCTION GATE — Software Mitigation Clearance Conditions:
+  Issue 4 mitigation:
+    □ Software watchdog covers all 4 scenarios in table above
+    □ Watchdog timeout ≤ 60s (configurable)
+    □ reset_control_state() explicitly writes WSetEna=0
+    □ Startup checks WSetEna (318), releases if =1 before dispatch
+    □ Documented as sole safety mechanism (no hardware backup)
+  Issue 5 mitigation:
+    □ WSet clamped to [0, WMaxRtg] before write
+    □ WSetPct clamped to [-1000, 1000] before write
+    □ Unit test coverage for clamp boundary conditions
+    □ Vendor confirms downstream clamping status (informational)
 ```
 
 ---
@@ -556,4 +588,4 @@ SAFETY (x2):  1. Hardware dead-man is cosmetic — no self-recovery.
 ---
 
 *Source file: `~/Downloads/PICS_span_20230711_SPANcomments20230803.xlsx`*  
-*Last updated: 2026-03-13 23:38 AEDT*
+*Last updated: 2026-03-13 23:46 AEDT*
