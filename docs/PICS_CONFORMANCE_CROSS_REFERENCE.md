@@ -105,6 +105,33 @@ The following registers are declared "supported RW" in the PICS but **fail to pe
 | SunSpec Sequencing | Isolated writes AND full 6-phase protocol |
 | Connection | Fresh TCP connection per test (atomic) |
 
+### Test Infrastructure Details
+
+| Parameter | Value Used | Notes |
+|-----------|:----------:|-------|
+| **Base address** | 0-based PDU | Addresses (e.g. 310, 331) sent directly in Modbus FC03/FC06 PDU. Confirmed correct: reads return expected values (WMaxLimPct=1000, VarSetMod=1, WSetEna toggles 0↔1) |
+| **Unit ID** | **2 only** | Did NOT test UID=1 or UID=126 (standard SunSpec UIDs) |
+| **Socket timeout** | 30s | Per-operation |
+| **Inter-op delay** | 0.2-0.3s | Between read/write operations within a test |
+| **Pre-settle delay** | 0.2s | Between FC06/FC16 write and settle start |
+| **Post-settle readback** | Immediate | Read immediately after settle period |
+| **Inter-test delay** | 0.3s | Between TCP connections (breathing room) |
+| **VPP verification** | Modbus readback only | WSetEna=1 confirmed via FC03 read of register 318. **NOT verified via Cloud API or FEM** |
+| **VPP activation** | Library `send_command()` | Uses `FranklinWHController.send_command(BatteryCommand(500W))` which writes WSetEna=1 + WSetPct via pysunspec2 |
+| **Target** | 192.168.0.110:502 | WiFi connection, single aGate X |
+| **Firmware** | V10R01B04D00 | As reported by M1.Vr |
+
+### Variables NOT Tested
+
+| Variable | Why Not | Risk |
+|----------|---------|:----:|
+| **Unit ID 1 or 126** | Library auto-detects UID=2; not varied | LOW — reads work at UID=2 |
+| **Cloud API VPP verification** | No FEM running during test | MEDIUM — VPP may not have fully activated |
+| **Base address ±1** | Library SunSpec scan confirms addresses | LOW — reads return correct values |
+| **FC15 (Write Multiple Coils)** | Registers are holding registers, not coils | NONE — not applicable |
+| **Multi-register FC16 writes** | Only single-register FC16 tested | LOW — FC06 equivalent tested |
+| **Different firmware versions** | Only V10R01B04D00 tested | N/A — only one device available |
+
 ### Register-Level Results
 
 | # | Register (Model) | PICS Claims | Tests Run | Passed | Error Pattern |
