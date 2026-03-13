@@ -84,27 +84,59 @@ WSet group (318-329) works perfectly — PICS matches reality. **But WMaxLimPctE
 
 ## Failed Tests Against PICS Claims
 
-The following registers are declared "supported RW" in the PICS but **fail to persist writes.** In all cases:
-- **Modbus FC06 (Write Single Register) returned success** — no exception code
-- **Readback immediately after showed the original/default value** — write silently discarded
-- **No Modbus-layer error** (no 0x01 Illegal Function, 0x02 Illegal Address, etc.)
+The following registers are declared "supported RW" in the PICS but **fail to persist writes.**
 
-| # | Register | PICS Claims | Write Value | FC06 Response | Readback | Error Pattern |
-|:-:|----------|:-----------:|:-----------:|:------------:|:--------:|:-------------:|
-| 1 | **WMaxLimPctEna (310)** | supported RW | 1 | ✅ Success | 0 | Silent discard |
-| 2 | **VarSetEna (331)** | supported RW | 1 | ✅ Success | 0 | Silent discard |
-| 3 | **ControllerHb (1092)** | supported RW | 1, then 2 | ✅ Success | 0, then None | Silent discard |
-| 4 | **WMax (251)** | supported RW (0-10000) | 5000 | ✅ Success | 0 | Silent discard |
+### Error Pattern (identical across all 4 registers)
 
-> **Root cause unknown.** We have no evidence for why these fail. Possible explanations include firmware gating, SPAN Modbus unlock requirement, or incorrect PICS declaration — but all are speculation without further evidence.
+- FC06 (Write Single Register): Returns success — no Modbus exception
+- FC16 (Write Multiple Registers): Returns success — no Modbus exception
+- Readback: Shows original/default value — write silently discarded
+- No Modbus-layer error (no 0x01 Illegal Function, 0x02 Illegal Address, etc.)
+
+### Robustness Testing (0/160 — all permutations failed)
+
+| Variable | Values Tested |
+|----------|:-----------:|
+| Function Code | FC06, FC16 |
+| Settle Time | 0.5s, 1.0s, 2.0s, 5.0s |
+| VPP Mode | Without (WSetEna=0), With (WSetEna=1) |
+| Enable Values | 1, 2 (plus 100 for ControllerHb) |
+| WMax Values | 100, 1000, 5000, 10000 |
+| SunSpec Sequencing | Isolated writes AND full 6-phase protocol |
+| Connection | Fresh TCP connection per test (atomic) |
+
+### Register-Level Results
+
+| # | Register (Model) | PICS Claims | Tests Run | Passed | Error Pattern |
+|:-:|----------|:-----------:|:---------:|:------:|:-------------:|
+| 1 | **M704.WMaxLimPctEna** (310) | supported RW | 32 | 0 | Silent discard |
+| 2 | **M704.VarSetEna** (331) | supported RW | 32 | 0 | Silent discard |
+| 3 | **M715.ControllerHb** (1092) | supported RW | 53 | 0 | Silent discard |
+| 4 | **M702.WMax** (251) | supported RW (0-10000) | 27 | 0 | Silent discard |
+
+### Additional Findings (Phase 3 — Full Sequencing)
+
+| Register (Model) | PICS Status | Test | Result |
+|----------|:-----------:|------|:------:|
+| M704.WMaxLimPct (311) | supported RW | Write 500, readback | 1000 (not stuck) |
+| M704.WMaxLimPct_SF (350) | supported R | Read | **0xFFFF** (unimplemented — scale factor missing!) |
+| M704.VarSetMod (332) | supported RW | Write 5, readback | 1 (not stuck) |
+| M704.VarSet (334) | supported RW | Write 100, readback | 0 (not stuck) |
+| M715.DERHb (1090) | supported R | Read | 0 (always zero — device never sends heartbeat) |
+
+> **Note:** WMaxLimPct, VarSetMod, and VarSet appeared to accept writes in earlier tests but here show readback to defaults. This suggests these registers also silently discard writes, or previous readbacks were from cache. Further investigation would confirm, but the enable registers remain the key blockers.
+
+> **Root cause unknown.** All are speculation without further evidence.
 
 ### Features Correctly Declared as Unimplemented
 
-WChaRteMax, WDisChaRteMax, VAChaRteMax, VADisChaRteMax, VarMaxInj, VarMaxAbs, WMaxLimPctRvrt, WRmp — all return 0xFFFF as expected.
+M702: WChaRteMax (259), WDisChaRteMax (260), VAChaRteMax (261), VADisChaRteMax (262), VarMaxInj (257), VarMaxAbs (258) — all return 0xFFFF.
+M704: WMaxLimPctRvrt (312), WMaxLimPctEnaRvrt (313), VarSetRvrt (336), WRmp (345) — all return 0xFFFF or None.
 
 ### Features That Match PICS
 
-WSetEna, WSetMod, WSet, WSetPct, WSetEnaRvrt, WSetRvrtTms, WSetRvrtRem, PFWInjEna, VarSetMod, VarSetPri, VarSet — all work as declared.
+M704: WSetEna (318), WSetMod (319), WSet (320), WSetPct (324), WSetEnaRvrt (326), WSetRvrtTms (327), WSetRvrtRem (329), PFWInjEna (298).
+M715: LocRemCtl (1089, R-only as declared).
 
 ---
 
