@@ -146,7 +146,7 @@ The following registers are declared "supported RW" in the PICS but **fail to pe
 | Register (Model) | PICS Status | Test | Result |
 |----------|:-----------:|------|:------:|
 | M704.WMaxLimPct (311) | supported RW | Write 500, readback | 1000 (not stuck) |
-| M704.WMaxLimPct_SF (350) | supported R | Read | **0xFFFF** (unimplemented — scale factor missing!) |
+| M704.WMaxLimPct_SF (350) | supported R | Read | **-1** (valid scale factor — 0xFFFF as signed sunssf = -1, means ×10^-1) |
 | M704.VarSetMod (332) | supported RW | Write 5, readback | 1 (not stuck) |
 | M704.VarSet (334) | supported RW | Write 100, readback | 0 (not stuck) |
 | M715.DERHb (1090) | supported R | Read | 0 (always zero — device never sends heartbeat) |
@@ -243,35 +243,49 @@ M715: LocRemCtl (1089, R-only as declared).
 
 > **CRITICAL FINDING:** The WSetRvrtTms countdown is cosmetic. It does NOT physically revert power or disable VPP when it reaches 0.
 
-### Reversion Efficacy Test (2026-03-13 22:52 AEDT)
+### Reversion Efficacy Test (2026-03-13 22:59 AEDT)
 
 **Setup:** VPP active (WSetEna=1, WSetPct=-500), WSetRvrt=0, WSetEnaRvrt=1, WSetRvrtTms=30.
+**Extended observation:** 3+ minutes post-expiry, NO forced cleanup until verdict.
 
 ```
      T  WSetEna  WSetPct  RvrtRem  Notes
-   ──  ───────  ───────  ───────  ────────────────────
-    1s        1     -500       27  counting down
-    6s        1     -500       22  counting down
-   11s        1     -500       17  counting down
-   16s        1     -500       12  counting down
-   21s        1     -500        7  counting down
-   27s        1     -500        1  counting down
-   31s        1     -500        0  EXPIRY ZONE
-   36s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
-   41s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
-   46s        1     -500        0  AFTER EXPIRY — WSetEna=1 ⚠️
+   ──  ───────  ───────  ───────  ────────────────────────────
+    1s        1     -500       29  counting down
+    7s        1     -500       23  counting down
+   11s        1     -500       19  counting down
+   16s        1     -500       14  counting down
+   21s        1     -500        9  counting down
+   26s        1     -500        4  counting down
+   31s        1     -500        0  EXPIRED — still active ⚠️
+   39s        1     -500        0  9s post  — still active ⚠️
+   46s        1     -500        0  16s post — still active ⚠️
+   68s        1     -500        0  38s post — still active ⚠️
+   98s        1     -500        0  68s post — still active ⚠️
+  136s        1     -500        0  106s post — still active ⚠️
+  176s        1     -500        0  146s post — still active ⚠️
+  216s        1     -500        0  186s post — still active ⚠️
 ```
 
-**Final state (16s post-expiry):** WSetEna=1, WSetPct=-500, WSetRvrtRem=0.
+**Final state (186s post-expiry):** WSetEna=1, WSetPct=-500, WSetRvrtRem=0.
 **Cleanup:** VPP was **force-released** by test script calling `reset_control_state()`. Device did **NOT** auto-release.
 
+**Corroborating evidence (user-observed):**
+- FranklinWH app: "VPP Mode" displayed throughout, "Charging 2.5 kW"
+- MQTT Explorer: "Runtime Mode: VPP mode" persisted
+- Home Assistant: History shows VPP mode sustained, no mode transitions
+
+**Alarms during reversion test:**
+- M701.Alrm (76) = 0 — no DER alarms
+- M714.PrtAlrms (1044) = 0 — no DC port alarms
+- Device raised no alerts or alarms when countdown expired without reversion
+
 **Facts:**
-- Countdown mechanism works perfectly (28→22→17→12→7→1→0)
-- 16s after countdown reached 0: WSetEna=1 (PERSISTS), WSetPct=-500 (UNCHANGED)
-- No physical power change observed at the battery
-- VPP release was forced by the test script, NOT by the device
-- **Untested:** whether the device would eventually auto-release at a longer delay (60s, 120s, etc.)
-- The dead-man switch is **non-functional for power reversion** within the tested window (16s post-expiry)
+- Countdown mechanism works perfectly (30→23→...→4→0)
+- Device did NOT auto-release VPP for 186 seconds (3+ min) after countdown reached 0
+- WSetEna=1 and WSetPct=-500 unchanged throughout entire observation window
+- NOT a latency/network issue — observation window is 186s, far exceeding any plausible delay
+- The dead-man switch countdown is **cosmetic — it does NOT trigger power reversion**
 
 **Implication:** WSetRvrtTms cannot be used as a hardware crash-recovery mechanism. The software watchdog (`controller.py` timeout) remains the **only** safety mechanism for reverting power after loss of communication.
 
@@ -311,12 +325,7 @@ Issue 2 — WMax (251) write silently discarded
   ceiling is achievable via PICS-declared registers.
   REQUEST: Confirm if SPAN Modbus unlock is required.
 
-Issue 3 — Scale factor WMaxLimPct_SF (350) returns 0xFFFF
-  PICS declares supported R with value -1.
-  Actual: 0xFFFF (unimplemented).
-  REQUEST: Confirm implementation status.
-
-Issue 4 — CtrlModes declares FIXED_VAR available but Modbus
+Issue 3 — CtrlModes declares FIXED_VAR available but Modbus
           path is non-functional
   M702.CtrlModes (248) = 14271 (0x37BF)
   Bit 2 (FIXED_VAR) = 1 — firmware declares reactive power available
@@ -327,12 +336,14 @@ Issue 4 — CtrlModes declares FIXED_VAR available but Modbus
   REQUEST: Clarify whether CtrlModes bitmask represents hardware
   capability or Modbus-controllable capability. If the former,
   update PICS documentation to define this distinction explicitly.
-Issue 5 — WSetRvrtTms countdown does not revert power
+Issue 4 — WSetRvrtTms countdown does not revert power (SAFETY)
   PICS declares WSetRvrtTms (327) as supported RW.
-  Countdown mechanism works (28→22→...→0), but WSetEna and
-  WSetPct are unchanged after expiry. No physical power
-  reversion occurs. This defeats the SunSpec dead-man switch
-  safety mechanism.
+  Countdown mechanism works (30→23→...→0), but WSetEna and
+  WSetPct are unchanged after expiry. Observed for 186s (3+ min)
+  post-expiry with NO forced cleanup — device never auto-released.
+  No alarms raised (M701.Alrm=0, M714.PrtAlrms=0).
+  Corroborated by user via FHP app (VPP persisted) and MQTT.
+  This defeats the SunSpec dead-man switch safety mechanism.
   REQUEST: Confirm implementation status of reversion
   behaviour at countdown expiry.
 ```
@@ -353,9 +364,8 @@ CLOSED — PICS violation filed:
   ⚠️ VarSetEna (331)           — 0/32  (Issue 1)
   ⚠️ ControllerHb (1092)       — 0/53  (Issue 1)
   ⚠️ WMax (251)                — 0/27  (Issue 2)
-  ⚠️ WMaxLimPct_SF (350)       — 0xFFFF (Issue 3)
-  ⚠️ CtrlModes contradiction   — (Issue 4)
-  🔴 WSetRvrtTms non-reversion — (Issue 5, SAFETY)
+  ⚠️ CtrlModes contradiction   — (Issue 3)
+  🔴 WSetRvrtTms non-reversion — (Issue 4, SAFETY, 186s observed)
 
 OPEN — test required before production sign-off:
   🟡 PFWInjEna (298) functional outcome

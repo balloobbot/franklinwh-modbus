@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-REVERSION EFFICACY TEST v2
-Uses library for VPP, then raw sockets for reversion + polling.
+EXTENDED REVERSION TEST — NO FORCED CLEANUP
+Polls 3 minutes post-expiry to observe if device eventually auto-releases.
 """
 import socket, struct, time, sys
 sys.path.insert(0, '/Users/davidhona/dev/modbus/src')
@@ -36,126 +36,94 @@ def wr32(s, addr, val):
     s.settimeout(TO); s.sendall(header + struct.pack('>HH', hi, lo)); r = s.recv(256)
     return 'OK' if not (len(r) < 8 or (r[7] & 0x80)) else 'ERR'
 
-print("REVERSION EFFICACY TEST v2", flush=True)
-print("="*60, flush=True)
+def poll(t0):
+    """Single atomic poll — fresh connection."""
+    try:
+        s = conn()
+        time.sleep(0.15); we = rd(s, 318)
+        time.sleep(0.15); wp = rd_s16(s, 324)
+        time.sleep(0.15); rr = rd(s, 329, 2)
+        s.close()
+        rr_val = rr[1] if isinstance(rr, list) else rr
+        return we, wp, rr_val
+    except Exception as e:
+        return f'ERR', f'ERR', f'ERR'
 
-# Step 1: Activate VPP via library (this does proper sequencing)
-print("\n[1] Activate VPP via library...", flush=True)
+print("EXTENDED REVERSION TEST — 3 min post-expiry, NO forced cleanup", flush=True)
+print("=" * 65, flush=True)
+
+# Step 1: VPP via library
+print("\n[1] Activate VPP...", flush=True)
 from franklinwh_modbus import FranklinWHController
 from franklinwh_modbus.types import BatteryCommand, ControlMode
 ctrl = FranklinWHController(IP); ctrl.connect()
-ok, msg = ctrl.send_command(BatteryCommand(power_watts=500, mode=ControlMode.LIMIT_ABS))
-print(f"  {msg}", flush=True)
+ctrl.send_command(BatteryCommand(power_watts=500, mode=ControlMode.LIMIT_ABS))
 ctrl.disconnect()
-print("  Waiting 8s for VPP...", flush=True)
-time.sleep(8)
+print("  Waiting 8s...", flush=True); time.sleep(8)
 
-# Step 2: Configure reversion via raw socket (VPP now active)
-print("\n[2] Configure reversion (VPP active)...", flush=True)
+# Step 2: Configure reversion
+print("[2] Configure reversion...", flush=True)
 s = conn()
-time.sleep(0.3); wse = rd(s, 318)
-print(f"  WSetEna={wse}", flush=True)
-
-# Set reversion target to 0W
-time.sleep(0.3); r1 = wr32(s, 322, 0)
-print(f"  WSetRvrt=0: {r1}", flush=True)
-
-# Enable reversion
-time.sleep(0.3); r2 = wr(s, 326, 1)
-print(f"  WSetEnaRvrt=1: {r2}", flush=True)
-
-# Set 30s countdown
-time.sleep(0.3); r3 = wr32(s, 327, 30)
-print(f"  WSetRvrtTms=30: {r3}", flush=True)
+time.sleep(0.3); print(f"  WSetEna={rd(s, 318)}", flush=True)
+time.sleep(0.3); wr32(s, 322, 0)       # revert to 0W
+time.sleep(0.3); wr(s, 326, 1)         # enable reversion
+time.sleep(0.3); wr32(s, 327, 30)      # 30s countdown
 time.sleep(0.5)
-
-# Confirm
-time.sleep(0.3); c_rvrt = rd(s, 322, 2)
-time.sleep(0.3); c_rena = rd(s, 326)
-time.sleep(0.3); c_rtms = rd(s, 327, 2)
-time.sleep(0.3); c_rrem = rd(s, 329, 2)
-time.sleep(0.3); c_wse = rd(s, 318)
-time.sleep(0.3); c_wpct = rd_s16(s, 324)
+rrem = rd(s, 329, 2)
+print(f"  WSetRvrtRem={rrem}", flush=True)
 s.close()
 
-print(f"  WSetEna={c_wse} WSetPct={c_wpct}", flush=True)
-print(f"  WSetRvrt={c_rvrt} WSetEnaRvrt={c_rena}", flush=True)
-print(f"  WSetRvrtTms={c_rtms} WSetRvrtRem={c_rrem}", flush=True)
-
-if not isinstance(c_rrem, list) or c_rrem == [0, 0]:
-    print("\n  ⚠️ Countdown not active! Timer may not have accepted.", flush=True)
-else:
-    print(f"\n  ✅ Countdown active: {c_rrem[1]}s remaining", flush=True)
-
-# Step 3: Poll every 5s for 45s (fresh connection each poll)
-print(f"\n{'━'*60}", flush=True)
-print("  POLLING — fresh connection per poll", flush=True)
-print(f"{'━'*60}", flush=True)
-print(f"  {'T':>4s}  {'WSetEna':>8s}  {'WSetPct':>8s}  {'RvrtRem':>8s}  {'Notes'}", flush=True)
-print(f"  {'─'*4}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*20}", flush=True)
+# Step 3: Poll — every 5s during countdown, then every 10s for 3 min
+print(f"\n{'━'*65}", flush=True)
+print(f"  {'T':>5s}  {'WSetEna':>8s}  {'WSetPct':>8s}  {'RvrtRem':>8s}  Notes", flush=True)
+print(f"  {'─'*5}  {'─'*8}  {'─'*8}  {'─'*8}  {'─'*25}", flush=True)
 
 t0 = time.time()
-for i in range(10):  # 0, 5, 10, ..., 45
+# Phase A: countdown (every 5s for 35s)
+for i in range(8):
     target = t0 + i * 5
     now = time.time()
     if now < target: time.sleep(target - now)
+    we, wp, rr = poll(t0)
+    elapsed = time.time() - t0
+    note = "countdown" if isinstance(rr, int) and rr > 0 else "expired" if isinstance(rr, int) and rr == 0 else ""
+    if elapsed > 30 and isinstance(we, int) and we == 0: note += " AUTO-RELEASED ✅"
+    elif elapsed > 30 and isinstance(we, int) and we == 1: note += " still active ⚠️"
+    print(f"  {elapsed:5.0f}s  {we!s:>8s}  {wp!s:>8s}  {rr!s:>8s}  {note}", flush=True)
 
-    try:
-        sp = conn()
-        time.sleep(0.2); we = rd(sp, 318)
-        time.sleep(0.2); wp = rd_s16(sp, 324)
-        time.sleep(0.2); rr = rd(sp, 329, 2)
-        sp.close()
-    except Exception as e:
-        we = wp = rr = f'ERR:{e}'
-
-    rr_val = rr[1] if isinstance(rr, list) else rr
+# Phase B: post-expiry (every 10s for 3 minutes = 18 polls)
+for i in range(18):
+    target = t0 + 35 + (i + 1) * 10
+    now = time.time()
+    if now < target: time.sleep(target - now)
+    we, wp, rr = poll(t0)
     elapsed = time.time() - t0
     note = ""
-    if elapsed < 28: note = "counting down"
-    elif 28 <= elapsed < 33: note = "EXPIRY ZONE"
-    else:
-        note = "AFTER EXPIRY"
-        if isinstance(we, int) and we == 0: note += " WSetEna=0 ✅"
-        elif isinstance(we, int) and we == 1: note += " WSetEna=1 ⚠️"
+    if isinstance(we, int) and we == 0: note = "AUTO-RELEASED ✅ ✅ ✅"
+    elif isinstance(we, int) and we == 1: note = "still active ⚠️"
+    print(f"  {elapsed:5.0f}s  {we!s:>8s}  {wp!s:>8s}  {rr!s:>8s}  {note}", flush=True)
+    # If auto-released, stop early
+    if isinstance(we, int) and we == 0:
+        print(f"\n  DEVICE AUTO-RELEASED at ~{elapsed:.0f}s ({elapsed-30:.0f}s post-expiry)!", flush=True)
+        break
 
-    print(f"  {elapsed:4.0f}s  {we!s:>8s}  {wp!s:>8s}  {rr_val!s:>8s}  {note}", flush=True)
-
-# Step 4: Final state
-print(f"\n{'━'*60}", flush=True)
-print("  FINAL STATE", flush=True)
-print(f"{'━'*60}", flush=True)
+# Final state — NO cleanup
+print(f"\n{'━'*65}", flush=True)
 sf = conn()
 time.sleep(0.3); f_wse = rd(sf, 318)
 time.sleep(0.3); f_wpct = rd_s16(sf, 324)
-time.sleep(0.3); f_wset = rd(sf, 320, 2)
-time.sleep(0.3); f_rvrt = rd(sf, 322, 2)
-time.sleep(0.3); f_rena = rd(sf, 326)
-time.sleep(0.3); f_rtms = rd(sf, 327, 2)
 time.sleep(0.3); f_rrem = rd(sf, 329, 2)
 sf.close()
-print(f"  WSetEna={f_wse}  WSetPct={f_wpct}  WSet={f_wset}", flush=True)
-print(f"  WSetRvrt={f_rvrt}  WSetEnaRvrt={f_rena}", flush=True)
-print(f"  WSetRvrtTms={f_rtms}  WSetRvrtRem={f_rrem}", flush=True)
+print(f"  Final: WSetEna={f_wse}  WSetPct={f_wpct}  RvrtRem={f_rrem}", flush=True)
 
-# Verdict
-print(f"\n{'═'*60}", flush=True)
+print(f"\n{'═'*65}", flush=True)
 if isinstance(f_wse, int) and f_wse == 0:
-    print("  ✅ WSetEna auto-cleared to 0 → VPP DEACTIVATED", flush=True)
-elif isinstance(f_wse, int) and f_wse == 1:
-    print("  ⚠️ WSetEna still 1 → VPP DID NOT AUTO-DEACTIVATE", flush=True)
-if isinstance(f_wpct, int) and f_wpct == 0:
-    print("  ✅ WSetPct reverted to 0", flush=True)
+    print("  VERDICT: ✅ Device auto-released VPP", flush=True)
 else:
-    print(f"  ⚠️ WSetPct={f_wpct} (was -100, expected 0 if reverted)", flush=True)
-print(f"{'═'*60}", flush=True)
-
-# Cleanup
-print("\n[CLEANUP]...", flush=True)
-ctrl2 = FranklinWHController(IP); ctrl2.connect()
-ctrl2.reset_control_state()
-bat = ctrl2.read_battery_status()
-mode = ctrl2.read_native_mode()
-print(f"  SoC={bat.get('soc')}% Mode={mode.get('mode_name')}", flush=True)
-ctrl2.disconnect()
+    print("  VERDICT: ❌ Device did NOT auto-release VPP after 3+ min", flush=True)
+    print("  Forcing cleanup now...", flush=True)
+    ctrl2 = FranklinWHController(IP); ctrl2.connect()
+    ctrl2.reset_control_state()
+    ctrl2.disconnect()
+    print("  Cleanup done.", flush=True)
 print("DONE", flush=True)
