@@ -304,17 +304,91 @@ resp = sock.recv(256)
 
 ---
 
-## M715 Address Space — Base-1 Only (TESTED 2026-03-08)
+## Register Addressing — Base-0 vs Base-1 vs Base-40000 (TESTED 2026-03-15)
 
-**Issue:** M715 (DERCtl) registers are ONLY accessible at base-1 addresses via raw Modbus TCP, NOT at the standard 40000+ offsets.
+### The Problem
 
-| Method | Address for ControllerHb | Result |
-|--------|-------------------------|--------|
-| sunspec2 model read | Internal mapping | ✅ Works |
-| Raw TCP @ 41092 (base 40000) | 41092 | ❌ ILLEGAL_DATA_ADDRESS |
-| Raw TCP @ 1092 (base 1) | 1092 | ✅ Readable |
+FranklinWH aGate has **one SunSpec register map** but it responds at multiple base addresses. Different code paths must use different bases depending on whether they go through sunspec2 or raw Modbus TCP.
 
-The FranklinWH SunSpec XLSX file also confirms base address = 1.
+### The Three Address Spaces
+
+| Layer | Base | Used By | Example: ControllerHb | Result |
+|-------|:----:|---------|:----------------------:|:------:|
+| **SunSpec PDU** | 0 | pymodbus `read_holding_registers(addr=0)` | Read addr 1092 | ✅ Works |
+| **SunSpec base-1** | 1 | Raw TCP `struct.pack(...)`, FranklinWH XLSX | Read addr 1092 | ✅ Works |
+| **Modbus 4xxxx** | 40000 | Traditional Modbus tools, some pymodbus configs | Read addr 41092 | ❌ ILLEGAL_DATA_ADDRESS |
+
+**Why base-1 matters:** The SunSpec standard conventionally uses "1-based" register numbering in documentation (register 40001 = PDU address 0). FranklinWH's XLSX specification lists all addresses as base-1. When using raw TCP sockets, addresses are **PDU addresses** (0-based), which happen to equal the base-1 SunSpec addresses minus 1 for standard models — but for extension registers (15500+), the raw TCP address **IS** the base-1 address.
+
+### What Works Where
+
+```
+Standard SunSpec models (M1–M715):
+  ├── sunspec2 library:     base_address=0 (auto-scan)  → ✅ WORKS
+  ├── pymodbus base 0:      address=0 through 1125      → ✅ WORKS
+  ├── Raw TCP socket:       address=0 through 1125      → ✅ WORKS
+  └── pymodbus base 40000:  address=40000+               → ❌ EXCEPTION 2
+
+Extension registers (15500+):
+  ├── sunspec2 library:     N/A — can't address these    → ❌ REMAPS
+  ├── Raw TCP socket:       address=15500, 15507 etc.    → ✅ WORKS (base-1)
+  └── pymodbus base 40000:  address=55500+               → ❌ EXCEPTION 2
+```
+
+### Which Code MUST Use Raw TCP (Base-1)
+
+| Function | File | Registers | Why Raw TCP? |
+|----------|------|-----------|--------------|
+| `_read_extension_solar()` | controller.py:657 | 15500–15513 | sunspec2 can't address extensions |
+| `read_native_mode()` | controller.py:773 | 15507–15509 | sunspec2 can't address extensions |
+| `_test_extension_writability()` | controller.py:181 | 15507–15509 | Non-SunSpec proprietary registers |
+| `_check_orphaned_vpp()` | controller.py:130 | M704.WSetEna (318) | Uses sunspec2 model read ✅ |
+
+### Which Code Uses sunspec2 (Base-0 Auto)
+
+| Function | Models | Addressing |
+|----------|--------|-----------|
+| `connect()` / `scan()` | All M1–M715 | sunspec2 auto-discovers at base 0 |
+| `send_command()` | M704 | sunspec2 model write (handles addressing) |
+| `read_battery_status()` | M713, M714 | sunspec2 model read |
+| `read_grid_status()` | M701 | sunspec2 model read |
+| All VPP control | M704, M715 | sunspec2 model read/write |
+
+### Why sunspec2 Uses Base 0
+
+```python
+# In controller.py __init__:
+base_address: int = 0  # sunspec2 uses 0 for auto/scan
+
+# sunspec2 SunSpecModbusClientDeviceTCP.scan() does:
+# 1. Reads address 0 → finds "SunS" header
+# 2. Walks model chain from offset 2
+# 3. Stores model addresses internally
+# 4. All subsequent model reads use internal offsets
+```
+
+When `base_address=0`, sunspec2 **auto-discovers** by reading the SunSpec header at PDU address 0. It then manages all model addressing internally. You never need to know the absolute address — just `self.models[704][0].WSetEna.value`.
+
+### UID Aliasing (Discovered 2026-03-15)
+
+The aGate ignores the Modbus UID field entirely — **all UIDs respond identically**:
+
+| UID | Base 0 | Base 40000 | Base 50000 |
+|:---:|:------:|:----------:|:----------:|
+| 1 | ✅ Same 17 models | ⚠️ Varies | ❌ |
+| 2 | ✅ Same 17 models | ⚠️ Varies | ❌ |
+| 3 | ✅ Same 17 models | ⚠️ Varies | ❌ |
+| 126 | ✅ Same 17 models | ⚠️ Varies | ❌ |
+| 247 | ✅ Same 17 models | ⚠️ Varies | ❌ |
+
+We use `unit_id=2` (FranklinWH default) but any UID works. No per-UID register partitioning exists.
+
+### Rules for New Code
+
+1. **Standard SunSpec reads/writes → use sunspec2 model access** (never raw addresses)
+2. **Extension registers (15000+/15500+) → raw TCP with base-1 addresses**
+3. **Never use base 40000** — the device returns ILLEGAL_DATA_ADDRESS
+4. **UID doesn't matter** — but use `unit_id=2` for consistency with FranklinWH docs
 
 ---
 
