@@ -392,6 +392,39 @@ We use `unit_id=2` (FranklinWH default) but any UID works. No per-UID register p
 
 ---
 
+## Register 16000 — High-Resolution Home Load (Discovered 2026-03-15)
+
+**Discovered:** 2026-03-15 (accidental typo) · **Severity:** Beneficial · **Status:** IN USE
+
+An undocumented register block at 16000–16002 mirrors extension registers 15506–15509 but with **higher precision on the home load reading:**
+
+| Register | Value | Mirrors | Precision |
+|:--------:|:-----:|:-------:|:---------:|
+| **16000** | Home Load (W) | 15506 | **~1W** (vs ~100W quantized) |
+| 16001 | Self Reserve (%) | 15508 | Same |
+| 16002 | TOU Reserve (%) | 15509 | Same |
+
+### Correlation Evidence
+
+```
+    Time |  16000 (hires)  15506 (quantized)
+-----------+----------------------------------
+12:51:14 |    1004 W         1000 W
+12:51:21 |     929 W          900 W
+12:51:29 |     812 W          800 W
+12:51:34 |     835 W          800 W
+```
+
+Register 16000 varies continuously while 15506 snaps to ~100W steps. The wider scan (15900–16100) found **no other non-zero registers** — this is an isolated 3-register block.
+
+### Usage
+
+The library now reads register 16000 as the primary home load source, falling back to 15506 if the high-res read fails. See `_read_extension_solar()` in `controller.py`.
+
+**Risk:** This register is undocumented and could change with firmware updates. The fallback to 15506 mitigates this.
+
+---
+
 ## Model 502 — Power Rounding (Scale Factor Quantization)
 
 **Discovered:** 2026-03-12 · **Severity:** Low (cosmetic) · **Reported to:** FranklinWH Support

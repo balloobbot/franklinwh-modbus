@@ -35,6 +35,7 @@ class FranklinWHController:
     EXT_BASE = 15500
     EXT_PV_TOTAL = 15502
     EXT_HOME_LOAD = 15506
+    EXT_HOME_LOAD_HIRES = 16000       # Undocumented high-res mirror (~1W vs ~100W quantized)
     EXT_ONGRID_MODE = 15507      # 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual
     EXT_SELF_RESERVE = 15508     # Percentage
     EXT_TOU_RESERVE = 15509      # Percentage
@@ -645,6 +646,10 @@ class FranklinWHController:
         
         Uses raw Modbus TCP socket because SunSpec2 client remaps addresses
         and fails on FranklinWH proprietary extension registers.
+        
+        Home load is sourced from undocumented register 16000 which provides
+        ~1W precision vs ~100W quantization at 15506. Falls back to 15506
+        if 16000 read fails. Discovered 2026-03-15 by accidental typo.
         """
         try:
             client = self.dev.client
@@ -668,10 +673,23 @@ class FranklinWHController:
             pv_proximal = regs[3] if len(regs) > 3 else 0
             pv_remote1 = regs[4] if len(regs) > 4 else 0
             pv_remote2 = regs[5] if len(regs) > 5 else 0
-            home_load = regs[6] if len(regs) > 6 else 0
+            home_load_quantized = regs[6] if len(regs) > 6 else 0  # ~100W steps
             ongrid_mode = regs[7] if len(regs) > 7 else -1
             self_reserve = regs[8] if len(regs) > 8 else 0
             tou_reserve = regs[9] if len(regs) > 9 else 0
+            
+            # Read high-res home load from undocumented register 16000 (~1W precision)
+            home_load = home_load_quantized  # fallback
+            try:
+                req2 = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, self.EXT_HOME_LOAD_HIRES, 1)
+                sock.sendall(req2)
+                resp2 = sock.recv(256)
+                if len(resp2) >= 11:  # 9 header + 1*2 bytes
+                    hires = struct.unpack('>H', resp2[9:11])[0]
+                    if hires > 0 or home_load_quantized == 0:
+                        home_load = hires  # Use high-res value
+            except Exception:
+                pass  # Fall back to quantized value
             
             individual_sum = pv_proximal + pv_remote1 + pv_remote2
             if pv_total > 0 and abs(pv_total - individual_sum) < 100:
@@ -688,6 +706,7 @@ class FranklinWHController:
                 'pv_remote2': pv_remote2,
                 'total_solar': total_solar,
                 'home_load_ext': home_load,
+                'home_load_ext_quantized': home_load_quantized,  # Original ~100W value
                 'ongrid_mode': ongrid_mode,
                 'self_reserve': self_reserve,
                 'tou_reserve': tou_reserve,
