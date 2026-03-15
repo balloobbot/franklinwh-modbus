@@ -89,9 +89,24 @@ class FranklinWHController:
                 )
                 if not r.isError():
                     regs = r.registers
+                    home_load_quantized = regs[6]  # ~100W steps
+                    
+                    # Try high-res home load from register 16000 (~1W precision)
+                    home_load = home_load_quantized
+                    try:
+                        hires = self.raw.read_holding_registers(
+                            address=16000, count=1, device_id=self.unit
+                        )
+                        if not hires.isError() and len(hires.registers) > 0:
+                            val = hires.registers[0]
+                            if val > 0 or home_load_quantized == 0:
+                                home_load = val
+                    except Exception:
+                        pass
+                    
                     return {
                         'pv_total_w': regs[2],
-                        'home_load_w': regs[6],
+                        'home_load_w': home_load,
                         'ongrid_mode': regs[7],
                     }
             except Exception as e:

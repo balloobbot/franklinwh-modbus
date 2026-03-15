@@ -370,6 +370,7 @@ class FranklinWHController:
     EXT_BASE = 15500
     EXT_PV_TOTAL = 15502
     EXT_HOME_LOAD = 15506
+    EXT_HOME_LOAD_HIRES = 16000       # Undocumented high-res mirror (~1W vs ~100W quantized)
     EXT_ONGRID_MODE = 15507      # 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual
     EXT_SELF_RESERVE = 15508     # Percentage
     EXT_TOU_RESERVE = 15509      # Percentage
@@ -569,7 +570,8 @@ class FranklinWHController:
     def _read_extension_solar(self) -> Optional[dict]:
         """Read FranklinWH extension registers for solar (15500-15513).
         
-        Returns dict with solar values from all sources, or None if unavailable.
+        Home load sourced from undocumented register 16000 (~1W precision)
+        with fallback to 15506 (~100W quantized). Discovered 2026-03-15.
         """
         try:
             # Read raw registers 15500-15513 (14 registers)
@@ -579,44 +581,42 @@ class FranklinWHController:
             
             regs = result.registers
             
-            # Parse extension registers
-            # 15502: PV Total Power (W)
-            # 15503: PV Proximal Power (W) - local AC-coupled
-            # 15504: PV Remote 1 Power (W) - additional array
-            # 15505: PV Remote 2 Power (W) - additional array
-            # 15506: Home Load (W)
-            # 15507: OnGridMode
-            # 15508: Self Reserve %
-            # 15509: TOU Reserve %
-            
             pv_total = regs[2] if len(regs) > 2 else 0
             pv_proximal = regs[3] if len(regs) > 3 else 0
             pv_remote1 = regs[4] if len(regs) > 4 else 0
             pv_remote2 = regs[5] if len(regs) > 5 else 0
-            home_load = regs[6] if len(regs) > 6 else 0
+            home_load_quantized = regs[6] if len(regs) > 6 else 0  # ~100W steps
             ongrid_mode = regs[7] if len(regs) > 7 else -1
             self_reserve = regs[8] if len(regs) > 8 else 0
             tou_reserve = regs[9] if len(regs) > 9 else 0
             
-            # Calculate total solar from all sources
-            # PV Total (15502) may be the sum of all sources, or 0 if not populated
-            # If PV Total > 0 and matches sum of individual sources, use it directly
-            # Otherwise sum the individual sources (Proximal, Remote 1, Remote 2)
+            # Read high-res home load from register 16000 (~1W precision)
+            home_load = home_load_quantized  # fallback
+            try:
+                hires = self.dev.client.read_holding_registers(self.EXT_HOME_LOAD_HIRES, count=1, device_id=self.unit_id)
+                if not hires.isError() and len(hires.registers) > 0:
+                    val = hires.registers[0]
+                    if val > 0 or home_load_quantized == 0:
+                        home_load = val
+            except Exception:
+                pass  # Fall back to quantized value
+            
             individual_sum = pv_proximal + pv_remote1 + pv_remote2
-            if pv_total > 0 and abs(pv_total - individual_sum) < 100:  # Within 100W tolerance
-                total_solar = pv_total  # Use reported total (they match)
+            if pv_total > 0 and abs(pv_total - individual_sum) < 100:
+                total_solar = pv_total
             elif individual_sum > 0:
-                total_solar = individual_sum  # Sum the individual sources
+                total_solar = individual_sum
             else:
-                total_solar = pv_total  # Fall back to reported total
+                total_solar = pv_total
             
             return {
-                'pv_total': pv_total,  # Register 15502 (may be 0 or total)
-                'pv_proximal': pv_proximal,  # Register 15503 (local AC-coupled)
-                'pv_remote1': pv_remote1,  # Register 15504 (additional array)
-                'pv_remote2': pv_remote2,  # Register 15505 (additional array)
-                'total_solar': total_solar,  # Best estimate of total solar production
-                'home_load_ext': home_load,  # From extension (may differ from calculated)
+                'pv_total': pv_total,
+                'pv_proximal': pv_proximal,
+                'pv_remote1': pv_remote1,
+                'pv_remote2': pv_remote2,
+                'total_solar': total_solar,
+                'home_load_ext': home_load,
+                'home_load_ext_quantized': home_load_quantized,
                 'ongrid_mode': ongrid_mode,
                 'self_reserve': self_reserve,
                 'tou_reserve': tou_reserve,

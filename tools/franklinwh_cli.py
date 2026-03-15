@@ -186,7 +186,17 @@ def print_status(ctrl: FranklinWHController):
     # - battery_dc: positive = discharge (supplies home), negative = charge
     # - grid_power: positive = import (supplies home), negative = export
     # - solar_power: always positive when generating
-    home_load = solar_power + battery_dc + grid_power
+    home_load_calc = solar_power + battery_dc + grid_power
+    
+    # Prefer high-res home load from extension register 16000 (~1W precision)
+    # Falls back to power-balance calculation if unavailable
+    home_load_ext = solar_ext.get('home_load_ext', 0) if solar_ext else 0
+    if home_load_ext > 0:
+        home_load = home_load_ext
+        home_load_source = 'Ext.16000'
+    else:
+        home_load = home_load_calc
+        home_load_source = 'calc'
     
     # ═══════════════════════════════════════════════════════
     # POWER FLOW SUMMARY (like dashboard)
@@ -204,7 +214,7 @@ def print_status(ctrl: FranklinWHController):
     home_active = abs(home_load) > 50
     
     print(f"      Solar: {solar_arrow} {abs(solar_power):>5.0f}W  {'Producing' if solar_power > 50 else 'Idle'}  (M502.OutPw)")
-    print(f"       Home: ← {abs(home_load):>5.0f}W  {'Consuming' if home_active else 'Idle'}  (calc)")
+    print(f"       Home: ← {abs(home_load):>5.0f}W  {'Consuming' if home_active else 'Idle'}  ({home_load_source})")
     
     if battery_dc < 0:
         print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  CHARGING  (M714.DCW)")
