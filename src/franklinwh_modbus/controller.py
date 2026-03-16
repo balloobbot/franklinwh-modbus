@@ -118,11 +118,11 @@ class FranklinWHController:
             return False
     
     def _check_orphaned_vpp(self) -> None:
-        """Check if VPP was left active from a previous session.
+        """Check if VPP control is active from a previous session.
         
-        Reads WSetEna (318) and warns if VPP is active without a software
-        timer. This catches crash/restart scenarios where the hardware
-        has no auto-recovery (PICS Issue 4: WSetRvrtTms is cosmetic).
+        Reads WSetEna (318) and logs if VPP is active. This is informational
+        only — WSetEna=1 is the NORMAL persistent state after any command
+        because hardware reversion does not work (PICS Issue 4).
         """
         try:
             m704 = self.get_model(704)
@@ -133,20 +133,13 @@ class FranklinWHController:
             if wset_ena and wset_ena.value == 1:
                 wset_pct = getattr(m704, 'WSetPct', None)
                 pct_val = wset_pct.value if wset_pct else '?'
-                logger.warning(
-                    f"ORPHANED VPP DETECTED: WSetEna=1, WSetPct={pct_val}. "
-                    f"Device was left in VPP mode from a previous session. "
-                    f"Hardware reversion is cosmetic (PICS Issue 4) — "
-                    f"no automatic recovery exists."
+                logger.info(
+                    f"Active VPP state detected: WSetEna=1, WSetPct={pct_val}. "
+                    f"This is normal — hardware reversion is cosmetic (PICS Issue 4)."
                 )
                 if self.auto_release_orphan:
-                    logger.warning("auto_release_orphan=True — releasing orphaned VPP state")
+                    logger.info("auto_release_orphan=True — releasing VPP state")
                     self.reset_control_state()
-                else:
-                    logger.warning(
-                        "Set auto_release_orphan=True in constructor to "
-                        "auto-release, or call reset_control_state() manually."
-                    )
         except Exception as e:
             logger.debug(f"Orphan check failed (non-critical): {e}")
     

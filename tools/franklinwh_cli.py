@@ -354,45 +354,7 @@ def print_status(ctrl: FranklinWHController):
     if not has_alarms:
         print(f"    ✓ No alarms active")
     
-    # ═══════════════════════════════════════════════════════
-    # EXTENSION REGISTERS (Write Test)
-    # ═══════════════════════════════════════════════════════
-    ext_write = ctrl.get_extension_write_status()
-    if ext_write.get('tested'):
-        print(f"\n  📝 EXTENSION REGISTERS (15500+)")
-        print("  " + "─" * 54)
-        
-        # OnGridMode
-        ongrid = ext_write.get('ongrid_mode', {})
-        if ongrid.get('writable'):
-            print(f"    ✓ OnGridMode (15507):  WRITABLE")
-        else:
-            err = ongrid.get('error', 'unknown')
-            print(f"    ✗ OnGridMode (15507):  READ-ONLY ({err})")
-        
-        # Self Reserve
-        self_res = ext_write.get('self_reserve', {})
-        if self_res.get('writable'):
-            print(f"    ✓ SelfReserve (15508): WRITABLE")
-        else:
-            err = self_res.get('error', 'unknown')
-            print(f"    ✗ SelfReserve (15508): READ-ONLY ({err})")
-        
-        # TOU Reserve
-        tou_res = ext_write.get('tou_reserve', {})
-        if tou_res.get('writable'):
-            print(f"    ✓ TOUReserve (15509):  WRITABLE")
-        else:
-            err = tou_res.get('error', 'unknown')
-            print(f"    ✗ TOUReserve (15509):  READ-ONLY ({err})")
-        
-        # Summary note
-        writable_count = sum(1 for k in ['ongrid_mode', 'self_reserve', 'tou_reserve']
-                            if ext_write.get(k, {}).get('writable'))
-        if writable_count == 0:
-            print(f"    ─" * 27)
-            print(f"    Note: Write access requires 'SPAN Modbus' unlock")
-            print(f"          in installer settings (FranklinWH app)")
+    # Extension register write status is shown only in --healthcheck
     
     print("\n" + "=" * 60)
 
