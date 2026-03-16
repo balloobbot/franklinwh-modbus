@@ -79,7 +79,29 @@ Result: SUCCESS - Command Sent: 1200.0W (-24.0% of 5000W) [timeout: 120s]
 | Discharge direction test | Night, no solar, battery at 49% | Low — same code path | Test discharge when SoC allows |
 | Unit tests (pytest) | Focus on live hardware verification | Low | Run next session |
 
-## 4. Known Limitations
+## 5. Additional Defects (found and resolved)
+
+### DEF-002: "ORPHANED VPP DETECTED" warning is incorrect
+
+| Field | Value |
+|-------|-------|
+| **Severity** | 🟡 Minor (UX) |
+| **Status** | ✅ RESOLVED |
+| **Commit** | `fee3465` |
+| **Root Cause** | `_check_orphaned_vpp()` treated WSetEna=1 as alarming, but it's the normal persistent state after any command since hardware reversion doesn't work (PICS Issue 4). |
+| **Fix** | Downgraded from `logger.warning` to `logger.info`. Removed alarming "ORPHANED" language. |
+
+### DEF-003: EXTENSION REGISTERS section clutters --status
+
+| Field | Value |
+|-------|-------|
+| **Severity** | 🟡 Minor (UX) |
+| **Status** | ✅ RESOLVED |
+| **Commit** | `fee3465` |
+| **Root Cause** | `--status` displayed a full EXTENSION REGISTERS (15500+) block showing write-test results. This is diagnostic info that belongs in `--healthcheck` only. |
+| **Fix** | Removed the section from `print_status()`. Still available in `--healthcheck`. |
+
+## 6. Known Limitations
 
 - `RATED_MAX_W` (WMaxRtg=1000W) still exists as a field — it's the AC inverter rating and may
   have valid uses. The bug was using it as the WSetPct denominator.

@@ -41,8 +41,8 @@ The current conflict detection logic has a **fundamental limitation**: it only e
 # 1. Read battery DC power from Model 714
 battery_dc_power = m714.DCW.value * scale_factor
 
-# 2. Calculate actual power from WSetPct
-actual_power = (wset_pct / 100.0 * RATED_MAX_W) if wset_ena == 1 else 0
+# 2. Calculate actual power from WSetPct (direction-aware)
+actual_power = (wset_pct / 100.0 * RATED_MAX_CHARGE_W) if wset_pct < 0 else (wset_pct / 100.0 * RATED_MAX_DISCHARGE_W)
 
 # 3. Define "active" thresholds
 is_active_charging = battery_dc_power < -500 or actual_power < -100
