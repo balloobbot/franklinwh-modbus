@@ -1104,7 +1104,16 @@ class FranklinWHController:
             safe_watts = self._validate_power(command.power_watts)
             
             pct_sf = self._get_scale_factor(m704, 'WSetPct_SF')
-            pct_raw = int((safe_watts / self.RATED_MAX_W) * 100 / (10 ** pct_sf))
+            # BUG FIX: Use direction-appropriate rate as denominator.
+            # Previously used RATED_MAX_W (WMaxRtg=1000W AC inverter rating)
+            # which caused 1200W → 120% → hardware interprets as max → 5000W charge.
+            # Must use WChaRteMaxRtg/WDisChaRteMaxRtg (5000W battery rate) instead.
+            is_charge = safe_watts > 0
+            rated_for_direction = self.RATED_MAX_CHARGE_W if is_charge else self.RATED_MAX_DISCHARGE_W
+            pct_raw = int((abs(safe_watts) / rated_for_direction) * 100 / (10 ** pct_sf))
+            # Restore sign (positive = charge in our convention)
+            if not is_charge:
+                pct_raw = -pct_raw
             
             if dry_run:
                 return True, f"Dry Run: WSetPct={pct_raw} ({command.power_watts}W)"
@@ -1152,9 +1161,9 @@ class FranklinWHController:
                     self._command_timer.daemon = True  # Don't block exit
                     self._command_timer.start()
                 logger.info(f"Software timeout set: {duration_s}s")
-                return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {self.RATED_MAX_W}W) [timeout: {duration_s}s]"
+                return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {rated_for_direction}W) [timeout: {duration_s}s]"
             
-            return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {self.RATED_MAX_W}W)"
+            return True, f"Command Sent: {command.power_watts}W ({actual_pct}% of {rated_for_direction}W)"
         
         try:
             return self._with_retry(_do_send, max_retries=2)
@@ -1325,7 +1334,11 @@ class FranklinWHController:
             result['wset_ena'] = wset_ena
             
             # Calculate actual power from WSetPct
-            actual_power = (wset_pct / 100.0 * self.RATED_MAX_W) if wset_ena == 1 else 0
+            # Use direction-appropriate rate: negative pct = charge, positive = discharge
+            if wset_pct < 0:
+                actual_power = (wset_pct / 100.0 * self.RATED_MAX_CHARGE_W) if wset_ena == 1 else 0
+            else:
+                actual_power = (wset_pct / 100.0 * self.RATED_MAX_DISCHARGE_W) if wset_ena == 1 else 0
             result['actual_power'] = actual_power
             
             # Determine battery activity
