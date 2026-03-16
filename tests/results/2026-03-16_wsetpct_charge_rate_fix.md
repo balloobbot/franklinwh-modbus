@@ -101,7 +101,16 @@ Result: SUCCESS - Command Sent: 1200.0W (-24.0% of 5000W) [timeout: 120s]
 | **Root Cause** | `--status` displayed a full EXTENSION REGISTERS (15500+) block showing write-test results. This is diagnostic info that belongs in `--healthcheck` only. |
 | **Fix** | Removed the section from `print_status()`. Still available in `--healthcheck`. |
 
-## 6. Known Limitations
+## 6. Cross-Agent Validation (FranklinWH Energy Manager)
+
+The FEM agent confirmed:
+- `modbus_control.py` passes watts directly as `BatteryCommand(power_watts=...)` — **no workaround existed**
+- Validated range is 0–5000W (from nameplate), straight passthrough to `send_command()`
+- **Before fix:** 2000W request → library computed WSetPct=-200% → hardware capped at 5000W
+- **After fix:** 2000W request → library computes WSetPct=-40% → hardware charges at exactly 2000W
+- **No code changes needed in FEM** — the library fix is transparent
+
+## 7. Known Limitations
 
 - `RATED_MAX_W` (WMaxRtg=1000W) still exists as a field — it's the AC inverter rating and may
   have valid uses. The bug was using it as the WSetPct denominator.
