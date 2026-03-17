@@ -450,7 +450,7 @@ FranklinWH aGate SunSpec registers round power values to coarse resolution (~100
 FranklinWH serial numbers encode device type, hardware revision, and unique ID:
 
 ```
-10060006A02F24170091
+XXXXXXXXXXXXXXXXXXXX
 │       │  │        │
 │       │  │        └── Unique serial (last 8 chars)
 │       │  └─────────── Hardware revision (3 chars, e.g. "A02")
@@ -531,4 +531,4 @@ ctrl.send_command(BatteryCommand(-5000), duration_s=300)  # 5min auto-release
 ---
 
 *Last Updated: 2026-03-14 (PICS Issue 4 reversion cosmetic, Issue 5 no input validation, reactive power exhausted)*  
-*Device Tested: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*
+*Device Tested: FranklinWH aGate X (SN: XXXXXXXXXXXXXXXXXXXX, FW: V10R01B04D00)*

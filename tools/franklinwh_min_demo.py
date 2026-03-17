@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class FranklinWHController:
     """Working controller with proper connection management."""
     
-    def __init__(self, ip: str = '192.168.0.110', unit: int = 2):
+    def __init__(self, ip: str = 'YOUR_AGATE_IP', unit: int = 2):
         self.ip = ip
         self.unit = unit
         self.sunspec = None

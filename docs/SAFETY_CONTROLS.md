@@ -307,7 +307,7 @@ If critical alarms detected:
 
 ```bash
 # After resolving fault conditions
-python3 franklinwh_cli.py -i 192.168.0.110 --clear-alarms
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --clear-alarms
 ```
 
 ---

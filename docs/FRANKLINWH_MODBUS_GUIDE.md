@@ -8,7 +8,7 @@
 ## 1. Connection
 
 ```
-Host:    192.168.0.110 (default aGate IP)
+Host:    YOUR_AGATE_IP (default aGate IP)
 Port:    502 (Modbus TCP)
 Unit ID: 1 or 2 (both work, DA=1)
 Base:    Address 1 (NOT standard 40000 for raw TCP)
@@ -17,7 +17,7 @@ Timeout: 10s recommended (WiFi can be slow)
 
 ```python
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()  # Scans SunSpec models, probes extension writability
 ```
 
@@ -95,16 +95,16 @@ ctrl.reset_control_state()
 
 ```bash
 # Charge at 3000W (fire and forget — persists after CLI exits)
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --charge 3000
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000
 
 # Charge with auto-revert
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --charge 3000 --revert 3600
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --revert 3600
 
 # Check status (won't kill active commands)
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --status
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --status
 
 # Stop
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --stop
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 ---
@@ -302,5 +302,5 @@ h = ctrl.healthcheck()
 
 ---
 
-*Device: FranklinWH aGate X (SN: 10060006A02F24170091, FW: V10R01B04D00)*
+*Device: FranklinWH aGate X (SN: XXXXXXXXXXXXXXXXXXXX, FW: V10R01B04D00)*
 *Last Updated: 2026-03-09*

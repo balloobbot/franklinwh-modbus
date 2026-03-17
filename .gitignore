@@ -64,6 +64,95 @@ register_test_*.json
 rw_register_baseline.json
 structure*.txt
 
-# Agent artifacts
+# Agent artifacts (AI coding assistants)
 .agent/
+.agents/
+agent.md
 in_flight_work.md
+
+# ── Public Release Exclusions ──
+
+# Archive (historical code, logs, debug output)
+archive/
+
+# Internal test results (contain device-specific data)
+tests/results/
+
+# Internal project tracking
+PHASES_AND_ROADMAP.md
+docs/IN_FLIGHT_WORK.md
+
+# Proprietary FranklinWH documents
+docs/UPDATED_FranklinWH_Modbus_PICS_SM-000028.xlsx
+docs/PICS_CONFORMANCE_CROSS_REFERENCE.md
+docs/FRANKLINWH_OFFICIAL_DOCS_REFERENCE.md
+
+# Internal design/analysis docs
+docs/CONFLICT_DETECTION_ANALYSIS.md
+docs/TODO_INTENT_BASED_CONFLICT_DETECTION.md
+docs/VERIFICATION_BASELINE.md
+docs/TEST_QUICK_REFERENCE.md
+docs/ADDON_SPAN_PANEL_INTEGRATION.md
+docs/SUNSPEC_DER_SEQUENCING_REFERENCE.md
+docs/DEVELOPMENT.md
+
+# Root-level duplicate CLI (canonical is tools/franklinwh_cli.py)
+franklinwh_cli.py
+
+# Internal hardware test runner
+run_hardware_tests.py
+
+# One-off tool scripts (keep only curated set)
+tools/battery_control.py
+tools/battery_control_revisionctrl.py
+tools/battery_ctl.py
+tools/battery_ctrl2.py
+tools/battery_ctrl2_examples.sh
+tools/connect_test.py
+tools/extract_outage_logs.py
+tools/fhp_battery_ctrl.py
+tools/fhp_battery_ctrl_testing.sh
+tools/franklinwh_control.py
+tools/franklinwh_control_tests.sh
+tools/franklinwh_register_test.py
+tools/health_check_baseline.sh
+tools/investigate.py
+tools/log_throttling_1hour.py
+tools/log_throttling_robust.py
+tools/log_throttling_simple.py
+tools/log_throttling_with_heartbeat.py
+tools/long_test.py
+tools/manage_server.sh
+tools/modbus_sunspec2_rw.py
+tools/network_scanner_example.py
+tools/network_scanner_requirements.txt
+tools/quicktest.py
+tools/quicktest2.py
+tools/restore_unlimited.sh
+tools/run.sh
+tools/run-mock.sh
+tools/s704_ctl.py
+tools/setup.py
+tools/setup_dev.sh
+tools/setup_scanner.sh
+tools/sunspec_phased_retest_full.py
+tools/sunspec_retest_group_d.py
+tools/sunspec_reversion_test.py
+tools/sunspec_robustness_test.py
+tools/test_battery_control.py
+tools/test_battery_control.sh
+tools/test_battery_control_validation.sh
+tools/test_battery_control_validation_api.sh
+tools/test_direct_pymodbus.sh
+tools/test_maxcharge_unlock.sh
+tools/test_register_writability.py
+tools/test_throttling_registers.py
+tools/throttle.py
+tools/throttling_charge_test.py
+tools/verify_api_response.py
+tools/vpp_test.py
+tools/watch_battery_power.sh
+tools/MDNS_DISCOVERY.md
+tools/NETWORK_SCANNER_MDNS_GUIDE.md
+tools/NETWORK_SCANNER_SUMMARY.md
+tools/network_scanner_README.md

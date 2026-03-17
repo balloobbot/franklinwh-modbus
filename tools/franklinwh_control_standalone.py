@@ -23,24 +23,24 @@ Includes:
 
 Usage:
     # Direct control (legacy --power with sign)
-    python franklinwh_control.py -i 192.168.0.110 --power 3000      # Charge
-    python franklinwh_control.py -i 192.168.0.110 --power -2000     # Discharge
+    python franklinwh_control.py -i YOUR_AGATE_IP --power 3000      # Charge
+    python franklinwh_control.py -i YOUR_AGATE_IP --power -2000     # Discharge
     
     # Direct control (explicit action flags - RECOMMENDED)
-    python franklinwh_control.py -i 192.168.0.110 --charge 3000     # Charge at 3000W
-    python franklinwh_control.py -i 192.168.0.110 --discharge 2000  # Discharge at 2000W
-    python franklinwh_control.py -i 192.168.0.110 --standby         # Set to 0W
+    python franklinwh_control.py -i YOUR_AGATE_IP --charge 3000     # Charge at 3000W
+    python franklinwh_control.py -i YOUR_AGATE_IP --discharge 2000  # Discharge at 2000W
+    python franklinwh_control.py -i YOUR_AGATE_IP --standby         # Set to 0W
     
     # Status and health check
-    python franklinwh_control.py -i 192.168.0.110 --status
-    python franklinwh_control.py -i 192.168.0.110 --healthcheck
+    python franklinwh_control.py -i YOUR_AGATE_IP --status
+    python franklinwh_control.py -i YOUR_AGATE_IP --healthcheck
     
     # Virtual modes
-    python franklinwh_control.py -i 192.168.0.110 --mode self_consumption
-    python franklinwh_control.py -i 192.168.0.110 --mode emergency_backup --target-soc 90
+    python franklinwh_control.py -i YOUR_AGATE_IP --mode self_consumption
+    python franklinwh_control.py -i YOUR_AGATE_IP --mode emergency_backup --target-soc 90
     
     # With reset (recommended if zombie state detected)
-    python franklinwh_control.py -i 192.168.0.110 --reset-on-start --mode manual --charge 1500
+    python franklinwh_control.py -i YOUR_AGATE_IP --reset-on-start --mode manual --charge 1500
 """
 
 import argparse
@@ -1245,7 +1245,7 @@ class VirtualModeController:
     we implement equivalent logic using direct WSet control via Model 704.
     
     Usage:
-        hw = FranklinWHController(ip='192.168.0.110', timeout=10.0)
+        hw = FranklinWHController(ip='YOUR_AGATE_IP', timeout=10.0)
         hw.connect()
         
         modes = VirtualModeController(hw)
@@ -2305,29 +2305,29 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Health check (recommended first step)
-  %(prog)s -i 192.168.0.110 --healthcheck
+  %(prog)s -i YOUR_AGATE_IP --healthcheck
   
   # Quick stop — release Modbus control, resume Self-Consumption
-  %(prog)s -i 192.168.0.110 --stop
+  %(prog)s -i YOUR_AGATE_IP --stop
   
   # Direct control (explicit action flags - RECOMMENDED)
-  %(prog)s -i 192.168.0.110 --charge 3000           # Charge at 3000W (import)
-  %(prog)s -i 192.168.0.110 --discharge 2000        # Discharge at 2000W (export)
-  %(prog)s -i 192.168.0.110 --standby               # Set to 0W (idle)
+  %(prog)s -i YOUR_AGATE_IP --charge 3000           # Charge at 3000W (import)
+  %(prog)s -i YOUR_AGATE_IP --discharge 2000        # Discharge at 2000W (export)
+  %(prog)s -i YOUR_AGATE_IP --standby               # Set to 0W (idle)
   
   # Direct control (legacy --power with sign)
-  %(prog)s -i 192.168.0.110 --power 3000            # Charge at 3000W
-  %(prog)s -i 192.168.0.110 --power -2000 --revert 3600  # Discharge 2000W for 1hr
-  %(prog)s -i 192.168.0.110 --status
+  %(prog)s -i YOUR_AGATE_IP --power 3000            # Charge at 3000W
+  %(prog)s -i YOUR_AGATE_IP --power -2000 --revert 3600  # Discharge 2000W for 1hr
+  %(prog)s -i YOUR_AGATE_IP --status
   
   # Virtual modes with reset (recommended)
-  %(prog)s -i 192.168.0.110 --reset-on-start --mode self_consumption
-  %(prog)s -i 192.168.0.110 --reset-on-start --mode emergency_backup --target-soc 90
-  %(prog)s -i 192.168.0.110 --reset-on-start --mode time_of_use
-  %(prog)s -i 192.168.0.110 --reset-on-start --mode manual --charge 1500 --duration 7200
+  %(prog)s -i YOUR_AGATE_IP --reset-on-start --mode self_consumption
+  %(prog)s -i YOUR_AGATE_IP --reset-on-start --mode emergency_backup --target-soc 90
+  %(prog)s -i YOUR_AGATE_IP --reset-on-start --mode time_of_use
+  %(prog)s -i YOUR_AGATE_IP --reset-on-start --mode manual --charge 1500 --duration 7200
   
   # With custom timeout
-  %(prog)s -i 192.168.0.110 -t 15.0 --status
+  %(prog)s -i YOUR_AGATE_IP -t 15.0 --status
         """
     )
     

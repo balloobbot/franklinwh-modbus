@@ -305,6 +305,6 @@ strategy = schedule.get_strategy()  // "charge", "discharge", "grid_zero", "sola
 
 ### Post-Each-Test (Mandatory)
 ```bash
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --stop
-python3 tools/franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --stop
+python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck | grep zombie_state
 ```

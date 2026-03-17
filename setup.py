@@ -24,7 +24,7 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='David Hona',
-    author_email='david.hona@gmail.com',
+    author_email='david2069@users.noreply.github.com',
     url='https://github.com/david2069/franklinwh-modbus',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},

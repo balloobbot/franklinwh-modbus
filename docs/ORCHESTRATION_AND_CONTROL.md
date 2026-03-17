@@ -134,7 +134,7 @@ The library provides a **software-side timeout** via `threading.Timer`:
 from franklinwh_modbus import FranklinWHController
 from franklinwh_modbus.types import BatteryCommand
 
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 cmd = BatteryCommand(power_watts=3000, mode='charge')

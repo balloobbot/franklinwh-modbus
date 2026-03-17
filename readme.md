@@ -48,7 +48,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 ```bash
 # Via CLI
-python3 franklinwh_cli.py -i 192.168.0.110 --stop
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 
 # Via library
 ctrl.reset_control_state()
@@ -73,7 +73,7 @@ pip install -e ".[dev]"
 from franklinwh_modbus import FranklinWHController, BatteryCommand
 
 # Connect to aGate
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Read battery status (battery_state derived from DC power, not unreliable M713.Sta)
@@ -93,22 +93,22 @@ ctrl.disconnect()
 
 ```bash
 # System status
-python3 franklinwh_cli.py -i 192.168.0.110 --status
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --status
 
 # Health check with conflict detection
-python3 franklinwh_cli.py -i 192.168.0.110 --healthcheck
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck
 
 # Charge at 3000W with auto-revert after 2 hours
-python3 franklinwh_cli.py -i 192.168.0.110 --charge 3000 --revert 7200
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --revert 7200
 
 # Self-consumption mode
-python3 franklinwh_cli.py -i 192.168.0.110 --mode self_consumption --target-soc 90
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --mode self_consumption --target-soc 90
 
 # Terminal UI monitor (requires `rich`)
-python3 franklinwh_cli.py -i 192.168.0.110 --monitor
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --monitor
 
 # Release control
-python3 franklinwh_cli.py -i 192.168.0.110 --stop
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 ## Key Features
@@ -177,6 +177,16 @@ franklinwh-modbus/
 
 See [FRANKLINWH_SUNSPEC_QUIRKS.md](./docs/FRANKLINWH_SUNSPEC_QUIRKS.md) for all documented hardware quirks.
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
+
 ## License
 
-See [LICENSE](./LICENSE).
+MIT License — see [LICENSE](./LICENSE) for details.
+
+## Support
+
+- 🐛 [Report a Bug](https://github.com/david2069/franklinwh-modbus/issues/new?template=bug_report.md)
+- 💡 [Request a Feature](https://github.com/david2069/franklinwh-modbus/issues/new?template=feature_request.md)
+- 📖 [Documentation](./docs/README.md)

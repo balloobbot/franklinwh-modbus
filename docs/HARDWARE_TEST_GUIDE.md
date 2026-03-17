@@ -20,7 +20,7 @@ If tests are interrupted or fail, the aGate may be left in Modbus control mode (
 
 ```bash
 # Method 1: Using CLI --stop flag (RECOMMENDED)
-python franklinwh_cli.py -i 192.168.0.110 --stop
+python franklinwh_cli.py -i YOUR_AGATE_IP --stop
 
 # Method 2: Using release test
 python run_hardware_tests.py --release
@@ -29,7 +29,7 @@ python run_hardware_tests.py --release
 python -c "
 import sys; sys.path.insert(0, 'src')
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 ctrl.reset_control_state()
 print('✓ Control released - WSetEna=0')
@@ -43,15 +43,15 @@ After ANY testing, verify the aGate is in a safe state:
 
 ```bash
 # Check 1: Verify released state
-python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep "Control Source"
 # Expected: "Control Source: Cloud API (aGate native mode)" OR "Idle (no active control)"
 
 # Check 2: Verify no zombie state
-python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep "zombie_state"
+python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck | grep "zombie_state"
 # Expected: "✓ zombie_state: OK (not in zombie state)"
 
 # Check 3: Verify alarms clear
-python franklinwh_cli.py -i 192.168.0.110 --status | grep -A5 "ALARMS"
+python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep -A5 "ALARMS"
 # Expected: "✓ No alarms active"
 ```
 
@@ -246,7 +246,7 @@ After completing tests, ALWAYS execute this sequence:
 ### Step 1: Release Control
 
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 --stop
+python franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 Expected output:
@@ -260,7 +260,7 @@ INFO - Control released
 ### Step 2: Verify Status
 
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 --status
+python franklinwh_cli.py -i YOUR_AGATE_IP --status
 ```
 
 Verify these lines:
@@ -278,7 +278,7 @@ Verify these lines:
 ### Step 3: Health Check
 
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 --healthcheck
+python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck
 ```
 
 Verify:
@@ -296,7 +296,7 @@ Verify:
 
 **If zombie_state is not OK, run:**
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 --stop
+python franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 ### Step 4: Review Test Results
@@ -327,31 +327,31 @@ with open('$latest') as f:
 
 1. **Check control state:**
    ```bash
-   python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+   python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep "Control Source"
    ```
 
 2. **If Modbus Control is ACTIVE:**
    ```bash
    # Release immediately
-   python franklinwh_cli.py -i 192.168.0.110 --stop
+   python franklinwh_cli.py -i YOUR_AGATE_IP --stop
    
    # Verify release
-   python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
+   python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck | grep zombie_state
    ```
 
 3. **If release fails (zombie state):**
    ```bash
    # Force reset by taking control then releasing
-   python franklinwh_cli.py -i 192.168.0.110 --mode manual --power 0 --duration 1
+   python franklinwh_cli.py -i YOUR_AGATE_IP --mode manual --power 0 --duration 1
    sleep 2
-   python franklinwh_cli.py -i 192.168.0.110 --stop
+   python franklinwh_cli.py -i YOUR_AGATE_IP --stop
    ```
 
 ### If Battery Won't Respond to Cloud/App
 
 1. Check if Modbus control is still active:
    ```bash
-   python franklinwh_cli.py -i 192.168.0.110 --status | grep -A2 "Control Source"
+   python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep -A2 "Control Source"
    ```
 
 2. If WSetEna=1, release it:
@@ -359,7 +359,7 @@ with open('$latest') as f:
    python -c "
 import sys; sys.path.insert(0, 'src')
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 if ctrl.connect():
     ctrl.reset_control_state()
     print('Released')
@@ -377,7 +377,7 @@ if ctrl.connect():
 
 Check specific issue:
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 --status
+python franklinwh_cli.py -i YOUR_AGATE_IP --status
 ```
 
 Common causes:
@@ -389,12 +389,12 @@ Common causes:
 
 1. Check connection:
    ```bash
-   python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep connection
+   python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck | grep connection
    ```
 
 2. Check for conflicts:
    ```bash
-   python franklinwh_cli.py -i 192.168.0.110 --status | grep -A2 "AGATE MODE"
+   python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep -A2 "AGATE MODE"
    ```
 
 3. May need `--reset-on-start` if another controller is active
@@ -418,7 +418,7 @@ touch data/test_write && rm data/test_write || echo "Permission issue"
 
 ```bash
 # 1. Check current state
-$ python franklinwh_cli.py -i 192.168.0.110 --status | head -20
+$ python franklinwh_cli.py -i YOUR_AGATE_IP --status | head -20
 State of Charge:  70.0%
 Control Source:   Cloud API (aGate native mode)   ← Good, not in test mode
 
@@ -440,15 +440,15 @@ Do you want to proceed? Type 'yes' to continue: yes
 Tests: 4/4 passed
 
 # 4. MANDATORY: Release control
-$ python franklinwh_cli.py -i 192.168.0.110 --stop
+$ python franklinwh_cli.py -i YOUR_AGATE_IP --stop
 INFO - ✓ Reset successful: WSetEna=0
 
 # 5. Verify release
-$ python franklinwh_cli.py -i 192.168.0.110 --status | grep "Control Source"
+$ python franklinwh_cli.py -i YOUR_AGATE_IP --status | grep "Control Source"
 Control Source:   Cloud API (aGate native mode)   ← Confirmed released
 
 # 6. Health check
-$ python franklinwh_cli.py -i 192.168.0.110 --healthcheck | grep zombie_state
+$ python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck | grep zombie_state
 ✓ zombie_state: OK (not in zombie state)   ← Confirmed clean
 
 # 7. Review results

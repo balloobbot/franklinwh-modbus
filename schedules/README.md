@@ -6,7 +6,7 @@ This directory contains Time-of-Use (TOU) schedule files for the FranklinWH batt
 
 ```bash
 # Use a schedule file with time_of_use mode
-python franklinwh_control_standalone.py -i 192.168.0.110 \
+python franklinwh_control_standalone.py -i YOUR_AGATE_IP \
   --reset-on-start --mode time_of_use --schedule-file schedules/ausgrid_tou.json
 
 # Validate a schedule file

@@ -232,18 +232,18 @@ Legend:  ✅ Working   ⚠️ Partial   🔲 Untested   ❌ Broken/Blocked
 
 ```bash
 # Read all M704 control registers (ground truth)
-python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 -dvalues --vals | grep -A 50 'Model 704'
+python3 tools/modbus_sunspec2_reader.py -i YOUR_AGATE_IP -t 10 -dvalues --vals | grep -A 50 'Model 704'
 
 # Read M715 control registers
-python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 -dvalues --vals | grep -A 12 'Model 715'
+python3 tools/modbus_sunspec2_reader.py -i YOUR_AGATE_IP -t 10 -dvalues --vals | grep -A 12 'Model 715'
 
 # Read extension mode/reserves
-python3 tools/modbus_sunspec2_reader.py -i 192.168.0.110 -t 10 --raw 15507:3
+python3 tools/modbus_sunspec2_reader.py -i YOUR_AGATE_IP -t 10 --raw 15507:3
 
 # Library: read control status
 python3 -c "
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 print(ctrl.read_control_status())
 print(ctrl.read_native_mode())
@@ -253,7 +253,7 @@ ctrl.disconnect()
 # Library: healthcheck (includes zombie detection)
 python3 -c "
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 h = ctrl.healthcheck()
 print(f'Healthy: {h.healthy}')

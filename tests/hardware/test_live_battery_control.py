@@ -19,7 +19,7 @@ Usage:
     pytest tests/hardware/test_live_battery_control.py -v -m "hardware and destructive" --destructive-enabled
 
 Environment Variables:
-    FRANKLINWH_TEST_HOST: aGate IP (default: 192.168.0.110)
+    FRANKLINWH_TEST_HOST: aGate IP (default: YOUR_AGATE_IP)
     FRANKLINWH_TEST_PORT: Modbus port (default: 502)
     FRANKLINWH_TEST_UNIT: Unit ID (default: 2)
     TEST_RECORD_FILE: Path to save test results (default: data/test_results_{timestamp}.json)
@@ -159,7 +159,7 @@ def get_recorder() -> TestRecorder:
 def hardware_config():
     """Get hardware connection configuration."""
     return {
-        'host': os.environ.get('FRANKLINWH_TEST_HOST', '192.168.0.110'),
+        'host': os.environ.get('FRANKLINWH_TEST_HOST', 'YOUR_AGATE_IP'),
         'port': int(os.environ.get('FRANKLINWH_TEST_PORT', '502')),
         'unit_id': int(os.environ.get('FRANKLINWH_TEST_UNIT', '2')),
     }

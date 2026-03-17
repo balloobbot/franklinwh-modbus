@@ -1,9 +1,0 @@
-
-## License
-
-MIT License - See [LICENSE](../LICENSE) for details.
-
-## Support
-
-- 📧 Issues: [GitHub Issues](https://github.com/yourusername/franklinwh-ha/issues)
-- 💬 Discussions: [Home Assistant Community](https://community.home-assistant.io)

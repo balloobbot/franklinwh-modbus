@@ -7,8 +7,8 @@ A terminal-based dashboard that mirrors the web dashboard functionality
 with real-time updates and interactive control.
 
 Usage:
-    python franklinwh_cli.py -i 192.168.0.110 --monitor
-    python franklinwh_monitor.py -i 192.168.0.110 --refresh 2
+    python franklinwh_cli.py -i YOUR_AGATE_IP --monitor
+    python franklinwh_monitor.py -i YOUR_AGATE_IP --refresh 2
 
 Keyboard Shortcuts:
     c       Enter charge mode (prompts for watts)

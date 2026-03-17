@@ -82,7 +82,7 @@ This replaces the normal mode display (Self-Consumption, Time-of-Use, or Emergen
 
 **Via CLI:**
 ```bash
-python3 franklinwh_cli.py -i 192.168.0.110 --stop
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 **Via library:**
@@ -94,7 +94,7 @@ ctrl.disconnect()             # Close Modbus TCP connection
 **After failure or crash:**
 ```bash
 # Reconnect and force release
-python3 franklinwh_cli.py -i 192.168.0.110 --stop --reset-on-start
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop --reset-on-start
 ```
 
 If `--stop` fails (e.g. network unreachable), the aGate will automatically revert to its previous mode after the keep-alive timeout.
@@ -162,13 +162,13 @@ except ImportError:
 ### Before (Standalone — deprecated)
 ```python
 from franklinwh_control_standalone import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ```
 
 ### After (Library — v0.9.0)
 ```python
 from franklinwh_modbus import FranklinWHController
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 ```
 
@@ -757,7 +757,7 @@ VirtualModeController(
 import threading
 from franklinwh_modbus import FranklinWHController, VirtualModeController, VirtualMode
 
-ctrl = FranklinWHController('192.168.0.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 vmc = VirtualModeController(ctrl)
@@ -834,7 +834,7 @@ from franklinwh_modbus import FranklinWHController
 **Cause:** aGate not reachable on network.
 
 **Fix:**
-1. Verify aGate IP address: `ping 192.168.0.110`
+1. Verify aGate IP address: `ping YOUR_AGATE_IP`
 2. Check aGate is powered on and connected to WiFi
 3. Verify firewall allows Modbus TCP (port 502)
 
@@ -844,7 +844,7 @@ from franklinwh_modbus import FranklinWHController
 
 **Fix:** Increase timeout:
 ```bash
-python franklinwh_cli.py -i 192.168.0.110 -t 10 --status
+python franklinwh_cli.py -i YOUR_AGATE_IP -t 10 --status
 ```
 
 ### Control Conflicts with Cloud API
