@@ -17,7 +17,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 - [📖 Library & CLI Usage Guide](./USAGE_GUIDE.md)
 - [📚 Documentation](./docs/README.md)
 - [🧪 Hardware Test Guide](./docs/HARDWARE_TEST_GUIDE.md)
-- [🗺️ Phases & Roadmap](./PHASES_AND_ROADMAP.md)
+- [📝 Changelog](./CHANGELOG.md)
 
 ## ⚠️ Important — Before You Start
 

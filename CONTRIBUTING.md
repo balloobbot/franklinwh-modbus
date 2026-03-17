@@ -52,7 +52,23 @@ python3 -m pytest tests/hardware/ -v --ip YOUR_AGATE_IP
 2. Add or update tests for any new functionality
 3. Ensure all tests pass: `python3 -m pytest tests/ -v`
 4. Update documentation if you change public APIs
-5. Submit a PR with a clear description of the change
+5. **Add a changelog entry** under `[Unreleased]` in [CHANGELOG.md](./CHANGELOG.md)
+6. Submit a PR with a clear description of the change
+
+### Commit Messages
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) prefixes:
+
+| Prefix | Use For |
+|--------|---------|
+| `feat:` | New feature or capability |
+| `fix:` | Bug fix |
+| `doc:` | Documentation only |
+| `test:` | Adding or updating tests |
+| `chore:` | Build, CI, tooling changes |
+| `refactor:` | Code restructuring (no behavior change) |
+
+Example: `fix: CRITICAL - WSetPct used wrong denominator (WMaxRtg vs charge rate)`
 
 ### Code Style
 
@@ -68,6 +84,38 @@ Many features interact with real hardware. If you don't have an aGate:
 - Unit tests with mocks cover most logic
 - Clearly mark hardware-dependent changes in your PR
 - A maintainer with hardware will validate before merging
+
+## Changelog Policy
+
+This project maintains a [CHANGELOG.md](./CHANGELOG.md) following the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+
+**Every PR must include a changelog entry.** Add your change under the `[Unreleased]` section in the appropriate category:
+
+| Category | Use For |
+|----------|---------|
+| `Added` | New features, new tools, new docs |
+| `Changed` | Changes to existing functionality |
+| `Deprecated` | Features that will be removed in future |
+| `Removed` | Features removed in this release |
+| `Fixed` | Bug fixes |
+| `Security` | Vulnerability fixes |
+
+PRs without a changelog entry will be asked to add one before merging.
+
+## Release Process
+
+When cutting a release:
+
+1. Move `[Unreleased]` entries to a new version heading: `## [X.Y.Z] - YYYY-MM-DD`
+2. Update version in `setup.py`
+3. Add comparison link at bottom of CHANGELOG.md
+4. Tag the release: `git tag vX.Y.Z`
+5. Push tag: `git push origin vX.Y.Z`
+
+Versioning follows [Semantic Versioning](https://semver.org/):
+- **MAJOR** — breaking API changes
+- **MINOR** — new features, backward-compatible
+- **PATCH** — bug fixes, backward-compatible
 
 ## Project Structure
 

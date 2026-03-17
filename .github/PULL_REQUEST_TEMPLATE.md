@@ -32,4 +32,5 @@ Brief description of the change and why it's needed.
 - [ ] Code follows PEP 8 style
 - [ ] Docstrings added/updated for public methods
 - [ ] Documentation updated (if public API changed)
+- [ ] **CHANGELOG.md updated** under `[Unreleased]`
 - [ ] No hardcoded IP addresses or device-specific data
