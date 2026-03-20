@@ -4,6 +4,8 @@ Network Scanner for IoT and Energy Devices
 
 Scans local networks for:
 - Modbus TCP devices (SunSpec compliant Model 1)
+- SSH servers (banner identification)
+- DNS resolvers
 - Enphase Solar Inverters (Modbus/REST API)
 - SolarEdge Solar Inverters (Modbus/REST API)
 - Home Assistant instances
@@ -85,6 +87,8 @@ except ImportError:
 class DeviceType(Enum):
     """Supported device types for scanning."""
     MODBUS_SUNSPEC = "modbus_sunspec"
+    SSH = "ssh"
+    DNS = "dns"
     ENPHASE = "enphase"
     SOLAREDGE = "solaredge"
     HOME_ASSISTANT = "home_assistant"
@@ -99,6 +103,9 @@ class DeviceType(Enum):
         mapping = {
             "modbus": cls.MODBUS_SUNSPEC,
             "sunspec": cls.MODBUS_SUNSPEC,
+            "ssh": cls.SSH,
+            "sftp": cls.SSH,
+            "dns": cls.DNS,
             "enphase": cls.ENPHASE,
             "solaredge": cls.SOLAREDGE,
             "ha": cls.HOME_ASSISTANT,
@@ -1235,6 +1242,8 @@ class NetworkScanner:
     # Default ports to scan for each device type
     DEFAULT_PORTS = {
         DeviceType.MODBUS_SUNSPEC: [502, 5020, 1502],
+        DeviceType.SSH: [22, 2222],
+        DeviceType.DNS: [53],
         DeviceType.ENPHASE: [80, 443],
         DeviceType.SOLAREDGE: [80, 502],
         DeviceType.HOME_ASSISTANT: [8123],
@@ -1435,7 +1444,130 @@ class NetworkScanner:
         elif device_type == DeviceType.SPAN:
             if self.http_prober and port in [80, 443]:
                 return self.http_prober.probe_span(ip, port)
+        
+        elif device_type == DeviceType.SSH:
+            return self._probe_ssh(ip, port)
+        
+        elif device_type == DeviceType.DNS:
+            return self._probe_dns(ip, port)
                 
+        return None
+    
+    def _probe_ssh(self, ip: str, port: int) -> Optional[ScanResult]:
+        """Probe for SSH server by reading the banner."""
+        start_time = time.time()
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((ip, port))
+            banner = sock.recv(256).decode('utf-8', errors='replace').strip()
+            sock.close()
+            elapsed = (time.time() - start_time) * 1000
+            
+            if banner.startswith('SSH-'):
+                # Parse SSH banner: SSH-2.0-dropbear_2015.71
+                parts = banner.split('-', 2)
+                version_str = parts[2] if len(parts) > 2 else banner
+                # Extract software name
+                software = version_str.split(' ')[0] if version_str else 'Unknown'
+                
+                return ScanResult(
+                    ip=ip,
+                    port=port,
+                    device_type=DeviceType.SSH,
+                    is_reachable=True,
+                    response_time_ms=elapsed,
+                    version=software,
+                    extra_data={'banner': banner}
+                )
+        except Exception:
+            pass
+        return None
+    
+    def _probe_dns(self, ip: str, port: int) -> Optional[ScanResult]:
+        """Probe for DNS resolver by sending a simple query (TCP then UDP)."""
+        start_time = time.time()
+        
+        # Build a minimal DNS query for 'localhost' A record
+        query = (
+            b'\x12\x34'     # Transaction ID
+            b'\x01\x00'     # Flags: standard query, recursion desired
+            b'\x00\x01'     # Questions: 1
+            b'\x00\x00'     # Answers: 0
+            b'\x00\x00'     # Authority: 0
+            b'\x00\x00'     # Additional: 0
+            b'\x09localhost\x00'  # QNAME: localhost
+            b'\x00\x01'     # QTYPE: A
+            b'\x00\x01'     # QCLASS: IN
+        )
+        
+        # Try TCP first (DNS over TCP uses 2-byte length prefix)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((ip, port))
+            # TCP DNS: 2-byte big-endian length + query
+            tcp_msg = len(query).to_bytes(2, 'big') + query
+            sock.send(tcp_msg)
+            # Read 2-byte length then response
+            try:
+                length_data = sock.recv(2)
+                if length_data and len(length_data) == 2:
+                    resp_len = int.from_bytes(length_data, 'big')
+                    data = sock.recv(resp_len)
+                    sock.close()
+                    elapsed = (time.time() - start_time) * 1000
+                    
+                    if data and len(data) > 2 and data[:2] == b'\x12\x34':
+                        return ScanResult(
+                            ip=ip,
+                            port=port,
+                            device_type=DeviceType.DNS,
+                            is_reachable=True,
+                            response_time_ms=elapsed,
+                            model='DNS Resolver',
+                            extra_data={'protocol': 'TCP', 'response_size': len(data)}
+                        )
+            except (socket.timeout, ConnectionResetError):
+                pass
+            
+            # TCP port 53 connected — DNS service is present even if no query response
+            # (common for embedded DNS proxies like dnsmasq)
+            sock.close()
+            elapsed = (time.time() - start_time) * 1000
+            return ScanResult(
+                ip=ip,
+                port=port,
+                device_type=DeviceType.DNS,
+                is_reachable=True,
+                response_time_ms=elapsed,
+                model='DNS Service',
+                extra_data={'protocol': 'TCP', 'note': 'port open, no query response'}
+            )
+        except Exception:
+            pass
+        
+        # Fall back to UDP
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(self.timeout)
+            sock.sendto(query, (ip, port))
+            data, _ = sock.recvfrom(512)
+            sock.close()
+            elapsed = (time.time() - start_time) * 1000
+            
+            if data and len(data) > 2 and data[:2] == b'\x12\x34':
+                return ScanResult(
+                    ip=ip,
+                    port=port,
+                    device_type=DeviceType.DNS,
+                    is_reachable=True,
+                    response_time_ms=elapsed,
+                    model='DNS Resolver',
+                    extra_data={'protocol': 'UDP', 'response_size': len(data)}
+                )
+        except Exception:
+            pass
         return None
 
 
