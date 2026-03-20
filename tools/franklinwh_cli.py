@@ -119,6 +119,8 @@ Examples:
                        help='Auto-revert to cloud control after N seconds (software timer — hardware WSetRvrtTms does not work on FranklinWH)')
     parser.add_argument('--target-soc-auto', type=float, metavar='PCT',
                        help='Target SoC %% - auto-stop when reached (for charge/discharge)')
+    parser.add_argument('--loop', action='store_true',
+                       help='Monitor SoC continuously and auto-stop at target (use with --target-soc)')
     parser.add_argument('--reset-on-start', action='store_true', help='Reset control state on start')
     parser.add_argument('--dry-run', action='store_true', help='Simulate without sending commands')
     
@@ -139,10 +141,83 @@ Examples:
     
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging')
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress non-error output (useful with --monitor')
+    parser.add_argument('--detail', action='store_true', help='Show detailed status output (default: compact summary)')
     parser.add_argument('--theme', choices=['dark', 'green', 'amber', 'white', 'paper'], 
                        default='dark', help='Color theme for monitor (default: dark)')
     
     return parser
+
+
+def print_status_summary(ctrl: FranklinWHController):
+    """Print compact system status — nutshell view."""
+    bat = ctrl.read_battery_status()
+    grid = ctrl.read_grid_status()
+    solar = ctrl.read_solar_status()
+    ctl = ctrl.read_control_status()
+    native = ctrl.read_native_mode()
+    
+    soc = bat.get('soc', 0)
+    grid_power = grid.get('grid_power_w', 0)
+    conn_state = grid.get('connection_state', 'Unknown')
+    is_off_grid = conn_state == 'Disconnected'
+    
+    # Solar
+    solar_ac = solar.get('ac_power_w', 0)
+    solar_ext = solar.get('extension', {})
+    solar_total = solar_ext.get('total_solar', 0) if solar_ext else 0
+    solar_power = solar_ac if solar_ac > 0 else solar_total
+    
+    # Battery DC power from M714
+    battery_dc = solar.get('battery_dc_power_w', solar.get('dc_power_w', 0))
+    
+    # Home load (prefer extension register 16000)
+    home_load_ext = solar_ext.get('home_load_ext', 0) if solar_ext else 0
+    if home_load_ext > 0:
+        home_load = home_load_ext
+    else:
+        home_load = solar_power + battery_dc + grid_power
+    
+    # Derive battery state from DC power (like FEM does)
+    if battery_dc < -50:
+        bat_state = f"↓ CHARGING {abs(battery_dc):.0f}W"
+    elif battery_dc > 50:
+        bat_state = f"↑ DISCHARGING {abs(battery_dc):.0f}W"
+    else:
+        bat_state = "IDLE"
+    
+    # Control source
+    wset_ena = ctl.get('wset_enabled', 0)
+    wset_pct = ctl.get('wset_pct', 0)
+    if wset_ena == 1:
+        control = f"Modbus (WSetPct={wset_pct}%)"
+    else:
+        control = "Cloud"
+    
+    # Mode
+    mode = native.get('mode_name', 'Unknown') if native else 'Unknown'
+    reserve = native.get('self_reserve_pct', 0) if native else 0
+    
+    # Grid state
+    if is_off_grid:
+        grid_state = "OFF-GRID"
+    elif grid_power > 50:
+        grid_state = f"← {abs(grid_power):.0f}W importing"
+    elif grid_power < -50:
+        grid_state = f"→ {abs(grid_power):.0f}W exporting"
+    else:
+        grid_state = "balanced"
+    
+    # Available energy
+    avail_kwh = bat.get('wh_available', 0) / 1000
+    rated_kwh = bat.get('wh_rating', 0) / 1000
+    
+    print(f"""\n  ⚡ FranklinWH aGate | SoC: {soc:.0f}% | {mode} | Reserve: {reserve}%
+  ──────────────────────────────────────────────────────
+    Solar:   {abs(solar_power):>5.0f}W {'producing' if solar_power > 50 else 'idle':12s}  Battery: {bat_state}
+    Home:    {abs(home_load):>5.0f}W {'consuming' if abs(home_load) > 50 else 'idle':12s}  Grid:    {grid_state}
+  ──────────────────────────────────────────────────────
+    Control: {control:24s}  Available: {avail_kwh:.1f}/{rated_kwh:.1f} kWh""")
+    print()
 
 
 def print_status(ctrl: FranklinWHController):
@@ -545,6 +620,8 @@ def print_startup_summary(state: dict, requested_mode: str = None, args=None):
         print(f"\n  Requested Mode: {requested_mode}")
         if true_conflicts:
             print(f"  Status:         ✗ CONFLICTS - use --reset-on-start to override")
+        elif info_messages:
+            print(f"  Status:         ✓ Can proceed (informational)")
         else:
             print(f"  Status:         ✓ Can proceed")
     
@@ -776,7 +853,10 @@ def main():
         
         # Show status
         if args.status:
-            print_status(ctrl)
+            if args.detail:
+                print_status(ctrl)
+            else:
+                print_status_summary(ctrl)
             sys.exit(0)
         
         # Launch monitor dashboard
@@ -1057,17 +1137,17 @@ def main():
                     sys.exit(1)
             
             # Check if we should run continuous mode
-            # Continuous if: duration specified OR SoC limits specified OR target-soc/target-soc-auto
+            # Continuous if: --loop specified, OR duration specified, OR SoC limits specified
             has_duration = args.duration is not None
             has_soc_limits = (args.max_charge_soc != 100 or args.min_discharge_soc is not None)
             has_target_soc = args.target_soc_auto is not None
-            # Treat --target-soc as --target-soc-auto when used with --charge/--discharge
-            if not has_target_soc and args.target_soc != 100:
+            # Treat --target-soc as --target-soc-auto when used with --charge/--discharge AND --loop
+            if not has_target_soc and args.target_soc != 100 and args.loop:
                 args.target_soc_auto = args.target_soc
                 has_target_soc = True
             is_controlling = args.power != 0
             
-            if (has_duration or has_soc_limits or has_target_soc) and is_controlling:
+            if (has_duration or has_soc_limits or (has_target_soc and args.loop)) and is_controlling:
                 # Run continuous control with SoC limits or target SoC
                 from franklinwh_modbus import VirtualModeController, VirtualMode
                 vmc = VirtualModeController(

@@ -1366,6 +1366,7 @@ class NetworkScanner:
     def _scan_ip(self, ip: str) -> List[ScanResult]:
         """Scan a single IP for all configured device types."""
         results = []
+        seen_ip_port = set()
         
         for device_type in self.device_types:
             if device_type == DeviceType.UNKNOWN:
@@ -1375,6 +1376,10 @@ class NetworkScanner:
             ports = self.custom_ports or self.DEFAULT_PORTS.get(device_type, [])
             
             for port in ports:
+                # Skip if already found a device at this IP:port
+                if (ip, port) in seen_ip_port:
+                    continue
+                    
                 # First, quick port check
                 is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 1.0))
                 
@@ -1386,6 +1391,7 @@ class NetworkScanner:
                 
                 if result:
                     results.append(result)
+                    seen_ip_port.add((ip, port))
                     # Only report first successful probe per device type per IP
                     break
                     

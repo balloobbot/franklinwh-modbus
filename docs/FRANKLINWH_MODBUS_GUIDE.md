@@ -171,10 +171,10 @@ Write access to these registers requires the **SPAN Modbus** unlock — enabled 
 **1. Network Scanner** — detect SPAN Panel on the local network:
 ```bash
 # Scan subnet for SPAN devices
-python3 tools/network_scanner.py 192.168.0.0/24 --devices span -v
+python3 tools/network_scanner.py YOUR_SUBNET/24 --devices span -v
 
 # Check specific IP
-python3 tools/network_scanner.py 192.168.0.35 --devices span -v
+python3 tools/network_scanner.py YOUR_SPAN_IP --devices span -v
 
 # mDNS discovery (no IP needed)
 python3 tools/network_scanner.py --mdns --devices span

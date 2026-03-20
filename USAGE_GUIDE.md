@@ -156,8 +156,8 @@ except ImportError:
 
 ## Migration from Standalone Script
 
-> **Note:** `franklinwh_control_standalone.py` has been archived to `archive/`.
-> The library (`franklinwh`) is the replacement.
+> **Note:** `franklinwh_control_standalone.py` is deprecated.
+> The library (`franklinwh_modbus`) is the replacement.
 
 ### Before (Standalone — deprecated)
 ```python
@@ -189,83 +189,83 @@ ctrl.connect()
 
 ```bash
 # View system status
-python franklinwh_cli.py -i 192.168.1.110 --status
+python franklinwh_cli.py -i YOUR_AGATE_IP --status
 
 # Health check
-python franklinwh_cli.py -i 192.168.1.110 --healthcheck
+python franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck
 
 # Check alarms (detailed)
-python franklinwh_cli.py -i 192.168.1.110 --check-alarms
+python franklinwh_cli.py -i YOUR_AGATE_IP --check-alarms
 
 # Clear alarms
-python franklinwh_cli.py -i 192.168.1.110 --clear-alarms
+python franklinwh_cli.py -i YOUR_AGATE_IP --clear-alarms
 ```
 
 ### Battery Control
 
 ```bash
 # Charge at 3000W for 1 hour
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --duration 3600
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --duration 3600
 
 # Discharge at 2000W for 30 minutes
-python franklinwh_cli.py -i 192.168.1.110 --discharge 2000 --duration 1800
+python franklinwh_cli.py -i YOUR_AGATE_IP --discharge 2000 --duration 1800
 
 # Maximum charge (uses rated power from nameplate)
-python franklinwh_cli.py -i 192.168.1.110 --max-charge --duration 3600
+python franklinwh_cli.py -i YOUR_AGATE_IP --max-charge --duration 3600
 
 # Maximum discharge
-python franklinwh_cli.py -i 192.168.1.110 --max-discharge --duration 3600
+python franklinwh_cli.py -i YOUR_AGATE_IP --max-discharge --duration 3600
 
 # Standby (0W)
-python franklinwh_cli.py -i 192.168.1.110 --standby
+python franklinwh_cli.py -i YOUR_AGATE_IP --standby
 
 # Release control to cloud
-python franklinwh_cli.py -i 192.168.1.110 --stop
+python franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 
 ### Virtual Modes
 
 ```bash
 # Self-consumption mode
-python franklinwh_cli.py -i 192.168.1.110 --mode self_consumption --target-soc 90
+python franklinwh_cli.py -i YOUR_AGATE_IP --mode self_consumption --target-soc 90
 
 # Emergency backup
-python franklinwh_cli.py -i 192.168.1.110 --mode emergency_backup --target-soc 95
+python franklinwh_cli.py -i YOUR_AGATE_IP --mode emergency_backup --target-soc 95
 
 # Peak shaving
-python franklinwh_cli.py -i 192.168.1.110 --mode peak_shave --threshold 2000
+python franklinwh_cli.py -i YOUR_AGATE_IP --mode peak_shave --threshold 2000
 
 # Manual mode with power
-python franklinwh_cli.py -i 192.168.1.110 --mode manual --charge 3000
+python franklinwh_cli.py -i YOUR_AGATE_IP --mode manual --charge 3000
 ```
 
 ### Safety Limits & Conflict Detection
 
 ```bash
 # Charge with max SoC limit (exit when reached)
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --max-charge-soc 95
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --max-charge-soc 95
 
 # Discharge with min SoC limit (exit when reached)
-python franklinwh_cli.py -i 192.168.1.110 --discharge 3000 --min-discharge-soc 20
+python franklinwh_cli.py -i YOUR_AGATE_IP --discharge 3000 --min-discharge-soc 20
 
 # Force operation despite limits
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --force
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --force
 
 # Skip conflict detection (advanced users only)
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --assume-clean-state
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --assume-clean-state
 ```
 
 ### Auto-Revert Timer (Safety)
 
 ```bash
 # Charge for 1 hour, then automatically release control
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --revert 3600
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --revert 3600
 
 # Discharge for 30 minutes, then auto-revert
-python franklinwh_cli.py -i 192.168.1.110 --discharge 3000 --revert 1800
+python franklinwh_cli.py -i YOUR_AGATE_IP --discharge 3000 --revert 1800
 
 # Self-consumption mode with safety timeout
-python franklinwh_cli.py -i 192.168.1.110 --mode self_consumption --target-soc 90 --revert 7200
+python franklinwh_cli.py -i YOUR_AGATE_IP --mode self_consumption --target-soc 90 --revert 7200
 ```
 
 ### Target SoC Auto-Stop
@@ -274,13 +274,13 @@ Charge or discharge until a specific SoC is reached, then automatically stop:
 
 ```bash
 # Charge until 95% SoC, then stop
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --target-soc-auto 95
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --target-soc-auto 95
 
 # Discharge until 30% SoC, then stop
-python franklinwh_cli.py -i 192.168.1.110 --discharge 3000 --target-soc-auto 30
+python franklinwh_cli.py -i YOUR_AGATE_IP --discharge 3000 --target-soc-auto 30
 
 # Combined with duration (whichever comes first)
-python franklinwh_cli.py -i 192.168.1.110 --charge 3000 --target-soc-auto 95 --duration 3600
+python franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --target-soc-auto 95 --duration 3600
 ```
 
 **How it works:**
@@ -301,7 +301,7 @@ from franklinwh_modbus import FranklinWHController
 
 # Create controller
 ctrl = FranklinWHController(
-    ip_address='192.168.1.110',
+    ip_address='YOUR_AGATE_IP',
     port=502,
     unit_id=2,
     timeout=10.0
@@ -321,7 +321,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Read battery status
@@ -340,7 +340,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController, BatteryCommand
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Charge at 3000W
@@ -373,7 +373,7 @@ from franklinwh_modbus import (
     VirtualMode
 )
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Create virtual mode controller
@@ -395,7 +395,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Read alarms
@@ -416,7 +416,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Run health check
@@ -434,7 +434,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 grid = ctrl.read_grid_status()
@@ -451,7 +451,7 @@ ctrl.disconnect()
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 solar = ctrl.read_solar_status()
@@ -477,7 +477,7 @@ ctrl.disconnect()
 from franklinwh_modbus import FranklinWHController, BatteryCommand
 import time
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 target_soc = 90
@@ -509,7 +509,7 @@ ctrl.disconnect()
 from franklinwh_modbus import FranklinWHController, BatteryCommand
 import time
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 min_soc = 20
@@ -543,7 +543,7 @@ import time
 import json
 from datetime import datetime
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 data_log = []
@@ -585,7 +585,7 @@ Check system state before sending commands to detect conflicts with aGate Cloud 
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Get full system state including conflicts
@@ -623,7 +623,7 @@ from franklinwh_modbus import FranklinWHController, BatteryCommand
 import threading
 import time
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 # Set up auto-revert timer
@@ -669,7 +669,7 @@ Validate grid connection before operating:
 ```python
 from franklinwh_modbus import FranklinWHController
 
-ctrl = FranklinWHController('192.168.1.110')
+ctrl = FranklinWHController('YOUR_AGATE_IP')
 ctrl.connect()
 
 state = ctrl.check_state()
@@ -863,7 +863,7 @@ python franklinwh_cli.py -i YOUR_AGATE_IP -t 10 --status
 - **Hardware Testing:** See [docs/HARDWARE_TEST_GUIDE.md](docs/HARDWARE_TEST_GUIDE.md)
 - **Safety Rules:** See [docs/SAFETY_CONTROLS.md](docs/SAFETY_CONTROLS.md)
 - **SunSpec Quirks:** See [docs/FRANKLINWH_SUNSPEC_QUIRKS.md](docs/FRANKLINWH_SUNSPEC_QUIRKS.md)
-- **Roadmap:** See [PHASES_AND_ROADMAP.md](PHASES_AND_ROADMAP.md)
+- **Changelog:** See [CHANGELOG.md](CHANGELOG.md)
 
 ---
 

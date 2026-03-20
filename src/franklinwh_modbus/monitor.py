@@ -1060,8 +1060,8 @@ class CLIMonitor:
         
     def _handle_prompt_key(self, key: str) -> bool:
         """Handle key when in prompt mode."""
-        # Enter - submit command
-        if key in '\r\n':
+        # Enter - submit command (\r=13 or \n=10)
+        if ord(key) in (10, 13):
             try:
                 watts = int(self.prompt_buffer) if self.prompt_buffer else 0
                 if self.prompt_mode == 'charge':
@@ -1069,7 +1069,7 @@ class CLIMonitor:
                 elif self.prompt_mode == 'discharge':
                     self._send_command(-abs(watts))  # Negative = discharge
             except ValueError:
-                self._log_command("Invalid input")
+                self._log_command("Error: Invalid number")
             # Exit prompt mode
             self.show_prompt = False
             self.prompt_buffer = ""
@@ -1107,23 +1107,34 @@ class CLIMonitor:
     def _send_command(self, power_w: int):
         """Send power command to battery."""
         if not self.controller:
+            self._log_command("Error: No controller connected")
             return
+        if not self.controller.is_connected():
+            self._log_command("Error: Modbus disconnected — reconnecting...")
+            if not self.controller.reconnect():
+                self._log_command("Error: Reconnect failed")
+                return
         try:
             from .types import BatteryCommand
             cmd = BatteryCommand(power_watts=power_w)
-            self.controller.send_command(cmd)
+            success, msg = self.controller.send_command(cmd)
             self.current_power = power_w
             
-            # Log the command
+            # Log the command with result
             if power_w > 0:
-                self._log_command(f"Charge: {power_w}W")
+                action = f"Charge: {power_w}W"
             elif power_w < 0:
-                self._log_command(f"Discharge: {abs(power_w)}W")
+                action = f"Discharge: {abs(power_w)}W"
             else:
-                self._log_command("Standby (0W)")
+                action = "Standby (0W)"
+            
+            if success:
+                self._log_command(f"{action} — OK")
+            else:
+                self._log_command(f"{action} — FAILED: {msg}")
                 
         except Exception as e:
-            self._log_command(f"Error: {str(e)[:30]}")
+            self._log_command(f"Error: {str(e)[:50]}")
             
     def _adjust_power(self, delta: int):
         """Adjust current power by delta."""
@@ -1142,6 +1153,15 @@ class CLIMonitor:
         self.input_handler.start()
         last_data_fetch = 0
         last_display_update = 0
+        
+        # Suppress all stream handlers while Rich Live owns the screen.
+        # Logger messages to stderr disrupt the alternate screen buffer.
+        root_logger = logging.getLogger()
+        saved_handlers = []
+        for handler in root_logger.handlers[:]:
+            if isinstance(handler, logging.StreamHandler):
+                saved_handlers.append(handler)
+                root_logger.removeHandler(handler)
         
         try:
             with Live(
@@ -1178,6 +1198,9 @@ class CLIMonitor:
         finally:
             self.input_handler.stop()
             self.disconnect()
+            # Restore logger handlers
+            for handler in saved_handlers:
+                root_logger.addHandler(handler)
             
         return 0
 

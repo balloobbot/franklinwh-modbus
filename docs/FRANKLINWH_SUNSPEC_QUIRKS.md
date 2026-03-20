@@ -161,7 +161,7 @@ When `WSetEna=1` is written to M704, the aGate **automatically activates VPP Mod
 2. **M704 commands** control battery power exclusively while VPP is active
 3. **`WSetEna=0`** → VPP deactivates, native mode **cleanly resumes**
 
-See [VPP_MODE_COMPLETE_EXTRACTION.md](../archive/docs/VPP_MODE_COMPLETE_EXTRACTION.md) for the original discovery.
+See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the VPP Mode visual reference.
 
 ### Write Access Table
 
@@ -279,7 +279,7 @@ def _probe_extension_writable(self):
 
 - [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) — Proper 6-phase SunSpec control protocol
 - [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Re-scoped with VPP handoff model
-- [VPP_MODE_COMPLETE_EXTRACTION.md](../archive/docs/VPP_MODE_COMPLETE_EXTRACTION.md) — Original VPP Mode discovery
+- [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — VPP Mode visual reference
 
 ---
 

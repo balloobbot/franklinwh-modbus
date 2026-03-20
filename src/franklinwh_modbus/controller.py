@@ -78,7 +78,7 @@ class FranklinWHController:
     def connect(self) -> bool:
         """Connect and scan for models."""
         try:
-            logger.info(f"Connecting to {self.ip_address}:{self.port} (unit {self.unit_id})")
+            logger.debug(f"Connecting to {self.ip_address}:{self.port} (unit {self.unit_id})")
             self.dev = SunSpecModbusClientDeviceTCP(
                 slave_id=self.unit_id,
                 ipaddr=self.ip_address,
@@ -86,7 +86,7 @@ class FranklinWHController:
                 timeout=self.timeout,
             )
             
-            logger.info("Scanning for SunSpec models...")
+            logger.debug("Scanning for SunSpec models...")
             self.dev.scan()
             
             self.models = {
@@ -95,7 +95,7 @@ class FranklinWHController:
             }
             
             numeric_models = [k for k in self.models.keys() if isinstance(k, int)]
-            logger.info(f"Found models: {sorted(numeric_models)}")
+            logger.debug(f"Found models: {sorted(numeric_models)}")
             
             # Verify critical models exist
             required = [704, 713, 701]  # Control, Battery, Grid
@@ -133,12 +133,12 @@ class FranklinWHController:
             if wset_ena and wset_ena.value == 1:
                 wset_pct = getattr(m704, 'WSetPct', None)
                 pct_val = wset_pct.value if wset_pct else '?'
-                logger.info(
+                logger.debug(
                     f"Active VPP state detected: WSetEna=1, WSetPct={pct_val}. "
                     f"This is normal — hardware reversion is cosmetic (PICS Issue 4)."
                 )
                 if self.auto_release_orphan:
-                    logger.info("auto_release_orphan=True — releasing VPP state")
+                    logger.debug("auto_release_orphan=True — releasing VPP state")
                     self.reset_control_state()
         except Exception as e:
             logger.debug(f"Orphan check failed (non-critical): {e}")
@@ -282,13 +282,13 @@ class FranklinWHController:
         writable_count = sum(1 for k in ['ongrid_mode', 'self_reserve', 'tou_reserve'] 
                             if self._extension_write_results[k]['writable'])
         if writable_count == 3:
-            logger.info("Extension registers: FULL WRITE ACCESS (OnGridMode + Reserves)")
+            logger.debug("Extension registers: FULL WRITE ACCESS (OnGridMode + Reserves)")
         elif writable_count > 0:
             writable_regs = [k for k in ['ongrid_mode', 'self_reserve', 'tou_reserve'] 
                            if self._extension_write_results[k]['writable']]
-            logger.info(f"Extension registers: PARTIAL WRITE ACCESS ({', '.join(writable_regs)})")
+            logger.debug(f"Extension registers: PARTIAL WRITE ACCESS ({', '.join(writable_regs)})")
         else:
-            logger.info("Extension registers: READ-ONLY (requires installer unlock for SPAN Modbus)")
+            logger.debug("Extension registers: READ-ONLY (requires installer unlock for SPAN Modbus)")
         
         return self._extension_write_results
     
@@ -304,7 +304,7 @@ class FranklinWHController:
             except Exception:
                 pass
             self.dev = None
-            logger.info("Disconnected")
+            logger.debug("Disconnected")
     
     def is_connected(self) -> bool:
         """Check if connection is alive."""
@@ -1020,7 +1020,7 @@ class FranklinWHController:
             self.RATED_MAX_CHARGE_W = w_cha
             self.RATED_MAX_DISCHARGE_W = w_dis
             
-            logger.info(f"Device ratings: Max={w_max}W, Charge={w_cha}W, Discharge={w_dis}W")
+            logger.debug(f"Device ratings: Max={w_max}W, Charge={w_cha}W, Discharge={w_dis}W")
         except Exception as e:
             logger.warning(f"Failed to read M702 ratings: {e}; using defaults")
     

@@ -141,10 +141,9 @@ franklinwh-modbus/
 │   └── constants.py         # Register addresses, limits
 ├── tools/franklinwh_cli.py   # CLI tool (consumes the library)
 ├── tests/                   # Unit + integration + hardware tests
-├── docs/                    # Current documentation
+├── docs/                    # Documentation
 ├── tools/                   # Utility scripts
-├── schedules/               # TOU schedule definitions
-└── archive/                 # Historical docs, deprecated code, web app
+└── schedules/               # TOU schedule definitions
 ```
 
 ## Supported Hardware
