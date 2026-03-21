@@ -149,6 +149,17 @@ class VirtualModeController:
         logger.info(f"SoC: {current_soc:.1f}% | Target: {target:.1f}% | "
                    f"Min: {min_discharge}% | Max: {max_charge}% | {eta_str}")
     
+    def is_off_grid(self, status: Optional[Dict] = None) -> bool:
+        """Check if the system is currently off-grid."""
+        if status is None:
+            try:
+                grid = self.ctrl.read_grid_status()
+            except Exception:
+                return False  # Assume on-grid if we can't check
+        else:
+            grid = status.get('grid', {})
+        return grid.get('connection_state', 'Connected') != 'Connected'
+    
     def read_status(self) -> Dict[str, Any]:
         """Get current system status from hardware."""
         status = {
@@ -218,15 +229,19 @@ class VirtualModeController:
         
         power = self._apply_safety_limits(power, soc)
         
-        is_safe, reason, safe_power = self._check_inverter_safety(status, power)
-        if not is_safe:
-            # Only log safety violations when the reason changes (dedup)
-            if reason != getattr(self, '_last_safety_reason', None):
-                logger.error(f"SAFETY VIOLATION: {reason}. Using safe power: {safe_power:.0f}W")
-                self._last_safety_reason = reason
-            power = safe_power
-        else:
-            self._last_safety_reason = None
+        # Inverter safety check only applies when off-grid
+        # On-grid: the aGate handles inverter protection natively
+        off_grid = self.is_off_grid(status)
+        if off_grid:
+            is_safe, reason, safe_power = self._check_inverter_safety(status, power)
+            if not is_safe:
+                # Only log safety violations when the reason changes (dedup)
+                if reason != getattr(self, '_last_safety_reason', None):
+                    logger.error(f"⚠️  OFF-GRID SAFETY: {reason}. Using safe power: {safe_power:.0f}W")
+                    self._last_safety_reason = reason
+                power = safe_power
+            else:
+                self._last_safety_reason = None
         
         return power
     
@@ -544,6 +559,9 @@ class VirtualModeController:
         last_tick = 0
         consecutive_failures = 0
         max_consecutive_failures = 5
+        last_progress_soc = None
+        off_grid_check_interval = 30.0
+        last_off_grid_check = 0
         
         # Safety check intervals (only used if enable_safety_checks=True)
         alarm_interval = 60.0
@@ -551,6 +569,11 @@ class VirtualModeController:
         last_alarm_check = 0
         last_sanity_check = 0
         alarm_failures = 0
+        
+        # Off-grid check at start
+        if self.is_off_grid():
+            logger.warning("⚠️  SYSTEM IS OFF-GRID — inverter safety limits active")
+            logger.warning("   Battery operations limited to prevent overload")
         
         logger.info(f"Running continuous control: safety_checks={enable_safety_checks}")
         
@@ -568,11 +591,36 @@ class VirtualModeController:
                     logger.info("Duration expired, stopping...")
                     break
                 
+                # Periodic off-grid check (every 30s)
+                if now - last_off_grid_check >= off_grid_check_interval:
+                    last_off_grid_check = now
+                    if self.is_off_grid():
+                        if not getattr(self, '_off_grid_warned', False):
+                            logger.warning("⚠️  SYSTEM IS OFF-GRID — inverter safety limits active")
+                            self._off_grid_warned = True
+                    else:
+                        self._off_grid_warned = False
+                
                 # Main control tick (every 5s)
                 if now - last_tick >= tick_interval:
                     success = self.tick()
                     if success:
                         consecutive_failures = 0
+                        
+                        # Compact progress output (dedup by SoC change)
+                        try:
+                            bat = self.ctrl.read_battery_status()
+                            soc = bat.get('soc', 0)
+                            target = getattr(self, 'target_soc', 100)
+                            power = self._last_commanded_power
+                            remaining = f" | {int(duration_seconds - elapsed)}s left" if duration_seconds else ""
+                            direction = "↑" if power > 0 else "↓" if power < 0 else "—"
+                            
+                            if soc != last_progress_soc:
+                                logger.info(f"SoC: {soc:.0f}% {direction} {abs(power):.0f}W | Target: {target}%{remaining}")
+                                last_progress_soc = soc
+                        except Exception:
+                            pass
                         
                         # SoC limit check (only if safety checks enabled)
                         if enable_safety_checks:

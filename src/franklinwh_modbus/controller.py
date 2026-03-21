@@ -1137,7 +1137,7 @@ class FranklinWHController:
             # 4. VERIFY
             m704.read()
             actual_pct = m704.WSetPct.value * (10 ** pct_sf) if m704.WSetPct.value else 0
-            logger.info(f"Command sent: WSetPct={actual_pct}% (raw={m704.WSetPct.value}), "
+            logger.debug(f"Command sent: WSetPct={actual_pct}% (raw={m704.WSetPct.value}), "
                        f"WSet={m704.WSet.value}, WSetEna={m704.WSetEna.value}")
             
             # 5. START SOFTWARE TIMEOUT if requested

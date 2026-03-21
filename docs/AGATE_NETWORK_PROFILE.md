@@ -44,6 +44,13 @@ The aGate advertises SSH via mDNS but does **not** advertise `_modbus._tcp`.
 - **Port 9000** — Unknown service. Accepts TCP connections but sends no banner and doesn't respond to HTTP. Could be an internal management or firmware update interface.
 - **No HTTP/HTTPS** — The aGate has no web interface; all configuration is via the FranklinWH mobile app (cloud API) or Modbus TCP.
 
+## Bluetooth Connectivity (aGate v1.2+)
+
+aGate firmware v1.2 and above supports **Bluetooth Low Energy (BLE)** connectivity for:
+- Installer commissioning and configuration
+- Customer setup where no local WiFi or network infrastructure exists
+- Direct device-to-phone communication without cloud dependency
+
 ## Connectivity Troubleshooting
 
 If the aGate becomes unreachable via Modbus TCP:
