@@ -1,0 +1,31 @@
+# GitHub Copilot Instructions — franklinwh-modbus
+
+> **Read `agent.md` and all policies in `.agents/policies/` before making any changes.**
+
+## Critical Rules
+
+1. **REPO SCOPE: `franklinwh-modbus` ONLY** — Do NOT read, modify, commit, or push to any other repo. If the user accidentally requests cross-repo work, remind them to switch to the correct agent/session.
+2. **Focus Discipline** — one fix at a time, full cycle: code → test → verify → commit
+3. **Syntax check before every commit** (non-negotiable):
+   ```bash
+   python3 -c "import ast; ast.parse(open('<file>').read()); print('OK')"
+   ```
+4. **Run tests**: `PYTHONPATH=src:. python3 -m pytest tests/ --tb=short`
+5. **Save test results** to `tests/results/` for traceability
+6. **No auto-proceed** on implementation plans — wait for explicit user approval
+7. **Hardware-affecting changes** (controller, modes, power logic) require user sign-off before commit
+8. **Read-only CLI commands** (`--status`, `--healthcheck`, `--check-alarms`) are always safe
+
+## Project Structure
+
+- `src/franklinwh_modbus/` — core library (controller, modes, types, constants, schedule, monitor)
+- `tools/` — CLI tool, SunSpec reader, network scanner
+- `tests/` — pytest suite (unit + integration + hardware)
+- `docs/` — documentation
+- `.agents/policies/` — governance policies
+
+## Key Paths
+
+- Source: `/Users/davidhona/dev/modbus/`
+- aGate: `192.168.0.110` (port 502)
+- Tests: `PYTHONPATH=src:. python3 -m pytest tests/ --tb=short`
