@@ -220,8 +220,13 @@ class VirtualModeController:
         
         is_safe, reason, safe_power = self._check_inverter_safety(status, power)
         if not is_safe:
-            logger.error(f"SAFETY VIOLATION: {reason}. Using safe power: {safe_power:.0f}W")
+            # Only log safety violations when the reason changes (dedup)
+            if reason != getattr(self, '_last_safety_reason', None):
+                logger.error(f"SAFETY VIOLATION: {reason}. Using safe power: {safe_power:.0f}W")
+                self._last_safety_reason = reason
             power = safe_power
+        else:
+            self._last_safety_reason = None
         
         return power
     
@@ -384,22 +389,30 @@ class VirtualModeController:
         return power
     
     def _check_inverter_safety(self, status: Dict, proposed_power: float) -> Tuple[bool, str, float]:
-        """Check if operation is safe for inverter."""
+        """Check if operation is safe for inverter.
+        
+        Uses the actual charge/discharge nameplate ratings (WChaRteMax/WDisChaRteMax
+        from Model 702), NOT the AC continuous rating (WRtg).
+        """
         solar = status['solar'].get('dc_power_w', 0)
         home = status['derived'].get('home_load_w', 0)
-        max_dc = self.ctrl.RATED_MAX_W
+        max_charge = self.ctrl.RATED_MAX_CHARGE_W      # e.g. 5000W
+        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W  # e.g. 5000W
         
-        if proposed_power > 0 and proposed_power > max_dc * 1.05:
-            return False, "Charge limit exceeded", max_dc
+        if proposed_power > 0 and proposed_power > max_charge * 1.05:
+            return False, "Charge limit exceeded", max_charge
         
-        if proposed_power < 0 and abs(proposed_power) > max_dc * 1.05:
-            return False, "Discharge limit exceeded", -max_dc
+        if proposed_power < 0 and abs(proposed_power) > max_discharge * 1.05:
+            return False, "Discharge limit exceeded", -max_discharge
         
+        # Off-grid / high-load protection: don't overdraw inverter capacity
         available_solar = max(0, solar)
-        total_available = max_dc + available_solar
+        total_available = max_discharge + available_solar
         
         if home > total_available * 0.8:
-            logger.warning(f"High load: {home:.0f}W at {home/total_available*100:.0f}% of capacity")
+            if not getattr(self, '_warned_high_load', False):
+                logger.warning(f"High load: {home:.0f}W at {home/total_available*100:.0f}% of capacity")
+                self._warned_high_load = True
             
             if proposed_power < 0 and home > total_available * 0.9:
                 max_safe = total_available - home - 500
@@ -408,6 +421,8 @@ class VirtualModeController:
                 if abs(proposed_power) > max_safe:
                     logger.error(f"EMERGENCY: Load exceeds capacity! Limiting discharge")
                     return False, "Load exceeds capacity", -max_safe
+        else:
+            self._warned_high_load = False
         
         return True, "Safety check passed", proposed_power
     
@@ -462,7 +477,10 @@ class VirtualModeController:
         success, msg = self.ctrl.send_command(cmd)
         
         if success:
-            logger.info(f"{self.mode.value}: {power:.0f}W")
+            # Only log when power changes (dedup for loop mode)
+            if power != getattr(self, '_last_logged_power', None):
+                logger.info(f"{self.mode.value}: {power:.0f}W")
+                self._last_logged_power = power
             self._last_commanded_power = power
             return power
         else:
