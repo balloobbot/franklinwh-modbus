@@ -315,7 +315,10 @@ def print_status(ctrl: FranklinWHController):
     elif grid_power < 0:
         print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  EXPORTING  (M701.W)")
     else:
-        print(f"       Grid:     {abs(grid_power):>5.0f}W  BALANCED  (M701.W)")
+        grid_mode_label = grid.get('grid_mode', 'Unknown')
+        if grid_mode_label == 'Grid Following (default)':
+            grid_mode_label = 'Grid Following'
+        print(f"       Grid:     {abs(grid_power):>5.0f}W  ~0W ({grid_mode_label})  (M701.W)")
     
     # ═══════════════════════════════════════════════════════
     # BATTERY POWER (DC side)
@@ -327,15 +330,24 @@ def print_status(ctrl: FranklinWHController):
     print(f"    DC Power:         {abs(battery_dc):.0f}W  {'CHARGING' if battery_dc < 0 else ('DISCHARGING' if battery_dc > 0 else 'IDLE')}  (M714.DCW)")
     print(f"    Available:        {bat.get('wh_available', 0)/1000:.1f} / {bat.get('wh_rating', 0)/1000:.1f} kWh  (M713.WHAvail/WHRtg)")
     
-    # Show control source
+    # Show control source with LocRemCtl and derived
     wset_ena = ctl.get('wset_enabled', 0)
+    loc_rem = ctl.get('loc_rem_ctl_name', 'N/A')
     if wset_ena == 1:
         wset = ctl.get('wset_watts', 0)
+        wset_pct = ctl.get('wset_pct', 0)
         print(f"    Modbus Control:   ACTIVE (WSet={wset:.0f}W)")
+        print(f"    LocRemCtl:        {loc_rem}  (M715)")
+        print(f"    Derived Control:  Remote (Modbus WSetPct={wset_pct}%)")
     elif battery_dc != 0:
-        print(f"    Control Source:   Cloud API (aGate native mode)")
+        mode_name = native.get('mode_name', 'Unknown') if native else 'Unknown'
+        print(f"    Control Source:   aGate ({mode_name})")
+        print(f"    LocRemCtl:        {loc_rem}  (M715)")
+        print(f"    Derived Control:  Local (aGate, {mode_name})")
     else:
         print(f"    Control Source:   Idle (no active control)")
+        print(f"    LocRemCtl:        {loc_rem}  (M715)")
+        print(f"    Derived Control:  Local (aGate idle)")
     
     # Software command timeout
     timer = ctrl.get_command_timer_status()
@@ -376,7 +388,7 @@ def print_status(ctrl: FranklinWHController):
     if var:
         print(f"    Reactive Power:   {var:.0f}VAR  (M701.Var)")
     
-    print(f"    Grid Power:       {grid_power:.0f}W  ({'OFF-GRID' if is_off_grid else ('Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else 'Balanced'))})  (M701.W)")
+    print(f"    Grid Power:       {grid_power:.0f}W  ({'OFF-GRID' if is_off_grid else ('Importing' if grid_power > 0 else ('Exporting' if grid_power < 0 else '~0W'))})  (M701.W)")
     print(f"    Connection:       {conn_state}{' ⚡ OFF-GRID' if is_off_grid else ''}  (M701.ConnSt)")
     print(f"    Grid Mode:        {grid.get('grid_mode', 'Unknown')}  (M701.DERMode)")
     print(f"    Inverter State:   {grid.get('inverter_state', 'Unknown')}  (M701.InvSt)")

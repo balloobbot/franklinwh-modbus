@@ -445,22 +445,25 @@ FranklinWH aGate SunSpec registers round power values to coarse resolution (~100
 
 ---
 
-## Serial Number Structure
+## Serial Number Structure (Unconfirmed)
 
-FranklinWH serial numbers encode device type, hardware revision, and unique ID:
+> [!WARNING]
+> FranklinWH does not publicly document their serial number encoding scheme. The following structure is our **best guess** based on observed patterns across aGate and aPower devices. It should not be treated as authoritative.
+
+FranklinWH serial numbers appear to encode device type, hardware revision, and unique ID:
 
 ```
 XXXXXXXXXXXXXXXXXXXX
 │       │  │        │
 │       │  │        └── Unique serial (last 8 chars)
-│       │  └─────────── Hardware revision (3 chars, e.g. "A02")
-│       └────────────── Device type prefix
+│       │  └─────────── Hardware revision (3 chars, e.g. "A02") — unconfirmed
+│       └────────────── Device type prefix — unconfirmed
 └────────────────────── Full serial (20 chars)
 ```
 
-**Why this matters:**
-- Hardware revision determines capabilities — some revs have more/fewer functions
-- Extract rev from serial: `serial[8:11]` (e.g. `"A02"`)
+**Why this matters (if correct):**
+- Hardware revision may determine capabilities — some revs may have more/fewer functions
+- Extract rev from serial: `serial[8:11]` (e.g. `"A02"`) — **unverified assumption**
 - Example: aGate `A02` vs `A03` may differ in supported Modbus registers
 - Available from `M1.SN` (Model 1 Common, address 40052)
 

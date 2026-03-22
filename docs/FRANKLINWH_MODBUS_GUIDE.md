@@ -191,6 +191,9 @@ curl "https://energy.franklinwh.com/hes-gateway/terminal/span/getSpanSetting?gat
 - `spanFlag: 0` → SPAN **not configured** (extensions read-only)
 - `spanFlag: 1` → SPAN **configured** (extensions likely writable)
 
+> [!CAUTION]
+> **UNTESTED.** We do not have a SPAN Panel (let alone one provisioned by FranklinWH) to verify this Cloud API endpoint or its effect on Modbus extension register writability. The above is based on API discovery only — actual behavior with `spanFlag: 1` is unconfirmed.
+
 **3. Library auto-detection** — the controller probes on `connect()`:
 ```python
 ctrl.connect()

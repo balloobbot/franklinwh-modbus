@@ -291,7 +291,9 @@ class SystemData:
     grid_mode: str = "Unknown"  # Grid Following, Grid Forming
     operating_mode: str = "Self-Consumption"
     wset_ena: int = 0
-    control_source: str = "Cloud API"
+    control_source: str = "aGate"  # aGate native or Modbus remote
+    loc_rem_ctl: str = "N/A"  # SunSpec LocRemCtl (Local/Remote)
+    derived_control: str = "Local"  # Our interpretation: Local or Remote
     
     # Alarms
     active_alarms: List[str] = field(default_factory=list)
@@ -536,7 +538,13 @@ class CLIMonitor:
             self.data.firmware = nameplate.get('version', '')
             self.data.operating_mode = native.get('mode_name', 'Self-Consumption')
             self.data.wset_ena = control.get('wset_enabled', 0)
-            self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'Cloud API'
+            self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'aGate'
+            self.data.loc_rem_ctl = control.get('loc_rem_ctl_name', 'N/A')
+            wset_pct = control.get('wset_pct', 0)
+            if control.get('wset_enabled'):
+                self.data.derived_control = f"Remote (Modbus WSetPct={wset_pct}%)"
+            else:
+                self.data.derived_control = f"Local (aGate, {self.data.operating_mode})"
             self.data.extension_writable = False
             
             # Update Lifetime Energy (from M502 solar and M714 battery)
@@ -822,6 +830,8 @@ class CLIMonitor:
         table.add_row("Firmware", self.data.firmware or "Unknown")
         table.add_row("Grid Connection", "Connected" if self.data.grid_connected else "Disconnected")
         table.add_row("Grid Mode", self.data.grid_mode)
+        table.add_row("LocRemCtl", self.data.loc_rem_ctl)
+        table.add_row("Derived Control", self.data.derived_control)
         table.add_row("Cabinet Temp", f"{self.data.cabinet_temp:.1f}°C")
         table.add_row("Ambient Temp", f"{self.data.ambient_temp:.1f}°C")
         
@@ -1019,7 +1029,7 @@ class CLIMonitor:
         if key == 'r':
             if self.controller:
                 self.controller.reset_control_state()
-                self._log_command("Released control (cloud mode)")
+                self._log_command("Released control (aGate native mode)")
             return True
             
         # Max charge
