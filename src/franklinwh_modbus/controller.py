@@ -515,9 +515,11 @@ class FranklinWHController:
                               7: 'Standby', 8: 'Test', 9: 'Manufacturing'}
             
             # Grid mode from DERMode bitfield (SunSpec 701)
-            # Bit 0 = Grid Following, Bit 1 = Grid Forming
+            # Bit 0 = Grid Following, Bit 1 = Grid Forming, Bit 2 = PV Clipped
             der_mode_raw = m701.DERMode.value if hasattr(m701, 'DERMode') and m701.DERMode.value is not None else 0
-            if der_mode_raw & (1 << 1):
+            if der_mode_raw & (1 << 2):
+                grid_mode = 'PV Clipped'
+            elif der_mode_raw & (1 << 1):
                 grid_mode = 'Grid Forming'
             elif der_mode_raw & (1 << 0):
                 grid_mode = 'Grid Following'
