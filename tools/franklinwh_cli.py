@@ -185,27 +185,36 @@ def print_status_summary(ctrl: FranklinWHController):
     else:
         bat_state = "IDLE"
     
-    # Control source
-    wset_ena = ctl.get('wset_enabled', 0)
-    wset_pct = ctl.get('wset_pct', 0)
-    if wset_ena == 1:
-        control = f"Modbus (WSetPct={wset_pct}%)"
-    else:
-        control = "Cloud"
+    # SunSpec LocRemCtl (M715) — raw register value
+    loc_rem = ctl.get('loc_rem_ctl_name', 'N/A')
     
-    # Mode
+    # Mode (must be before derived control which references it)
     mode = native.get('mode_name', 'Unknown') if native else 'Unknown'
     reserve = native.get('self_reserve_pct', 0) if native else 0
     
-    # Grid state
+    # Derived control — our interpretation: Local or Remote
+    wset_ena = ctl.get('wset_enabled', 0)
+    wset_pct = ctl.get('wset_pct', 0)
+    if wset_ena == 1:
+        derived_ctl = f"Remote (Modbus WSetPct={wset_pct}%)"
+    else:
+        derived_ctl = f"Local (aGate, {mode})"
+    
+    # Grid mode (Grid Following / Grid Forming)
+    grid_mode = grid.get('grid_mode', '')
+    # Clean up verbose defaults
+    if grid_mode == 'Grid Following (default)':
+        grid_mode = 'Grid Following'
+    
+    # Grid state with power and mode
     if is_off_grid:
-        grid_state = "OFF-GRID"
+        grid_state = "⚠ OFF-GRID (Grid Forming)"
     elif grid_power > 50:
         grid_state = f"← {abs(grid_power):.0f}W importing"
     elif grid_power < -50:
         grid_state = f"→ {abs(grid_power):.0f}W exporting"
     else:
-        grid_state = "balanced"
+        grid_state = f"~0W ({grid_mode})" if grid_mode else "~0W"
     
     # Available energy
     avail_kwh = bat.get('wh_available', 0) / 1000
@@ -216,7 +225,8 @@ def print_status_summary(ctrl: FranklinWHController):
     Solar:   {abs(solar_power):>5.0f}W {'producing' if solar_power > 50 else 'idle':12s}  Battery: {bat_state}
     Home:    {abs(home_load):>5.0f}W {'consuming' if abs(home_load) > 50 else 'idle':12s}  Grid:    {grid_state}
   ──────────────────────────────────────────────────────
-    Control: {control:24s}  Available: {avail_kwh:.1f}/{rated_kwh:.1f} kWh""")
+    LocRemCtl: {loc_rem:14s}  Available: {avail_kwh:.1f}/{rated_kwh:.1f} kWh
+    Derived:   {derived_ctl}""")
     print()
 
 

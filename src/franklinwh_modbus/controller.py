@@ -755,6 +755,18 @@ class FranklinWHController:
             sf_w = self._get_scale_factor(m704, 'WSet_SF')
             sf_pct = self._get_scale_factor(m704, 'WSetPct_SF')
             
+            # Read M715 LocRemCtl (Local/Remote control state)
+            loc_rem_ctl = None
+            m715 = self.get_model(715)
+            if m715:
+                try:
+                    m715.read()
+                    loc_rem_ctl = m715.LocRemCtl.value if hasattr(m715, 'LocRemCtl') and m715.LocRemCtl.value is not None else None
+                except Exception:
+                    pass
+            
+            LOC_REM_LABELS = {0: 'Remote', 1: 'Local'}
+            
             return {
                 'wset_enabled': m704.WSetEna.value,
                 'wset_mode': m704.WSetMod.value,
@@ -764,6 +776,8 @@ class FranklinWHController:
                 'wset_revert_watts': m704.WSetRvrt.value * (10 ** sf_w) if m704.WSetRvrt.value != -0x80000000 else None,
                 'wset_revert_time_s': m704.WSetRvrtTms.value,
                 'wset_revert_remain_s': m704.WSetRvrtRem.value,
+                'loc_rem_ctl': loc_rem_ctl,
+                'loc_rem_ctl_name': LOC_REM_LABELS.get(loc_rem_ctl, f'Unknown({loc_rem_ctl})') if loc_rem_ctl is not None else 'N/A',
             }
         
         try:
