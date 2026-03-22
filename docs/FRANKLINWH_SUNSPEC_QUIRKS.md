@@ -225,7 +225,7 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the Remote Control visual
 
 ### SunSpec2 Compliance Matrix
 
-> See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) for proper phased sequencing protocol.
+> See `SUNSPEC_DER_SEQUENCING_REFERENCE.md` for proper phased sequencing protocol.
 
 | Feature | SunSpec2 Spec | FranklinWH Reality | Library Workaround | Vendor Fix? |
 |---------|--------------|-------------------|-------------------|-------------|
@@ -246,7 +246,7 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the Remote Control visual
 | Max power limit (WMaxLimPct) | Caps inverter output at % of rated | ❌ **Confirmed non-functional.** WMaxLimPctEna write silently discarded (readback=0). WMaxLimPct readable (1000) but enable never sticks | Not implemented | Report as defect |
 | Reactive power enable (VarSetEna) | Enables reactive power control | ❌ **Confirmed non-functional.** Write accepted, readback=0 (silently discarded). VarSetMod/VarSetPri readable but VarMaxInj/Abs=0xFFFF | Not implemented | Report as defect |
 
-> **Test methodology:** All features re-tested 2026-03-13 using proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 200-500ms inter-phase settling. See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
+> **Test methodology:** All features re-tested 2026-03-13 using proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 200-500ms inter-phase settling. See `SUNSPEC_DER_SEQUENCING_REFERENCE.md`.
 >
 > **Test evidence:** `tests/results/2026-03-13_pcs_charge_rate_write_probe.md`, `tests/results/2026-03-08_p1_control_tests.md`
 
@@ -314,8 +314,8 @@ def _probe_extension_writable(self):
 
 ### Related
 
-- [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) — Proper 6-phase SunSpec control protocol
-- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Re-scoped with Remote Control handoff model
+- `SUNSPEC_DER_SEQUENCING_REFERENCE.md` — Proper 6-phase SunSpec control protocol
+- `TODO_INTENT_BASED_CONFLICT_DETECTION.md` — Re-scoped with Remote Control handoff model
 - [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — Remote Control visual reference (mobile app: "VPP Mode")
 
 ---
@@ -563,7 +563,7 @@ ctrl.send_command(BatteryCommand(-5000), duration_s=300)  # 5min auto-release
 
 - **Scale Factors:** Always read SF registers dynamically — they can change
 - **Model Discovery:** aGate implements models 1, 502, 701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715
-- **Write Sequencing:** All SunSpec DER control groups require proper phased sequencing (Phase 0-5). See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md)
+- **Write Sequencing:** All SunSpec DER control groups require proper phased sequencing (Phase 0-5). See `SUNSPEC_DER_SEQUENCING_REFERENCE.md`
 - **Timing:** Minimum 100-500ms inter-phase settling. aGate round-trip ~98ms average. Do not rapid-fire writes.
 - **Timeout:** WiFi networks to the aGate can be slow; always use configurable timeout (default 10s)
 - **Addressing:** M715 registers accessible only at base-1 addresses. M704 works at both base-1 and base-40000.

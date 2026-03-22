@@ -122,7 +122,7 @@ M715 `LocRemCtl` (addr 1089) is **read-only, always "Local" (1)**. Per SunSpec 2
 | Controller heartbeat | ❌ Reject | ⚠️ Not verified with proper sequencing† |
 | LocRemCtl write | Allow | ❌ Read-only |
 
-**Impact:** All lifecycle features (heartbeat, reversion timer) currently implemented in **software**. †Re-verification with proper SunSpec 6-phase sequencing pending — see [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
+**Impact:** All lifecycle features (heartbeat, reversion timer) currently implemented in **software**. †Re-verification with proper SunSpec 6-phase sequencing pending — see `SUNSPEC_DER_SEQUENCING_REFERENCE.md`.
 
 ### 5.2 Command Persistence
 
@@ -288,7 +288,7 @@ h = ctrl.healthcheck()
 | [DER_CONTROL_REFERENCE.md](./DER_CONTROL_REFERENCE.md) | Full register map — all 48 M704 + 6 M715 fields |
 | [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) | Detailed quirk analysis (LocRemCtl, M713, extensions) |
 | [ORCHESTRATION_AND_CONTROL.md](./ORCHESTRATION_AND_CONTROL.md) | Command sequences, SoC ramping, entry points |
-| [VERIFICATION_BASELINE.md](./VERIFICATION_BASELINE.md) | Full register dump + cross-verification |
+| `VERIFICATION_BASELINE.md` | Full register dump + cross-verification |
 
 ### Test Evidence
 
