@@ -123,7 +123,7 @@ Result: SUCCESS - Command Sent: -2000.0W (40.0% of 5000W)
 
 **Key observations:**
 - Battery discharges 2000W → 540W powers home, 1469W **exported to grid**
-- This is a VPP dispatch scenario — excess power feeds the grid
+- This is a Remote Control scenario — excess power feeds the grid
 
 ---
 
@@ -396,7 +396,7 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 > 1. **LocRemCtl write access** — allowing proper Local/Remote handoff per SunSpec spec
 > 2. **Extension register write access** — enabling direct mode/reserve control via Modbus
 >
-> Until then, the recommended approach is direct power commands (`--charge`, `--discharge`, `--stop`) for VPP dispatch, and the FranklinWH mobile app for mode/reserve changes.
+> Until then, the recommended approach is direct power commands (`--charge`, `--discharge`, `--stop`) for Remote Control (mobile app: "VPP Mode"), and the FranklinWH mobile app for mode/reserve changes.
 
 ---
 
