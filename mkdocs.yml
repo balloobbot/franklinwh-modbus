@@ -1,0 +1,81 @@
+site_name: FranklinWH Modbus
+site_description: Python library & CLI for controlling FranklinWH battery systems via Modbus TCP
+site_url: https://david2069.github.io/franklinwh-modbus
+repo_url: https://github.com/david2069/franklinwh-modbus
+repo_name: david2069/franklinwh-modbus
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.mark
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Modbus Guide: FRANKLINWH_MODBUS_GUIDE.md
+    - Architecture: ARCHITECTURE.md
+    - CLI Command Reference: CLI_COMMAND_REFERENCE.md
+  - Control & Safety:
+    - DER Control Reference: DER_CONTROL_REFERENCE.md
+    - Orchestration & Control: ORCHESTRATION_AND_CONTROL.md
+    - Safety Controls: SAFETY_CONTROLS.md
+    - VPP Mode Reference: VPP_MODE_REFERENCE.md
+    - Virtual Mode Specs: VIRTUAL_MODE_SPECIFICATIONS.md
+  - Hardware:
+    - SunSpec Quirks: FRANKLINWH_SUNSPEC_QUIRKS.md
+    - PICS Conformance: PICS_CONFORMANCE_CROSS_REFERENCE.md
+    - Hardware Test Guide: HARDWARE_TEST_GUIDE.md
+    - aGate Network Profile: AGATE_NETWORK_PROFILE.md
+  - Troubleshooting:
+    - WiFi DHCP Failure: troubleshooting/2026-03-21_wifi_dhcp_failure.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/david2069/franklinwh-modbus
