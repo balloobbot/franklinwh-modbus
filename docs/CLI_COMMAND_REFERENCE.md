@@ -216,6 +216,182 @@ $CLI --healthcheck
 
 ---
 
+## 7. Max Charge / Max Discharge
+
+```bash
+$CLI --max-charge       # Uses WChaRteMaxRtg from M702 nameplate
+$CLI --max-discharge    # Uses WDisChaRteMaxRtg from M702 nameplate
+```
+
+**Max charge (5000W):**
+```
+Using max charge rate: 5000W (from M702 nameplate)
+Result: SUCCESS - Command Sent: 5000W (-100.0% of 5000W)
+
+  Battery: ↓ CHARGING 5000W     Grid: ← 5603W importing
+  Derived: Remote (Modbus WSetPct=-100.0%)
+```
+
+**Max discharge (5000W):**
+```
+Using max discharge rate: 5000W (from M702 nameplate)
+Result: SUCCESS - Command Sent: -5000W (100.0% of 5000W)
+
+  Battery: ↑ DISCHARGING 5000W  Grid: → 4443W exporting
+  Derived: Remote (Modbus WSetPct=100.0%)
+```
+
+---
+
+## 8. Standby (Explicit Flag)
+
+```bash
+$CLI --standby    # Same as --charge 0, more explicit
+```
+
+```
+Result: SUCCESS - Command Sent: 0W (0% of 5000W)
+
+  Battery: IDLE                  Grid: ← 546W importing
+  Derived: Remote (Modbus WSetPct=0.0%)
+```
+
+---
+
+## 9. Diagnostic Commands
+
+### Check Alarms
+```bash
+$CLI --check-alarms
+```
+```
+  System Alarms (Model 701): 0x00000000     ✓ None active
+  DC Port Alarms (Model 714): 0x00000000    ✓ None active
+  ✓ No blocking alarms - operation permitted
+```
+
+### Check SPAN Panel
+```bash
+$CLI --check-span
+```
+```
+  aGate IP: 192.168.0.110
+  Scanning: 192.168.0.0/24 for SPAN panels (port 80)...
+  — No SPAN panels found on 192.168.0.0/24
+  → Extension registers will be READ-ONLY
+```
+
+### Test Extension Write
+```bash
+$CLI --test-extension-write
+```
+```
+  ✗ Ongrid Mode  (15507): READ-ONLY (Write rejected (needs unlock?))
+  ✗ Self Reserve (15508): READ-ONLY (Write rejected (needs unlock?))
+  ✗ Tou Reserve  (15509): READ-ONLY (Write rejected (needs unlock?))
+  Summary: 0/3 registers writable
+```
+
+### Dry Run
+```bash
+$CLI --charge 3000 --dry-run
+```
+```
+Result: SUCCESS - Dry Run: WSetPct=600 (3000.0W)
+```
+No command sent to aGate — simulation only.
+
+---
+
+## 10. Software Auto-Revert
+
+```bash
+$CLI --charge 2000 --revert 30    # Auto-release after 30s
+```
+```
+Software timeout set: 30s
+Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
+⏱️  Auto-revert in 30s (software timer)
+```
+
+> [!WARNING]
+> **`--revert` requires the CLI process to stay running.** In fire-and-forget mode (no `--loop`), the CLI exits immediately after sending the command and the timer is lost. Use `--revert N --loop` for reliable auto-revert.
+
+---
+
+## Comprehensive Switch Test Matrix
+
+> **Tested:** 2026-03-22 19:45–19:49 AEDT | SoC: 76% | Device: aGate X (V10R01B04D00)
+
+| Switch | Result | Notes |
+|--------|:------:|-------|
+| `--status` | ✅ | Compact summary with LocRemCtl + Derived |
+| `--status --detail` | ✅ | Full verbose output with register sources |
+| `--status -v` | ✅ | Debug logging (SunSpec scan, model discovery) |
+| `--status -q` | ✅ | Quiet mode — suppresses debug, shows compact |
+| `--healthcheck` | ✅ | All checks passed: HEALTHY |
+| `--check-alarms` | ✅ | System + DC port alarms: none active |
+| `--check-span` | ✅ | Network scan: no SPAN panel found |
+| `--test-extension-write` | ✅ | 0/3 writable (expected without SPAN unlock) |
+| `--charge 3000` | ✅ | 3000W charge, grid imports 3587W |
+| `--discharge 2000` | ✅ | 2000W discharge, grid exports 1469W |
+| `--stop` | ✅ | WSetEna=0, control released |
+| `--max-charge` | ✅ | 5000W (from M702), grid imports 5603W |
+| `--max-discharge` | ✅ | 5000W (from M702), grid exports 4443W |
+| `--standby` | ✅ | Battery IDLE, grid imports 546W |
+| `--dry-run` | ✅ | Simulation only, no command sent |
+| `--revert 30` | ⚠️ | Timer lost when CLI exits — see DEF-004 |
+| `--target-soc-auto --loop` (charge) | ❌ | E006 validation bug — see DEF-005 |
+| `--target-soc-auto --loop` (discharge) | ❌ | E004 validation bug — see DEF-005 |
+| `--clear-alarms` | ❌ | SunSpec API error — see DEF-006 |
+| `--show-schedule` | ⚠️ | Schedule requires `version` field (validation works correctly) |
+| `--validate-schedule` | ⚠️ | Same validation requirement (correct behavior) |
+
+### Not Tested (Special Conditions Required)
+
+| Switch | Reason |
+|--------|--------|
+| `--monitor` | Interactive TUI — test manually |
+| `--mode *` | Virtual modes — not properly implemented |
+| `--off-grid-permitted` | Requires off-grid condition |
+| `--force` | Safety override — test manually with caution |
+| `--reset-on-start` | Startup flag — tested implicitly via `--stop` |
+| `--soc-ramp-window` | Requires virtual mode loop |
+| `--duration` | Same mechanism as `--revert` |
+| `--power` | Legacy alias for `--charge`/`--discharge` |
+| `--theme` | TUI visual only |
+
+---
+
+## Bugs Found During Testing
+
+### DEF-004: `--revert N` Timer Lost Without `--loop`
+
+**Severity:** MEDIUM  
+**Switch:** `--revert 30`  
+**Expected:** Command auto-reverts after 30s  
+**Actual:** Timer is created in the CLI process, but since the CLI exits immediately (fire-and-forget), the timer is garbage collected. Command persists indefinitely.  
+**Workaround:** Use `--revert N --loop` or manually `--stop` after N seconds.  
+**Fix:** Either document this limitation or make `--revert` imply `--loop`.
+
+### DEF-005: `--target-soc-auto` Validation Uses Wrong Comparison
+
+**Severity:** HIGH  
+**Switch:** `--charge 3000 --target-soc-auto 77 --loop` (SoC was 76%)  
+**Expected:** Charge from 76% to 77% target  
+**Actual:** `E006: Already at or above target SoC (current: 76.0%, target: 77.0%)` — treats 76% as ≥ 77%  
+**Also:** Discharge equivalent: `E004: Already at or below target SoC (current: 76.0%, target: 75.0%)` — treats 76% as ≤ 75%  
+**Root cause:** Likely `>=` instead of `>` or rounding/truncation in SoC comparison.
+
+### DEF-006: `--clear-alarms` SunSpec API Error
+
+**Severity:** LOW (no alarms to clear)  
+**Switch:** `--clear-alarms`  
+**Error:** `'SunSpecModbusClientDeviceTCP' object has no attribute 'write_register'`  
+**Root cause:** Using raw pymodbus `write_register()` method on `sunspec2` client object. The sunspec2 library uses a different write API.
+
+---
+
 ## Virtual Modes (Not Included)
 
 > [!IMPORTANT]
@@ -231,6 +407,6 @@ $CLI --healthcheck
 
 ---
 
-*Raw test output: `/tmp/cli_lifecycle_output.txt`*  
-*Test script: `/tmp/cli_lifecycle_test.sh`*  
+*Raw test output: `/tmp/cli_lifecycle_output.txt`, `/tmp/cli_switch_test.txt`*  
+*Test scripts: `/tmp/cli_lifecycle_test.sh`, `/tmp/cli_switch_test.sh`*  
 *Last updated: 2026-03-22*
