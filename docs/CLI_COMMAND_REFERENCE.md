@@ -340,10 +340,10 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 | `--max-discharge` | ✅ | 5000W (from M702), grid exports 4443W |
 | `--standby` | ✅ | Battery IDLE, grid imports 546W |
 | `--dry-run` | ✅ | Simulation only, no command sent |
-| `--revert 30` | ⚠️ | Timer lost when CLI exits — see DEF-004 |
-| `--target-soc-auto --loop` (charge) | ❌ | E006 validation bug — see DEF-005 |
-| `--target-soc-auto --loop` (discharge) | ❌ | E004 validation bug — see DEF-005 |
-| `--clear-alarms` | ❌ | SunSpec API error — see DEF-006 |
+| `--revert 20` | ✅ | Countdown timer, auto-released after 20s (DEF-004 FIXED) |
+| `--target-soc-auto --loop` (charge) | ✅ | Charge 75→76%, auto-stopped at 125s (DEF-005 FIXED) |
+| `--target-soc-auto --loop` (discharge) | ✅ | Discharge 75→74%, auto-stopped at ~150s (DEF-005 FIXED) |
+| `--clear-alarms` | ✅ | Alarm reset via raw Modbus TCP FC06 (DEF-006 FIXED) |
 | `--show-schedule` | ⚠️ | Schedule requires `version` field (validation works correctly) |
 | `--validate-schedule` | ⚠️ | Same validation requirement (correct behavior) |
 
@@ -363,32 +363,25 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 
 ---
 
-## Bugs Found During Testing
+## Bugs Found and Fixed During Testing
 
-### DEF-004: `--revert N` Timer Lost Without `--loop`
+### DEF-004: `--revert N` Timer Lost Without `--loop` — ✅ FIXED
 
-**Severity:** MEDIUM  
-**Switch:** `--revert 30`  
-**Expected:** Command auto-reverts after 30s  
-**Actual:** Timer is created in the CLI process, but since the CLI exits immediately (fire-and-forget), the timer is garbage collected. Command persists indefinitely.  
-**Workaround:** Use `--revert N --loop` or manually `--stop` after N seconds.  
-**Fix:** Either document this limitation or make `--revert` imply `--loop`.
+**Root cause:** CLI exited immediately after sending command, timer was garbage collected.  
+**Fix:** `--revert N` now runs a visible countdown in the CLI process, then calls `reset_control_state()` on expiry. Ctrl+C during countdown releases control early.  
+**Re-test:** `--charge 2000 --revert 20` — command sent, 20s countdown displayed, auto-reverted.
 
-### DEF-005: `--target-soc-auto` Validation Uses Wrong Comparison
+### DEF-005: `--target-soc-auto` Validation Uses Wrong Comparison — ✅ FIXED
 
-**Severity:** HIGH  
-**Switch:** `--charge 3000 --target-soc-auto 77 --loop` (SoC was 76%)  
-**Expected:** Charge from 76% to 77% target  
-**Actual:** `E006: Already at or above target SoC (current: 76.0%, target: 77.0%)` — treats 76% as ≥ 77%  
-**Also:** Discharge equivalent: `E004: Already at or below target SoC (current: 76.0%, target: 75.0%)` — treats 76% as ≤ 75%  
-**Root cause:** Likely `>=` instead of `>` or rounding/truncation in SoC comparison.
+**Root cause:** 1% tolerance in SoC comparison (`current_soc <= target_soc + 1.0`) meant ±1% targets always failed.  
+**Fix:** Removed tolerance — exact comparison now: `current_soc <= target_soc` (discharge) and `current_soc >= target_soc` (charge).  
+**Re-test:** Charge 75→76% auto-stopped at 125s. Discharge 75→74% auto-stopped at ~150s. Both showed `🎯 TARGET REACHED!`.
 
-### DEF-006: `--clear-alarms` SunSpec API Error
+### DEF-006: `--clear-alarms` SunSpec API Error — ✅ FIXED
 
-**Severity:** LOW (no alarms to clear)  
-**Switch:** `--clear-alarms`  
-**Error:** `'SunSpecModbusClientDeviceTCP' object has no attribute 'write_register'`  
-**Root cause:** Using raw pymodbus `write_register()` method on `sunspec2` client object. The sunspec2 library uses a different write API.
+**Root cause:** Used `self.dev.write_register()` which doesn't exist on `sunspec2` client.  
+**Fix:** Replaced with raw Modbus TCP FC06 single register write (same pattern as extension register probing).  
+**Re-test:** `--clear-alarms` → `✓ Alarm reset command sent`.
 
 ---
 

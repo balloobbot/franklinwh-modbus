@@ -24,6 +24,7 @@ import logging
 import signal
 import sys
 import os
+import time
 
 # Add src to path for development (not needed if package is installed)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -1246,7 +1247,6 @@ def main():
                     print(f"{'='*60}\n")
                     
                     # Custom monitoring loop for target SoC
-                    import time
                     start_time = time.time()
                     check_interval = 5  # Check every 5 seconds
                     
@@ -1317,11 +1317,22 @@ def main():
                 # One-shot command
                 revert_s = args.revert if args.revert and args.revert > 0 else None
                 cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
-                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run, duration_s=revert_s)
+                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run)
                 print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
                 if success:
                     if revert_s:
                         print(f"⏱️  Auto-revert in {revert_s}s (software timer)")
+                        try:
+                            for remaining in range(int(revert_s), 0, -1):
+                                print(f"\r  ⏱️  Reverting in {remaining}s...  ", end='', flush=True)
+                                time.sleep(1)
+                            print(f"\r  ⏱️  Timer expired — releasing control...  ")
+                            ctrl.reset_control_state()
+                            print("✓ Auto-reverted — control released")
+                        except KeyboardInterrupt:
+                            print("\n  ⚠️  Ctrl+C — releasing control early...")
+                            ctrl.reset_control_state()
+                            print("✓ Control released (interrupted)")
                     else:
                         print(f"✅ Command will PERSIST until you run --stop")
                         print(f"   To release: python3 tools/franklinwh_cli.py -i {args.ip} --stop")

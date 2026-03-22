@@ -966,7 +966,7 @@ class FranklinWHController:
                     details
                 )
             # Check if we're already at or below target
-            if current_soc <= target_soc + 1.0:  # 1% tolerance
+            if current_soc <= target_soc:
                 return (
                     False,
                     f"E004: Already at or below target SoC (current: {current_soc:.1f}%, "
@@ -984,7 +984,7 @@ class FranklinWHController:
                     details
                 )
             # Check if we're already at or above target
-            if current_soc >= target_soc - 1.0:  # 1% tolerance
+            if current_soc >= target_soc:
                 return (
                     False,
                     f"E006: Already at or above target SoC (current: {current_soc:.1f}%, "
@@ -1271,20 +1271,32 @@ class FranklinWHController:
         """
         Clear alarms by writing to AlarmReset register.
         
-        Writes 1 then 0 to register 41094 (Model 715).
+        Writes 1 then 0 to register 1094 (Model 715) via raw Modbus TCP FC06.
         
         Returns (success, message).
         """
         try:
-            # Check if it's safe to clear (no active critical alarms)
-            can_operate, blocking = self.check_blocking_alarms()
+            # Use raw Modbus TCP FC06 (single register write) — sunspec2 client
+            # doesn't expose write_register() directly
+            sock = self.dev.client.socket
+            if not sock:
+                return False, "No active Modbus TCP connection"
             
-            # Even if blocking alarms exist, try to clear (user may have fixed issue)
-            self.dev.write_register(41094, 1)  # Write 1 to AlarmReset
+            # Write 1 to AlarmReset (base-1 addr 1094)
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, 1094, 1)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            if len(resp) < 12:
+                return False, "AlarmReset write failed (short response)"
+            
             time.sleep(0.5)
-            self.dev.write_register(41094, 0)  # Clear reset bit
             
-            logger.info("Alarm reset command sent (wrote 1 then 0 to 41094)")
+            # Write 0 to clear reset bit
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, 1094, 0)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            
+            logger.info("Alarm reset command sent (wrote 1 then 0 to reg 1094)")
             return True, "Alarm reset command sent"
             
         except Exception as e:
