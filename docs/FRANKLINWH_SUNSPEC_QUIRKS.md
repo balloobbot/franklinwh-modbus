@@ -73,6 +73,43 @@ FranklinWH aGate X implements these temperature registers:
 
 Earlier firmware versions may not expose these.
 
+### DERMode Bitfield — PV Curtailment (PV_CLIPPED)
+
+**Status:** ✅ **Supported per PICS conformance (M701, Address 78)**
+
+The DERMode register is a bitfield indicating the current DER operating mode:
+
+| Bit | Name | Description |
+|:---:|------|-------------|
+| 0 | `GRID_FOLLOWING` | Normal grid-connected operation (frequency/voltage follows grid) |
+| 1 | `GRID_FORMING` | Off-grid/island mode (aPower generates its own AC reference) |
+| 2 | `PV_CLIPPED` | PV curtailment active — solar output is being limited |
+
+> [!IMPORTANT]
+> **PV_CLIPPED is a FranklinWH-specific operational state**, most relevant in **off-grid/backup mode**. When the aPower switches to Grid Forming (bit 1), it can only handle a limited amount of solar input. If a solar inverter (e.g., SolarEdge SE 11400) produces more power than a single aPower can absorb (~6kW), the aPower signals PV curtailment through DERMode bit 2.
+>
+> FranklinWH recommends:
+> - **Single aPower:** Derate solar inverter using SolarEdge PRI (Power Reduction Interface) to keep off-grid peak below 6kW
+> - **Two aPowers:** Provides sufficient capacity for larger solar arrays without curtailment
+>
+> **References:**
+> - [SolarEdge De-rate in Off-Grid Mode](https://service.franklinwh.com/en/support/solutions/articles/73000622969-solar-edge-string-inverter-de-rate-in-off-grid-back-up-mode)
+> - FranklinWH PV Curtailment White Paper (PDF)
+
+**Code:** `controller.py` reads DERMode as `grid_mode`:
+```python
+# Bit 0 = Grid Following, Bit 1 = Grid Forming, Bit 2 = PV Clipped
+if der_mode_raw & (1 << 2):
+    grid_mode = 'PV Clipped'
+elif der_mode_raw & (1 << 1):
+    grid_mode = 'Grid Forming'
+elif der_mode_raw & (1 << 0):
+    grid_mode = 'Grid Following'
+```
+
+> [!NOTE]
+> We have not directly observed `PV_CLIPPED` in testing — our system has no solar at night and operates on-grid. This bit would only appear during daytime off-grid events with active PV curtailment.
+
 ---
 
 ## Extension Registers (15500-15513) — Documented
