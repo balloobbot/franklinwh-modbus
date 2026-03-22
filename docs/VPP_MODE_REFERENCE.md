@@ -33,32 +33,14 @@ The mobile app polls the Cloud API frequently, but the round-trip latency can be
 
 ## Mobile App — VPP Mode Lifecycle
 
-The diagrams below show what the FranklinWH mobile app displays at each stage of Modbus control.
+The flow below shows how the mobile app display changes at each stage of Modbus control.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> SelfConsumption: Normal operation
-    SelfConsumption --> VPPCharging: CLI --charge 5000
-    VPPCharging --> VPPStandby: CLI --standby
-    VPPStandby --> VPPDischarging: CLI --discharge 5000
-    VPPDischarging --> SelfConsumption: CLI --stop
-
-    state SelfConsumption {
-        direction LR
-        note right of SelfConsumption: Mode: Self-Consumption\nBattery: Discharging 0.6kW\nGrid: 0.0kW (balanced)
-    }
-    state VPPCharging {
-        direction LR
-        note right of VPPCharging: Mode: VPP Mode ⚡\nBattery: Charging 5.0kW\nGrid: Importing 5.6kW
-    }
-    state VPPStandby {
-        direction LR
-        note right of VPPStandby: Mode: VPP Mode ⏸️\nBattery: Standby 0.0kW\nGrid: Importing 0.6kW
-    }
-    state VPPDischarging {
-        direction LR
-        note right of VPPDischarging: Mode: VPP Mode 🔋\nBattery: Discharging 4.9kW\nGrid: Exporting 4.4kW
-    }
+flowchart LR
+    A["Self-Consumption<br/>Discharging 0.6kW"] -->|"--charge 5000"| B["VPP Mode<br/>Charging 5.0kW"]
+    B -->|"--standby"| C["VPP Mode<br/>Standby 0.0kW"]
+    C -->|"--discharge 5000"| D["VPP Mode<br/>Discharging 4.9kW"]
+    D -->|"--stop"| E["Self-Consumption<br/>Restored"]
 ```
 
 ### State Details
