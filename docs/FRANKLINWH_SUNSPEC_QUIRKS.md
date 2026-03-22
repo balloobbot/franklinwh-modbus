@@ -149,25 +149,25 @@ m704.WSetPct.value = -pct_raw  # Invert for hardware
 
 ---
 
-## ⚠️ Write Access Asymmetry & VPP Mode Handoff
+## ⚠️ Write Access Asymmetry & Remote Control Handoff
 
 > **This is the most significant implementation quirk affecting library design.**
 
-### Control Architecture: VPP Mode Clean Handoff
+### Control Architecture: Remote Control Clean Handoff
 
-When `WSetEna=1` is written to M704, the aGate **automatically activates VPP Mode** (exclusive remote control). This is a **clean handoff**, not a split-brain architecture:
+When `WSetEna=1` is written to M704, the aGate **automatically activates Remote Control** (mobile app displays this as "VPP Mode"). This is a **clean handoff**, not a split-brain architecture:
 
-1. **`WSetEna=1`** → aGate activates VPP Mode, native mode (Self-Consumption/TOU) is **suspended**
-2. **M704 commands** control battery power exclusively while VPP is active
-3. **`WSetEna=0`** → VPP deactivates, native mode **cleanly resumes**
+1. **`WSetEna=1`** → aGate activates Remote Control, native mode (Self-Consumption/TOU) is **suspended**
+2. **M704 commands** control battery power exclusively while Remote Control is active
+3. **`WSetEna=0`** → Remote Control deactivates, native mode **cleanly resumes**
 
-See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the VPP Mode visual reference.
+See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the Remote Control visual reference (mobile app screenshots show "VPP Mode").
 
 ### Write Access Table
 
 | Control Plane | Registers | Read | Write | What It Controls |
 |---------------|-----------|------|-------|------------------|
-| **SunSpec M704** | 40318-40354 | ✅ | ✅ | Battery power via VPP Mode (WSet, WSetPct, WSetEna) |
+| **SunSpec M704** | 40318-40354 | ✅ | ✅ | Battery power via Remote Control (WSet, WSetPct, WSetEna) |
 | **FranklinWH Extensions** | 15507-15509 | ✅ | ❌ Read-Only* | Operating mode, SoC reserves |
 | **M702 Rate Settings** | 40259-40262 | ✅ | ❌ (tested 2026-03-13) | Charge/discharge rate limits |
 
@@ -200,11 +200,11 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the VPP Mode visual refer
 | DC Current (M714.DCA) | Reports battery DC current | Always 0 | Calculated: I = P/V from DCW/DCV | Report; workaround is robust |
 | Ramp rate (WRmp) | Smooths power transitions | Returns None (unimplemented) | Software SoC ramp via `--soc-ramp-window` | Report; software ramp is different concept |
 | Extension register writes | N/A (vendor-specific) | Read-only without SPAN Modbus unlock | Cloud API bypass (Tier 2) for mode changes | SPAN unlock required; vendor provisioning |
-| VPP Mode activation | WSetEna=1 starts remote DER control | ✅ Works — activates VPP Mode (exclusive) | None needed — works as intended | N/A — working correctly |
+| Remote Control activation | WSetEna=1 starts remote DER control | ✅ Works — activates Remote Control (exclusive) | None needed — works as intended | N/A — working correctly |
 | Command persistence | WSetRvrtTms reverts after timeout | WSetRvrtTms countdown active; WSetEna persists after timer expiry (partial implementation?) | Software timer + `reset_control_state()` remains recommended | Investigate: does countdown actually revert power? |
 | Throttle % (ThrotPct) | Reports inverter power curtailment % | ✅ Readable (40180), always 0% in testing | None — read-only info point | N/A — may activate under thermal/grid stress |
 | Throttle source (ThrotSrc) | Bitfield of throttle cause | 0xFFFFFFFF (unimplemented) | Not implemented — no alternative | Report; no workaround possible |
-| Grid charge/discharge limits | `WChaRteMax` / `WDisChaRteMax` (RW per spec) | ❌ Confirmed: registers return 0xFFFF, writes silently discarded even with VPP + proper sequencing | Cloud API `setPowerControl` is only path | Report as defect |
+| Grid charge/discharge limits | `WChaRteMax` / `WDisChaRteMax` (RW per spec) | ❌ Confirmed: registers return 0xFFFF, writes silently discarded even with Remote Control + proper sequencing | Cloud API `setPowerControl` is only path | Report as defect |
 | VA charge/discharge limits | `VAChaRteMax` / `VADisChaRteMax` (RW per spec) | ❌ Confirmed: 0xFFFF, writes discarded | Cloud API only | Report as defect |
 | Max power limit (WMaxLimPct) | Caps inverter output at % of rated | ❌ **Confirmed non-functional.** WMaxLimPctEna write silently discarded (readback=0). WMaxLimPct readable (1000) but enable never sticks | Not implemented | Report as defect |
 | Reactive power enable (VarSetEna) | Enables reactive power control | ❌ **Confirmed non-functional.** Write accepted, readback=0 (silently discarded). VarSetMod/VarSetPri readable but VarMaxInj/Abs=0xFFFF | Not implemented | Report as defect |
@@ -216,7 +216,7 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the VPP Mode visual refer
 ### Crash-Orphan Risk
 
 > [!CAUTION]
-> If the consumer application crashes while `WSetEna=1`, the aGate remains in VPP Mode indefinitely. There is no hardware timeout to auto-revert (WSetRvrtTms behavior unverified). The library provides `reset_control_state()` for graceful shutdown, but **crash recovery is a consumer responsibility**, not a library concern.
+> If the consumer application crashes while `WSetEna=1`, the aGate remains in Remote Control indefinitely (mobile app continues to show "VPP Mode"). There is no hardware timeout to auto-revert (WSetRvrtTms behavior unverified). The library provides `reset_control_state()` for graceful shutdown, but **crash recovery is a consumer responsibility**, not a library concern.
 
 ### The LocRemCtl Paradox (Model 715) — TESTED 2026-03-08
 
@@ -247,13 +247,13 @@ This creates a **selective-write hybrid** that is non-standard:
 
 ### Design Implications
 
-1. **VPP Mode provides clean control handoff:** When `WSetEna=1`, the aGate suspends native mode and grants exclusive Modbus control. This is cooperative, not conflicting.
+1. **Remote Control provides clean control handoff:** When `WSetEna=1`, the aGate suspends native mode and grants exclusive Modbus control. This is cooperative, not conflicting.
 
 2. **Hardware reversion timer available:** WSetRvrtTms **works** — the aGate counts down and (potentially) reverts the power setpoint. However, WSetEna may persist after timer expiry. Further investigation needed on whether power actually reverts or just the countdown is cosmetic.
 
 3. **ControllerHb remains non-functional:** Even with proper sequencing, heartbeat writes are silently discarded. Software watchdog (`duration_s` / `--revert`) remains the primary safety mechanism.
 
-4. **Virtual modes operate within VPP Mode:** Our virtual Self-Consumption/TOU/Peak-Shave modes work by calculating power targets and issuing M704 commands while VPP Mode is active.
+4. **Virtual modes operate within Remote Control:** Our virtual Self-Consumption/TOU/Peak-Shave modes work by calculating power targets and issuing M704 commands while Remote Control is active.
 
 4. **Library vs consumer boundary:** The library exposes `send_command()` and `reset_control_state()`. Crash recovery, watchdog timers, and session lifecycle are **consumer responsibilities** (e.g. FEM's `ModbusControlService`).
 
@@ -278,8 +278,8 @@ def _probe_extension_writable(self):
 ### Related
 
 - [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md) — Proper 6-phase SunSpec control protocol
-- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Re-scoped with VPP handoff model
-- [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — VPP Mode visual reference
+- [TODO_INTENT_BASED_CONFLICT_DETECTION.md](./TODO_INTENT_BASED_CONFLICT_DETECTION.md) — Re-scoped with Remote Control handoff model
+- [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) — Remote Control visual reference (mobile app: "VPP Mode")
 
 ---
 
@@ -352,7 +352,7 @@ Extension registers (15500+):
 | `send_command()` | M704 | sunspec2 model write (handles addressing) |
 | `read_battery_status()` | M713, M714 | sunspec2 model read |
 | `read_grid_status()` | M701 | sunspec2 model read |
-| All VPP control | M704, M715 | sunspec2 model read/write |
+| All Remote Control | M704, M715 | sunspec2 model read/write |
 
 ### Why sunspec2 Uses Base 0
 
@@ -470,7 +470,7 @@ XXXXXXXXXXXXXXXXXXXX
 
 **Issue:** WSetRvrtTms (327) countdown works (30→0), but **does NOT revert power** at expiry. WSetEna and WSetPct are unchanged 186 seconds post-expiry. The SunSpec dead-man switch is non-functional.
 
-**Evidence:** 186s extended observation, WSetRvrtTms=1 (1s edge case) also non-functional. Corroborated by FranklinWH app (VPP persisted), MQTT, and Home Assistant.
+**Evidence:** 186s extended observation, WSetRvrtTms=1 (1s edge case) also non-functional. Corroborated by FranklinWH app ("VPP Mode" persisted), MQTT, and Home Assistant.
 
 **Severity:** CRITICAL — combined with non-functional ControllerHb (1092), there is **zero hardware safety mechanism** on this firmware.
 
@@ -530,5 +530,5 @@ ctrl.send_command(BatteryCommand(-5000), duration_s=300)  # 5min auto-release
 
 ---
 
-*Last Updated: 2026-03-14 (PICS Issue 4 reversion cosmetic, Issue 5 no input validation, reactive power exhausted)*  
+*Last Updated: 2026-03-22 (terminology: VPP Mode → Remote Control, PICS Issue 4 reversion cosmetic, Issue 5 no input validation, reactive power exhausted)*  
 *Device Tested: FranklinWH aGate X (SN: XXXXXXXXXXXXXXXXXXXX, FW: V10R01B04D00)*
