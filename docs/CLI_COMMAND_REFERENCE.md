@@ -166,7 +166,7 @@ $CLI --healthcheck
   DEVICE:
     Manufacturer: FranklinWH Technologies Co., Ltd
     Model:        aGate X
-    Serial:       10060006A02F24170091
+    Serial:       10060006A02F********
     Firmware:     V10R01B04D00
 
   Checks:
