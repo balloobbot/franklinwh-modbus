@@ -31,76 +31,67 @@ The mobile app polls the Cloud API frequently, but the round-trip latency can be
 
 ---
 
-## Mobile App Screenshots
+## Mobile App — VPP Mode Lifecycle
 
-### Before Control — Self-Consumption Mode
+The diagrams below show what the FranklinWH mobile app displays at each stage of Modbus control.
 
-The aGate is operating normally in Self-Consumption mode, discharging to cover home loads.
+```mermaid
+stateDiagram-v2
+    [*] --> SelfConsumption: Normal operation
+    SelfConsumption --> VPPCharging: CLI --charge 5000
+    VPPCharging --> VPPStandby: CLI --standby
+    VPPStandby --> VPPDischarging: CLI --discharge 5000
+    VPPDischarging --> SelfConsumption: CLI --stop
 
-![Before control — Self-Consumption mode, Discharging 0.6kW](images/vpp_1_before_self_consumption.png)
-
-### During Control — VPP Mode (Charging)
-
-After `franklinwh-modbus` sends a charge command, the app shows "VPP Mode" and the battery is charging at 5.0kW from the grid.
-
-![During control — VPP Mode, Charging 5.0kW from grid](images/vpp_2_during_charging.png)
-
-### During Control — VPP Mode (Standby)
-
-Between commands or during polling, the app shows "VPP Mode" with the battery in Standby (0.0kW). The mode indicator remains as VPP Mode as long as the Modbus keep-alive is active.
-
-![During control — VPP Mode, Standby 0.0kW](images/vpp_3_during_standby.png)
-
-### During Control — VPP Mode (Discharging/Exporting)
-
-When commanded to discharge, the app shows "VPP Mode" with the battery discharging at 4.9kW and exporting 4.4kW to the grid.
-
-![During control — VPP Mode, Discharging 4.9kW, Exporting 4.4kW](images/vpp_4_during_discharging.png)
-
-### After Control Released — Self-Consumption Restored
-
-After calling `--stop` or `reset_control_state()`, the aGate returns to its previous mode (Self-Consumption). The VPP Mode indicator disappears.
-
-![After control released — Self-Consumption mode restored](images/vpp_5_after_self_consumption.png)
-
----
-
-## Timeline Summary
-
-```
-Self-Consumption (normal)
-    ↓ franklinwh-modbus sends charge command
-VPP Mode — Charging 5.0kW
-    ↓ command completes / standby
-VPP Mode — Standby 0.0kW
-    ↓ franklinwh-modbus sends discharge command
-VPP Mode — Discharging 4.9kW
-    ↓ --stop / reset_control_state()
-Self-Consumption (restored)
+    state SelfConsumption {
+        direction LR
+        note right of SelfConsumption: Mode: Self-Consumption\nBattery: Discharging 0.6kW\nGrid: 0.0kW (balanced)
+    }
+    state VPPCharging {
+        direction LR
+        note right of VPPCharging: Mode: VPP Mode ⚡\nBattery: Charging 5.0kW\nGrid: Importing 5.6kW
+    }
+    state VPPStandby {
+        direction LR
+        note right of VPPStandby: Mode: VPP Mode ⏸️\nBattery: Standby 0.0kW\nGrid: Importing 0.6kW
+    }
+    state VPPDischarging {
+        direction LR
+        note right of VPPDischarging: Mode: VPP Mode 🔋\nBattery: Discharging 4.9kW\nGrid: Exporting 4.4kW
+    }
 ```
 
-## Key Observations
+### State Details
 
-| State | Mode Display | Battery | Grid |
-|-------|-------------|---------|------|
-| Before | Self-Consumption | Discharging 0.6kW | 0.0kW |
-| Charge | **VPP Mode** | Charging 5.0kW | Import 5.6kW |
-| Standby | **VPP Mode** | Standby 0.0kW | Import 0.6kW |
-| Discharge | **VPP Mode** | Discharging 4.9kW | Export 4.4kW |
-| After | Self-Consumption | Discharging 0.6kW | 0.0kW |
+#### 1. Before Control — Self-Consumption Mode
+The aGate operates normally in Self-Consumption mode, discharging to cover home loads.
 
----
+!!! info "Mobile App Display"
+    **Mode:** Self-Consumption · **Battery:** Discharging 0.6kW · **Grid:** 0.0kW
 
-## Image Placement
+#### 2. During Control — VPP Mode (Charging)
+After `franklinwh-modbus` sends a charge command, the app shows "VPP Mode" and the battery charges from the grid.
 
-Save the mobile app screenshots to this directory as:
-```
-docs/images/vpp_1_before_self_consumption.png
-docs/images/vpp_2_during_charging.png
-docs/images/vpp_3_during_standby.png
-docs/images/vpp_4_during_discharging.png
-docs/images/vpp_5_after_self_consumption.png
-```
+!!! example "Mobile App Display"
+    **Mode:** VPP Mode · **Battery:** Charging 5.0kW · **Grid:** Importing 5.6kW
+
+#### 3. During Control — VPP Mode (Standby)
+Between commands, the app shows "VPP Mode" with the battery idle. The VPP indicator remains as long as Modbus control is active.
+
+!!! example "Mobile App Display"
+    **Mode:** VPP Mode · **Battery:** Standby 0.0kW · **Grid:** Importing 0.6kW
+
+#### 4. During Control — VPP Mode (Discharging/Exporting)
+When commanded to discharge, the battery discharges and excess power exports to the grid.
+
+!!! example "Mobile App Display"
+    **Mode:** VPP Mode · **Battery:** Discharging 4.9kW · **Grid:** Exporting 4.4kW
+
+#### 5. After Control Released — Self-Consumption Restored
+After `--stop` or `reset_control_state()`, the aGate returns to its previous mode. The VPP Mode indicator disappears.
+
+!!! success "Mobile App Display"
+    **Mode:** Self-Consumption · **Battery:** Discharging 0.6kW · **Grid:** 0.0kW
 
 ---
 

@@ -34,6 +34,17 @@ theme:
 plugins:
   - search
 
+exclude_docs: |
+  ADDON_SPAN_PANEL_INTEGRATION.md
+  CONFLICT_DETECTION_ANALYSIS.md
+  DEVELOPMENT.md
+  FRANKLINWH_OFFICIAL_DOCS_REFERENCE.md
+  IN_FLIGHT_WORK.md
+  SUNSPEC_DER_SEQUENCING_REFERENCE.md
+  TEST_QUICK_REFERENCE.md
+  TODO_INTENT_BASED_CONFLICT_DETECTION.md
+  VERIFICATION_BASELINE.md
+
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -58,6 +69,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started:
+    - Setup Guide: GETTING_STARTED.md
     - Modbus Guide: FRANKLINWH_MODBUS_GUIDE.md
     - Architecture: ARCHITECTURE.md
     - CLI Command Reference: CLI_COMMAND_REFERENCE.md
@@ -66,6 +78,7 @@ nav:
     - Orchestration & Control: ORCHESTRATION_AND_CONTROL.md
     - Safety Controls: SAFETY_CONTROLS.md
     - VPP Mode Reference: VPP_MODE_REFERENCE.md
+    - VPP Terminology: VPP_TERMINOLOGY_XREF.md
     - Virtual Mode Specs: VIRTUAL_MODE_SPECIFICATIONS.md
   - Hardware:
     - SunSpec Quirks: FRANKLINWH_SUNSPEC_QUIRKS.md

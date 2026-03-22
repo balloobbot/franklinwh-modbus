@@ -248,7 +248,7 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the Remote Control visual
 
 > **Test methodology:** All features re-tested 2026-03-13 using proper SunSpec 6-phase protocol (Pre-flight → Mode → Safety → Setpoint → Enable → Verify) with 200-500ms inter-phase settling. See [SUNSPEC_DER_SEQUENCING_REFERENCE.md](./SUNSPEC_DER_SEQUENCING_REFERENCE.md).
 >
-> **Test evidence:** [2026-03-13_pcs_charge_rate_write_probe.md](../tests/results/2026-03-13_pcs_charge_rate_write_probe.md), [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md)
+> **Test evidence:** `tests/results/2026-03-13_pcs_charge_rate_write_probe.md`, `tests/results/2026-03-08_p1_control_tests.md`
 
 ### Crash-Orphan Risk
 

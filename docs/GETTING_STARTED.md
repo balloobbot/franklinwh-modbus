@@ -9,11 +9,11 @@ Covers virtual environments, package installation, CLI tools, network scanning, 
 
 1. [Create a Virtual Environment](#1-create-a-virtual-environment)
 2. [Install the Package](#2-install-the-package)
-3. [CLI Tool — franklinwh](#3-cli-tool--franklinwh)
+3. [CLI Tool — franklinwh](#3-cli-tool-franklinwh)
 4. [Network Scanner](#4-network-scanner)
 5. [SunSpec Modbus Reader](#5-sunspec-modbus-reader-modbus_sunspec2_readerpy)
 6. [FranklinWH Extension Registers](#6-franklinwh-extension-registers)
-7. [Bonus: Cloud API Alternative](#7-bonus-cloud-api--franklinwh-cloud)
+7. [Bonus: Cloud API Alternative](#7-bonus-cloud-api-franklinwh-cloud)
 
 ---
 
@@ -137,7 +137,7 @@ franklinwh -i YOUR_AGATE_IP --stop
 | `-u` / `--unit` | `2` | Modbus unit/slave ID |
 | `-t` / `--timeout` | `10.0` | Connection timeout (seconds) |
 
-See the full [USAGE_GUIDE.md](../USAGE_GUIDE.md) for all commands and library API examples.
+See the full [USAGE_GUIDE.md](https://github.com/david2069/franklinwh-modbus/blob/develop/USAGE_GUIDE.md) for all commands and library API examples.
 
 ---
 
@@ -600,7 +600,7 @@ franklinwh -i IP --stop
 
 ## Further Reading
 
-- [📖 Library & CLI Usage Guide](../USAGE_GUIDE.md) — full API reference and code examples
-- [📚 Documentation Index](./README.md) — all docs
-- [🔧 SunSpec Quirks](./FRANKLINWH_SUNSPEC_QUIRKS.md) — hardware quirks and workarounds
-- [📝 Changelog](../CHANGELOG.md)
+- [📖 Library & CLI Usage Guide](https://github.com/david2069/franklinwh-modbus/blob/develop/USAGE_GUIDE.md) — full API reference and code examples
+- [📚 Documentation Home](index.md) — wiki landing page
+- [🔧 SunSpec Quirks](FRANKLINWH_SUNSPEC_QUIRKS.md) — hardware quirks and workarounds
+- [📝 Changelog](https://github.com/david2069/franklinwh-modbus/blob/develop/CHANGELOG.md)

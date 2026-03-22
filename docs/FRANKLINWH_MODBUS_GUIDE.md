@@ -294,14 +294,14 @@ h = ctrl.healthcheck()
 
 | Test | Result | Evidence |
 |------|--------|----------|
-| P1: Heartbeat | ❌ Confirmed non-functional (6-phase re-test) | [2026-03-08_p1_control_tests.md](../tests/results/2026-03-08_p1_control_tests.md) |
+| P1: Heartbeat | ❌ Confirmed non-functional (6-phase re-test) | `tests/results/2026-03-08_p1_control_tests.md` |
 | P1: WSetRvrtTms | ✅ **WORKS** (60s accepted, countdown active) | Re-tested 2026-03-13 with proper sequencing |
-| P2: WMaxLimPct | ❌ Confirmed non-functional (enable silently discarded) | [2026-03-08_p2p4_control_tests.md](../tests/results/2026-03-08_p2p4_control_tests.md) |
+| P2: WMaxLimPct | ❌ Confirmed non-functional (enable silently discarded) | `tests/results/2026-03-08_p2p4_control_tests.md` |
 | P3: VarSet | ❌ Confirmed non-functional (VarSetEna silently discarded) | Re-tested 2026-03-13 with 6-phase protocol |
-| PCS WChaRteMax/WDisChaRteMax | ❌ Confirmed 0xFFFF (not writable) | [2026-03-13_pcs_charge_rate_write_probe.md](../tests/results/2026-03-13_pcs_charge_rate_write_probe.md) |
+| PCS WChaRteMax/WDisChaRteMax | ❌ Confirmed 0xFFFF (not writable) | `tests/results/2026-03-13_pcs_charge_rate_write_probe.md` |
 | P4: WRmp | ❌ Unimplemented | Same file |
 | PFWInjEna | ✅ Writable | Same file |
-| Extension write-probe | ❌ Read-only | [2026-03-08_extension_write_probe.md](../tests/results/2026-03-08_extension_write_probe.md) |
+| Extension write-probe | ❌ Read-only | `tests/results/2026-03-08_extension_write_probe.md` |
 
 ---
 
