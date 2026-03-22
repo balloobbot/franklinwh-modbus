@@ -52,7 +52,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_div_format
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:
@@ -92,3 +92,6 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/david2069/franklinwh-modbus
+
+extra_javascript:
+  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
