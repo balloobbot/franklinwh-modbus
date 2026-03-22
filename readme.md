@@ -18,6 +18,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 ## Quick Links
 
+- [🚀 Getting Started](./docs/GETTING_STARTED.md) — setup, install, CLI, network scanner & SunSpec reader
 - [📖 Library & CLI Usage Guide](./USAGE_GUIDE.md)
 - [📚 Documentation](./docs/README.md)
 - [🧪 Hardware Test Guide](./docs/HARDWARE_TEST_GUIDE.md)
