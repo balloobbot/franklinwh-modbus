@@ -811,7 +811,7 @@ class CLIMonitor:
         
         if has_data:
             # Solar first (most important for PV owners)
-            table.add_row("☀️ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
+            table.add_row("☀ Solar PV Total", f"{self.data.lifetime_generated/1e6:.2f} MWh")
             # Battery activity (compact, no spacer)
             table.add_row("🔋 Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
             table.add_row("🔌 Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
