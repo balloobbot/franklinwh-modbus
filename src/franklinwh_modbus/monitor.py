@@ -282,6 +282,8 @@ class SystemData:
     lifetime_discharged: float = 0.0
     lifetime_charged: float = 0.0
     lifetime_generated: float = 0.0
+    lifetime_grid_export: float = 0.0
+    lifetime_grid_import: float = 0.0
     
     # System info
     serial: str = ""
@@ -560,8 +562,13 @@ class CLIMonitor:
             if m714_energy and hasattr(m714_energy, 'DCWhAbs') and m714_energy.DCWhAbs.value is not None:
                 self.data.lifetime_charged = m714_energy.DCWhAbs.value
             
-            # Grid import/export - not directly available, calculate or leave as 0
-            # For now, these remain 0 until we find the source
+            # Grid lifetime energy (from M701 already read above)
+            grid_export_wh = grid.get('grid_export_wh', 0)
+            grid_import_wh = grid.get('grid_import_wh', 0)
+            if grid_export_wh:
+                self.data.lifetime_grid_export = grid_export_wh
+            if grid_import_wh:
+                self.data.lifetime_grid_import = grid_import_wh
             
             # Add to history for sparkline
             self.data.history.append({
@@ -604,7 +611,7 @@ class CLIMonitor:
         layout["right"].split_column(
             Layout(name="ac_power", size=8),
             Layout(name="solar", size=7),
-            Layout(name="lifetime", size=5),
+            Layout(name="lifetime", size=7),
             Layout(name="command_console", size=5)
         )
         
@@ -808,6 +815,9 @@ class CLIMonitor:
             # Battery activity (compact, no spacer)
             table.add_row("🔋 Discharged", f"{self.data.lifetime_discharged/1e6:.2f} MWh")
             table.add_row("🔌 Charged", f"{self.data.lifetime_charged/1e6:.2f} MWh")
+            # Grid lifetime (M701 accumulators)
+            table.add_row("⚡ Grid Export", f"{self.data.lifetime_grid_export/1e6:.2f} MWh")
+            table.add_row("📥 Grid Import", f"{self.data.lifetime_grid_import/1e6:.2f} MWh")
         else:
             table.add_row("Lifetime data not available", "", style="dim italic")
         

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIT License, CONTRIBUTING.md, GitHub issue/PR templates
 - Branch protection rulesets for `develop` and `master`
 - Repository topics for discoverability
+- Grid lifetime energy metrics (`M701.TotWhInj`, `M701.TotWhAbs`) in `read_grid_status()`, monitor TUI, and `--status --detail` (FEAT-MONITOR-GRID-LIFETIME)
 
 ### Changed
 - Replaced hardcoded IP addresses with `YOUR_AGATE_IP` placeholder

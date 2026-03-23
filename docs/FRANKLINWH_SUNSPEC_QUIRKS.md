@@ -73,6 +73,25 @@ FranklinWH aGate X implements these temperature registers:
 
 Earlier firmware versions may not expose these.
 
+### TotWhInj and TotWhAbs — AC Lifetime Energy Accumulators
+**Status:** ✅ **Working** (confirmed 2026-03-23)
+
+The M701 AC lifetime energy accumulators report cumulative grid energy (Wh, acc64 with `TotWh_SF`):
+
+- `TotWhInj` (40089) — Total Energy Injected: lifetime grid **export** (DER → grid)
+- `TotWhAbs` (40093) — Total Energy Absorbed: lifetime grid **import** (grid → DER, e.g. grid-charging battery)
+
+These are separate from the M714 DC battery accumulators (`DCWhInj`/`DCWhAbs`). Both register sets are independently useful:
+
+| Register | Model | Measures | Example Value |
+|----------|-------|----------|---------------|
+| `TotWhInj` | M701 (AC) | Grid export (inverter → grid) | ~4.46 MWh |
+| `TotWhAbs` | M701 (AC) | Grid import (grid → inverter) | ~1.32 MWh |
+| `DCWhInj` | M714 (DC) | Battery discharged | ~5.84 MWh |
+| `DCWhAbs` | M714 (DC) | Battery charged | ~5.96 MWh |
+
+**Code Location:** `src/franklinwh_modbus/controller.py:read_grid_status()` returns `grid_export_wh` and `grid_import_wh`
+
 ### DERMode Bitfield — PV Curtailment (PV_CLIPPED)
 
 **Status:** ✅ **Supported per PICS conformance (M701, Address 78)**

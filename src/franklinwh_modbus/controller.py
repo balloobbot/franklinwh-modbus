@@ -485,7 +485,8 @@ class FranklinWHController:
         Returns dict with:
             grid_power_w, grid_va, grid_var, voltage_v, frequency_hz,
             connection_state, inverter_state, grid_mode, ac_type,
-            current_a, power_factor, ambient_temp_c, cabinet_temp_c
+            current_a, power_factor, ambient_temp_c, cabinet_temp_c,
+            grid_export_wh, grid_import_wh
         """
         def _do_read():
             m701 = self.get_model(701)
@@ -557,6 +558,15 @@ class FranklinWHController:
             if hasattr(m701, 'TmpCab') and m701.TmpCab.value is not None:
                 cabinet_temp = round(m701.TmpCab.value * (10 ** sf_tmp), 1)
             
+            # Lifetime grid energy accumulators (Wh)
+            sf_wh = self._get_scale_factor(m701, 'TotWh_SF')
+            grid_export_wh = 0
+            if hasattr(m701, 'TotWhInj') and m701.TotWhInj.value is not None:
+                grid_export_wh = round(m701.TotWhInj.value * (10 ** sf_wh))
+            grid_import_wh = 0
+            if hasattr(m701, 'TotWhAbs') and m701.TotWhAbs.value is not None:
+                grid_import_wh = round(m701.TotWhAbs.value * (10 ** sf_wh))
+            
             return {
                 'grid_power_w': m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0,
                 'grid_va': m701.VA.value * (10 ** sf_w) if m701.VA.value is not None else 0,
@@ -571,6 +581,8 @@ class FranklinWHController:
                 'inverter_state': INVERTER_STATES.get(inv_st, f'Unknown({inv_st})'),
                 'grid_mode': grid_mode,
                 'ac_type': ac_type,
+                'grid_export_wh': grid_export_wh,
+                'grid_import_wh': grid_import_wh,
             }
         
         try:

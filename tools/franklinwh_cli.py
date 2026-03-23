@@ -452,6 +452,17 @@ def print_status(ctrl: FranklinWHController):
     if not has_alarms:
         print(f"    ✓ No alarms active")
     
+    # ═══════════════════════════════════════════════════════
+    # LIFETIME ENERGY
+    # ═══════════════════════════════════════════════════════
+    grid_exp_wh = grid.get('grid_export_wh', 0)
+    grid_imp_wh = grid.get('grid_import_wh', 0)
+    if grid_exp_wh or grid_imp_wh:
+        print(f"\n  📊 LIFETIME ENERGY")
+        print("  " + "─" * 54)
+        print(f"    Grid Export:       {grid_exp_wh/1e3:.1f} kWh  (M701.TotWhInj)")
+        print(f"    Grid Import:       {grid_imp_wh/1e3:.1f} kWh  (M701.TotWhAbs)")
+    
     # Extension register write status is shown only in --healthcheck
     
     print("\n" + "=" * 60)

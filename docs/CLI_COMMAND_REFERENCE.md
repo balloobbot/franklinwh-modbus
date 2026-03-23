@@ -326,7 +326,7 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 | Switch | Result | Notes |
 |--------|:------:|-------|
 | `--status` | ✅ | Compact summary with LocRemCtl + Derived |
-| `--status --detail` | ✅ | Full verbose output with register sources |
+| `--status --detail` | ✅ | Full verbose output with register sources, lifetime energy (M701/M714) |
 | `--status -v` | ✅ | Debug logging (SunSpec scan, model discovery) |
 | `--status -q` | ✅ | Quiet mode — suppresses debug, shows compact |
 | `--healthcheck` | ✅ | All checks passed: HEALTHY |
