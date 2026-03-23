@@ -604,7 +604,7 @@ class CLIMonitor:
         layout["left"].split_column(
             Layout(name="power_flow", size=9),
             Layout(name="soc_bar", size=5),
-            Layout(name="dc_power", size=11)
+            Layout(name="dc_power", size=13)
         )
         
         # Right column
