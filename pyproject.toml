@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "franklinwh-modbus"
+version = "0.9.0"
+description = "FranklinWH aGate Modbus TCP library — SunSpec + extension registers"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "David Hona", email = "david2069@users.noreply.github.com"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "pysunspec2>=1.1.0",
+    "pymodbus>=3.0.0",
+]
+keywords = ["franklinwh", "battery", "modbus", "sunspec", "energy", "solar"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Home Automation",
+    "Topic :: System :: Hardware",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "pytest-mock>=3.0.0"]
+monitor = ["rich>=13.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/david2069/franklinwh-modbus"
+Documentation = "https://david2069.github.io/franklinwh-modbus/"
+"Bug Tracker" = "https://github.com/david2069/franklinwh-modbus/issues"
+Changelog = "https://github.com/david2069/franklinwh-modbus/blob/develop/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]

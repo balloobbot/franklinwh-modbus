@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 import os
 
 # Read README if it exists
-readme_path = os.path.join(os.path.dirname(__file__), 'readme.md')
+readme_path = os.path.join(os.path.dirname(__file__), 'README.md')
 long_description = ''
 if os.path.exists(readme_path):
     with open(readme_path, 'r', encoding='utf-8') as f:
@@ -28,12 +28,8 @@ setup(
     url='https://github.com/david2069/franklinwh-modbus',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
-    py_modules=['franklinwh_cli'],
-    entry_points={
-        'console_scripts': [
-            'franklinwh=franklinwh_cli:main',
-        ],
-    },
+    py_modules=[],
+    entry_points={},
     install_requires=[
         'pysunspec2>=1.1.0',
         'pymodbus>=3.0.0',
