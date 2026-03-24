@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "franklinwh-modbus"
-version = "0.9.1"
+version = "0.9.2"
 description = "FranklinWH aGate Modbus TCP library — SunSpec + extension registers"
-readme = "README.md"
+readme = "readme.md"
 license = "MIT"
 authors = [
     {name = "David Hona", email = "david2069@users.noreply.github.com"}
