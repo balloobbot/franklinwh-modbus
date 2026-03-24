@@ -21,7 +21,7 @@ Covers virtual environments, package installation, CLI tools, network scanning, 
 
 Before installing the software, confirm these hardware requirements are met:
 
-1. **Firmware:** aGate firmware **V10R01B04D00** (or later). This is the only release this library has been tested on. Check your firmware version in the FranklinWH mobile app under *Settings → Device Info*, or via SunSpec register M1.Vr (address 40044).
+1. **Firmware:** aGate EMS firmware **V12R02B85D00_250624** (or later). This is the only release this library has been tested on. Check your firmware version in the FranklinWH mobile app under *Device Info → EMS Main*, or via Home Assistant MQTT (`franklinwh/.../cloud_software_version`). Note: the SunSpec register M1.Vr (address 40044) may report a different, older version string (e.g. `V10R01B04D00`) — the app/MQTT version is authoritative.
 
 2. **SunSpec Modbus TCP:** Must be **enabled by your installer or FranklinWH Customer Support** in your country (AU, US, or Canada). This is not enabled by default — contact your installer or raise a support ticket with FranklinWH to request Modbus TCP access on your aGate.
 
