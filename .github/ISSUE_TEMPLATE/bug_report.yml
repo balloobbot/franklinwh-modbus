@@ -1,0 +1,165 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behaviour
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in the details below.
+
+        **Before submitting:**
+        - [ ] I have searched [existing issues](https://github.com/david2069/franklinwh-modbus/issues) to confirm this isn't a duplicate
+        - [ ] I have read the [Modbus Guide](https://david2069.github.io/franklinwh-modbus/FRANKLINWH_MODBUS_GUIDE/) and [SunSpec Quirks](https://david2069.github.io/franklinwh-modbus/FRANKLINWH_SUNSPEC_QUIRKS/) for relevant documentation
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is.
+      placeholder: "When I run `franklinwh_cli.py --charge 3000`, the battery goes into standby instead of charging..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue.
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behaviour
+      description: What actually happened. Include error messages, tracebacks, or unexpected output.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which area of the library is affected?
+      options:
+        - CLI — --status / --healthcheck
+        - CLI — --charge / --discharge / --standby / --stop
+        - CLI — --monitor (TUI)
+        - CLI — --mode
+        - CLI — --diag
+        - Controller API — read_battery_status
+        - Controller API — read_grid_status
+        - Controller API — send_command
+        - SunSpec — M701 (AC measurements)
+        - SunSpec — M704 (battery control)
+        - SunSpec — M713/M714 (storage)
+        - SunSpec — M715 (storage controls)
+        - Extension registers (15507–15509)
+        - Network / connection
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Library Version
+      description: "Output of `python -c \"import franklinwh_modbus; print(franklinwh_modbus.__version__)\"`"
+      placeholder: "0.9.1"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: aGate Firmware Version
+      description: "From FranklinWH app → Device Info → EMS Main, or MQTT `cloud_software_version`"
+      placeholder: "V12R02B85D00_250624"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Region / Country
+      description: FranklinWH region (affects available features and hardware variants).
+      options:
+        - AU (Australia)
+        - US (United States)
+        - CA (Canada)
+        - Other / Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: span_unlock
+    attributes:
+      label: SPAN Modbus Unlock
+      description: Are extension registers (15507–15509) unlocked for writes? Check with `--status --detail`.
+      options:
+        - "Yes — writes to extension registers work"
+        - "No — read-only (silent write failures)"
+        - "Unknown"
+
+  - type: input
+    id: agate_model
+    attributes:
+      label: aGate / aPower Model
+      description: "From `--status` or FranklinWH app (e.g. aGate X-01-AU, aPower S)"
+      placeholder: "aGate X-01-AU"
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version, OS, connection type.
+      value: |
+        - Python: 
+        - OS: 
+        - Install method: (pip / editable / clone)
+        - Connection: (Ethernet / WiFi)
+        - Home Assistant: (yes/no, version if applicable)
+
+  - type: textarea
+    id: status_output
+    attributes:
+      label: Status Output
+      description: |
+        Paste the output of `franklinwh_cli.py -i YOUR_IP --status --detail` (redacted).
+
+        **⚠️ IMPORTANT: Replace your aGate IP with `192.168.x.x` and redact any serial numbers.**
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Debug Output
+      description: |
+        Any relevant CLI output, tracebacks, or Modbus error messages.
+
+        **⚠️ IMPORTANT: Redact IP addresses, serial numbers, and personal info before pasting.**
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I can reproduce this issue consistently
+        - label: I have redacted all personal/sensitive data from logs
+          required: true
+        - label: I have included the library version and firmware version

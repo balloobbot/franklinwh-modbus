@@ -1,0 +1,97 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea? We'd love to hear it!
+
+        **Before submitting:**
+        - [ ] I have searched [existing issues](https://github.com/david2069/franklinwh-modbus/issues) to check this hasn't been requested
+        - [ ] I have checked the [Modbus Guide](https://david2069.github.io/franklinwh-modbus/FRANKLINWH_MODBUS_GUIDE/) and [DER Control Reference](https://david2069.github.io/franklinwh-modbus/DER_CONTROL_REFERENCE/) to confirm this isn't already supported
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: What problem does this feature solve? Why do you need it?
+      placeholder: "I'd like to read battery temperature from the aGate but currently there's no way to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this working? Include API signatures, CLI flags, or example usage if possible.
+      placeholder: |
+        ```python
+        status = ctrl.read_battery_status()
+        print(status['battery_temp_c'])
+        ```
+
+        Or CLI:
+        ```bash
+        franklinwh_cli.py -i IP --status --detail
+        # shows: Battery Temp: 32.5°C
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any workarounds or alternative approaches you've tried or considered.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which area would this feature affect?
+      options:
+        - CLI — new command or flag
+        - CLI — existing command enhancement
+        - Controller API — new method
+        - Controller API — read existing SunSpec register
+        - SunSpec — new model support
+        - Extension registers
+        - Virtual modes / control logic
+        - TUI monitor
+        - Home Assistant / MQTT integration
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Region Relevance
+      description: Is this feature region-specific?
+      options:
+        - All regions
+        - AU only
+        - US only
+        - Not sure
+
+  - type: textarea
+    id: sunspec_evidence
+    attributes:
+      label: SunSpec / Register Evidence
+      description: |
+        If you've identified the SunSpec register(s) involved (from the modbus_sunspec2_reader.py tool or hardware inspection), include them here.
+
+        Example: `M714.TmpAmb (address 40200)` or `FranklinWH extension register 15510`.
+      render: text
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to help implement this feature
+        - label: I can test against live hardware
+        - label: I have identified the relevant SunSpec registers

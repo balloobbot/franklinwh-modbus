@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://david2069.github.io/franklinwh-modbus/
+    about: Modbus guide, SunSpec quirks, CLI reference, and DER control reference
+  - name: 💬 Discussions
+    url: https://github.com/david2069/franklinwh-modbus/discussions
+    about: Ask questions, share setups, or discuss Modbus TCP integration ideas
+  - name: 🔗 Related — Cloud API
+    url: https://github.com/david2069/franklinwh-cloud
+    about: For Cloud API issues use the franklinwh-cloud repo
