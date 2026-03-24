@@ -17,6 +17,19 @@ Covers virtual environments, package installation, CLI tools, network scanning, 
 
 ---
 
+## Prerequisites
+
+Before installing the software, confirm these hardware requirements are met:
+
+1. **Firmware:** aGate firmware **V10R01B04D00** (or later). This is the only release this library has been tested on. Check your firmware version in the FranklinWH mobile app under *Settings → Device Info*, or via SunSpec register M1.Vr (address 40044).
+
+2. **SunSpec Modbus TCP:** Must be **enabled by your installer or FranklinWH Customer Support** in your country (AU, US, or Canada). This is not enabled by default — contact your installer or raise a support ticket with FranklinWH to request Modbus TCP access on your aGate.
+
+> [!IMPORTANT]
+> Both prerequisites must be in place before proceeding. Without Modbus TCP enabled on your aGate, the library cannot connect.
+
+---
+
 ## 1. Create a Virtual Environment
 
 ### macOS
