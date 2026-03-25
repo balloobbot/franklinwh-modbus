@@ -25,8 +25,8 @@ Before installing the software, confirm these hardware requirements are met:
 
 2. **SunSpec Modbus TCP:** Must be **enabled by your installer or FranklinWH Customer Support** in your country (AU, US, or Canada). This is not enabled by default — contact your installer or raise a support ticket with FranklinWH to request Modbus TCP access on your aGate.
 
-> [!IMPORTANT]
-> Both prerequisites must be in place before proceeding. Without Modbus TCP enabled on your aGate, the library cannot connect.
+!!! important
+    Both prerequisites must be in place before proceeding. Without Modbus TCP enabled on your aGate, the library cannot connect.
 
 ---
 
@@ -72,8 +72,8 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-> [!TIP]
-> Your prompt should now show `(venv)` — all `pip install` commands below run inside this environment.
+!!! tip
+    Your prompt should now show `(venv)` — all `pip install` commands below run inside this environment.
 
 ---
 
@@ -138,8 +138,8 @@ franklinwh -i YOUR_AGATE_IP --mode self_consumption --target-soc 90
 franklinwh -i YOUR_AGATE_IP --stop
 ```
 
-> [!IMPORTANT]
-> **Read operations always work.** Write operations (charge, discharge, mode changes) require either a SPAN/Lumin panel on the aGate or provisioning by FranklinWH Support.
+!!! important
+    **Read operations always work.** Write operations (charge, discharge, mode changes) require either a SPAN/Lumin panel on the aGate or provisioning by FranklinWH Support.
 
 ### Connection Options
 
@@ -446,8 +446,8 @@ python3 tools/modbus_sunspec2_reader.py -i 192.168.1.50 --raw 15500:14 --match -
 
 The `franklinwh-cloud` library provides an **alternative control path** via the FranklinWH Cloud API. Unlike Modbus TCP (LAN-only, requires network access to the aGate), the Cloud API works **remotely over the internet** using your FranklinWH account credentials — the same API used by the official mobile app.
 
-> [!NOTE]
-> Modbus TCP and the Cloud API are independent control paths. Both can read status and send commands. Modbus TCP is lower-latency and works offline but requires LAN access. The Cloud API works from anywhere but depends on FranklinWH's cloud infrastructure.
+!!! note
+    Modbus TCP and the Cloud API are independent control paths. Both can read status and send commands. Modbus TCP is lower-latency and works offline but requires LAN access. The Cloud API works from anywhere but depends on FranklinWH's cloud infrastructure.
 
 ### Install
 
@@ -504,22 +504,26 @@ print(f"Mode:    {stats.current.work_mode_desc}")
 ### Switch Operating Mode
 
 ```python
+from franklinwh_cloud.const import SELF_CONSUMPTION, EMERGENCY_BACKUP
+
 # Self-Consumption
-await client.set_mode(2, None, None, None, None)
+await client.set_mode(SELF_CONSUMPTION, None, None, None, None)
 
 # Emergency Backup — indefinite
-await client.set_mode(3, None, 1, 2, None)
-#                      mode  soc  forever  nextMode  duration
+await client.set_mode(EMERGENCY_BACKUP, None, 1, SELF_CONSUMPTION, None)
+#                      mode              soc  forever  nextMode      duration
 
 # Emergency Backup — 2 hours, then revert to Self-Consumption
-await client.set_mode(3, None, 2, 2, 120)
+await client.set_mode(EMERGENCY_BACKUP, None, 2, SELF_CONSUMPTION, 120)
 ```
 
 ### Set Reserve SoC
 
 ```python
+from franklinwh_cloud.const import SELF_CONSUMPTION
+
 # Set backup reserve to 20%
-await client.update_soc(requestedSOC=20, workMode=2)
+await client.update_soc(requestedSOC=20, workMode=SELF_CONSUMPTION)
 ```
 
 ### PCS Power Control (Grid Import / Export Limits)
@@ -544,14 +548,16 @@ await client.set_power_control_settings(
 ### TOU Schedule — Force Grid Charge
 
 ```python
+from franklinwh_cloud.const import dispatchCodeType, WaveType
+
 # Set a grid-charge window 11:30–15:00, self-consumption outside
 await client.set_tou_schedule(
     touMode="CUSTOM",
     touSchedule=[{
         "startTime": "11:30",
         "endTime": "15:00",
-        "dispatchId": 8,       # 8 = Grid charge
-        "tWaveTypeId": 3,      # Off-peak
+        "dispatchId": dispatchCodeType.GRID_CHARGE.value,   # 8 = Grid charge
+        "waveType": WaveType.OFF_PEAK.value,              # 0 = Off-peak
     }],
     default_mode="SELF",
 )
@@ -560,7 +566,7 @@ await client.set_tou_schedule(
 await client.set_tou_schedule(touMode="SELF")
 ```
 
-**TOU dispatch codes:** 6=Self-consumption, 8=Grid charge, 9=Grid export, 10=Home backup, 11=Standby, 22=Solar only.
+**Note:** See the [Cloud API Cookbook](https://david2069.github.io/franklinwh-cloud/API_COOKBOOK/) for the full list of `dispatchCodeType` and `WaveType` enum definitions.
 
 ### Comparison: Modbus TCP vs Cloud API
 
@@ -576,8 +582,8 @@ await client.set_tou_schedule(touMode="SELF")
 | **Rate limits** | None | Undocumented (be conservative) |
 | **Package** | `pip install franklinwh-modbus` | `pip install franklinwh-cloud` |
 
-> [!TIP]
-> For full Cloud API documentation, see the [API Cookbook](https://github.com/david2069/franklinwh-cloud/blob/main/docs/API_COOKBOOK.md) and [API Client Guide](https://github.com/david2069/franklinwh-cloud/blob/main/API_CLIENT_GUIDE.md).
+!!! tip
+    For full Cloud API documentation, see the [API Cookbook](https://github.com/david2069/franklinwh-cloud/blob/main/docs/API_COOKBOOK.md) and [API Client Guide](https://github.com/david2069/franklinwh-cloud/blob/main/API_CLIENT_GUIDE.md).
 
 ---
 
