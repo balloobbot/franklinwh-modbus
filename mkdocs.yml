@@ -76,6 +76,7 @@ nav:
     - Modbus Guide: FRANKLINWH_MODBUS_GUIDE.md
     - Architecture: ARCHITECTURE.md
     - CLI Command Reference: CLI_COMMAND_REFERENCE.md
+    - TUI Monitor Guide: TUI_MONITOR_GUIDE.md
   - Control & Safety:
     - DER Control Reference: DER_CONTROL_REFERENCE.md
     - Orchestration & Control: ORCHESTRATION_AND_CONTROL.md
