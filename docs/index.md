@@ -54,13 +54,13 @@ What the **aGate X / aPower S** system implements via Modbus TCP:
 
 ## Features
 
-- **Modbus TCP** — Direct register read/write via pymodbus + SunSpec 2.0
-- **SunSpec Models** — Models 1, 701–706, 713–715
-- **FranklinWH Extensions** — Registers 15507–15509 (OnGridMode, reserves)
-- **CLI Tool** — `franklinwh_cli.py` with charge, discharge, standby, healthcheck, TUI monitor
-- **Virtual Modes** — Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual
-- **Safety Controls** — SoC validation, alarm monitoring, conflict detection, auto-revert
-- **Target SoC** — Charge/discharge to specific SoC with auto-stop
+- **[Modbus TCP](WHAT_IS_MODBUS_TCP.md)** — Direct register read/write via pymodbus + SunSpec 2.0
+- **[SunSpec Models](DER_CONTROL_REFERENCE.md)** — Models 1, 701–706, 713–715
+- **[FranklinWH Extensions](FRANKLINWH_SUNSPEC_QUIRKS.md)** — Registers 15507–15509 (OnGridMode, reserves)
+- **[CLI Tool](CLI_COMMAND_REFERENCE.md)** — `franklinwh_cli.py` with charge, discharge, standby, healthcheck, and a live **[TUI monitor](TUI_MONITOR_GUIDE.md)**
+- **[Virtual Modes](VIRTUAL_MODE_SPECIFICATIONS.md)** — Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual
+- **[Safety Controls](SAFETY_CONTROLS.md)** — SoC validation, alarm monitoring, conflict detection, auto-revert
+- **[Target SoC](ORCHESTRATION_AND_CONTROL.md)** — Charge/discharge to specific SoC with auto-stop
 
 ## Quick Start
 
