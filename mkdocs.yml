@@ -40,6 +40,7 @@ exclude_docs: |
   DEVELOPMENT.md
   FRANKLINWH_OFFICIAL_DOCS_REFERENCE.md
   IN_FLIGHT_WORK.md
+  README.md
   SUNSPEC_DER_SEQUENCING_REFERENCE.md
   TEST_QUICK_REFERENCE.md
   TODO_INTENT_BASED_CONFLICT_DETECTION.md
@@ -70,6 +71,8 @@ nav:
   - Home: index.md
   - Getting Started:
     - Setup Guide: GETTING_STARTED.md
+    - Python Setup: HOWTO_PYTHON.md
+    - What is Modbus TCP?: WHAT_IS_MODBUS_TCP.md
     - Modbus Guide: FRANKLINWH_MODBUS_GUIDE.md
     - Architecture: ARCHITECTURE.md
     - CLI Command Reference: CLI_COMMAND_REFERENCE.md
