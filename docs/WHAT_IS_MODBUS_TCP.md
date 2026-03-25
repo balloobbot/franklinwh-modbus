@@ -18,9 +18,26 @@ While Modbus is a universal standard, it is notoriously difficult for newcomers 
 
 ---
 
-## ✅ Benefits of Modbus TCP vs Cloud APIs
+## ✅ Modbus TCP vs Cloud API
 
-Despite its complexity, Modbus TCP offers massive advantages over the FranklinWH Cloud API for advanced users and local automation:
+Both this library and [franklinwh-cloud](https://david2069.github.io/franklinwh-cloud/) control the same hardware — they use different paths to get there. Despite its complexity, Modbus TCP offers massive advantages for local automation.
+
+| Aspect | Modbus TCP (this library) | Cloud API (franklinwh-cloud) |
+|--------|--------------------------|------------------------------|
+| **Latency** | ~50ms (LAN direct) | ~500ms–2s (internet via CloudFront) |
+| **Availability** | Works offline and off-grid | Requires internet + FranklinWH servers |
+| **Control path** | Direct register writes to aGate | Cloud-mediated commands via MQTT |
+| **Data freshness** | Real-time (configurable poll rate) | ~30s telemetry intervals |
+| **Setup** | Requires installer to enable Modbus TCP | Works with standard FranklinWH credentials |
+| **Battery control** | ✅ Charge / discharge / standby | ✅ Charge / discharge / standby |
+| **TOU schedules** | ⚠️ Read-only (extension registers) | ✅ Full read/write |
+| **Mode switching** | ⚠️ Requires SPAN unlock for writes | ✅ Full support |
+| **Risk profile** | Direct hardware access — mistakes persist | Cloud-mediated — safer guardrails |
+
+!!! tip "When to use which"
+    **Modbus TCP** for real-time monitoring, low-latency VPP/arbitrage control, and offline/off-grid operation. **Cloud API** for TOU schedule management, remote access from outside your LAN, and when Modbus TCP is not enabled on your aGate.
+
+### Key Benefits of Modbus TCP
 
 - **No Vendor Lock-in or Deprecation Risks**: It doesn't rely on cloud subscription licenses, doesn't require an active internet connection, and isn't subject to unexpected breaking changes by the vendor.
 - **Industry Standard**: It is based on non-proprietary, ubiquitous open standards.
@@ -28,6 +45,17 @@ Despite its complexity, Modbus TCP offers massive advantages over the FranklinWH
 - **Lightning Fast**: Response times are nearly instantaneous (milliseconds) compared to the latency of round-trip cloud API polling.
 - **Powerful Raw Control**: Once mastered, the Modbus model provides dedicated functions to directly and optimally control your device exactly as the vendor's own hardware does.
 - **Direct Battery & Power Management**: Allows for direct battery limits and mode manipulation. While there are some significant limits in the specific FranklinWH implementation, the available control is still highly effective and worth using.
+
+---
+
+## The SunSpec Alliance
+
+The [**SunSpec Alliance**](https://sunspec.org) is a non-profit industry alliance that defines open standards for solar, storage, and smart energy interoperability.
+
+- **SunSpec Information Model** — standardised register maps for Distributed Energy Resources (DER). Each "model" defines a block of registers with fixed addresses, data types, and scale factors
+- **700-series models** — DER devices (inverters, batteries, grid interfaces). This is what the aGate implements
+- **PICS** (Protocol Implementation Conformance Statement) — a vendor's formal declaration of which models and fields they support. FranklinWH's PICS covers Models 1, 701–715
+- **Conformance testing** — SunSpec certifies devices against their test suites, but real-world implementations frequently deviate from the specification
 
 ---
 

@@ -7,57 +7,11 @@ Unofficial Python library & CLI for controlling **FranklinWH** battery storage s
 
 ---
 
-## What is Modbus TCP?
+## Overview
 
-**Modbus TCP** is a vendor-agnostic local network protocol that allows direct control of compatible devices over your LAN. Originally a serial protocol (1979), it was extended to TCP/IP and is now the most widely deployed protocol for industrial automation, solar inverters, and battery storage systems.
+**FranklinWH Modbus** provides direct, vendor-agnostic local network control over your aGate via the Modbus TCP protocol. Because it communicates directly with the hardware on your LAN, it operates entirely offline, bypasses cloud limits, and offers near-instantaneous response times (≤50ms).
 
-When combined with **SunSpec** (see below), Modbus TCP provides a standardised way to:
-
-- **Read metrics** — battery state of charge, solar production, grid power, voltages, frequencies, temperatures, lifetime energy accumulators
-- **Control devices** — charge/discharge batteries, set power limits, configure grid protection curves
-- **Monitor alarms** — system faults, DC port alarms, grid events
-
-### Vendor Implementation Reality
-
-Each vendor must meet a minimum conformance standard, but in practice:
-
-- **Partial implementations are common** — registers may return 0 or `None` even though they appear in the model definition
-- **Proprietary extensions** vary between vendors — FranklinWH adds extension registers (15500+ range) for features like work mode switching (Emergency Backup, Self-Consumption, TOU) and remote solar metering via aPBox
-- **Implementation quality differs** between a vendor's own models and firmware versions — what works on one model may not work on another
-
-This library documents all known FranklinWH-specific quirks in the [SunSpec Quirks](FRANKLINWH_SUNSPEC_QUIRKS.md) guide.
-
----
-
-## Modbus TCP vs Cloud API
-
-Both this library and [franklinwh-cloud](https://david2069.github.io/franklinwh-cloud/) control the same hardware — they use different paths to get there.
-
-| Aspect | Modbus TCP (this library) | Cloud API (franklinwh-cloud) |
-|--------|--------------------------|------------------------------|
-| **Latency** | ~50ms (LAN direct) | ~500ms–2s (internet via CloudFront) |
-| **Availability** | Works offline and off-grid | Requires internet + FranklinWH servers |
-| **Control path** | Direct register writes to aGate | Cloud-mediated commands via MQTT |
-| **Data freshness** | Real-time (configurable poll rate) | ~30s telemetry intervals |
-| **Setup** | Requires installer to enable Modbus TCP | Works with standard FranklinWH credentials |
-| **Battery control** | ✅ Charge / discharge / standby | ✅ Charge / discharge / standby |
-| **TOU schedules** | ⚠️ Read-only (extension registers) | ✅ Full read/write |
-| **Mode switching** | ⚠️ Requires SPAN unlock for writes | ✅ Full support |
-| **Risk profile** | Direct hardware access — mistakes persist | Cloud-mediated — safer guardrails |
-
-!!! tip "When to use which"
-    **Modbus TCP** for real-time monitoring, low-latency VPP/arbitrage control, and offline/off-grid operation. **Cloud API** for TOU schedule management, remote access from outside your LAN, and when Modbus TCP is not enabled on your aGate.
-
----
-
-## SunSpec Alliance
-
-The [**SunSpec Alliance**](https://sunspec.org) is a non-profit industry alliance that defines open standards for solar, storage, and smart energy interoperability.
-
-- **SunSpec Information Model** — standardised register maps for Distributed Energy Resources (DER). Each "model" defines a block of registers with fixed addresses, data types, and scale factors
-- **700-series models** — DER devices (inverters, batteries, grid interfaces). This is what the aGate implements
-- **PICS** (Protocol Implementation Conformance Statement) — a vendor's formal declaration of which models and fields they support. FranklinWH's PICS covers Models 1, 701–715
-- **Conformance testing** — SunSpec certifies devices against their test suites, but real-world implementations frequently deviate from the specification
+👉 **[Read the complete guide on What Modbus TCP is, its challenges, and how it compares to the Cloud API](WHAT_IS_MODBUS_TCP.md)**
 
 ---
 
