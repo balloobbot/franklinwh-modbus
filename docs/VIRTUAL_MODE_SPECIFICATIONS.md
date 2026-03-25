@@ -137,9 +137,13 @@ These are what the FranklinWH app sets. We can READ them but not WRITE them (wit
 
 ---
 
-## Virtual Modes (Our Library — `modes.py`)
+## Virtual Modes: Battery Orchestration Plans
 
-These modes run in our software and send M704 commands every 5 seconds. They **override** the aGate native mode's battery behavior.
+> **The Reality**: Native FranklinWH Operating Modes (set via the mobile app) are comprehensive ecosystem orchestration plans. They control battery behavior, grid import/export permissions, smart circuit load shedding, and generator triggers simultaneously. 
+> 
+> Because the Modbus TCP interface ONLY provides access to `M704` Battery Power, **our Virtual Modes are merely battery orchestration plans**. They emulate the core battery behavior of the native modes, but cannot touch the wider ecosystem. 
+
+These modes run in our software (`modes.py`) and send continuous M704 power setpoints every 5 seconds. They **override** the aGate's native battery behavior but nothing else.
 
 ### Load Priority Reference
 
@@ -152,26 +156,23 @@ How each virtual mode prioritizes power sources for covering home load:
 | 3rd | Grid import | Idle (no discharge) | — (target=0W grid) | Battery (>threshold) | Grid import | Grid→Home | — |
 | 4th | — | — | — | Grid import | — | — | — |
 
-> **Key difference**: Emergency Backup **never discharges** to cover home load (on-grid). Self-Consumption always tries battery before grid.
-
 ---
 
 ### 1. `self_consumption` — Default Mode
 
-**Intent**: Maximize solar/battery self-use. Matches aGate Self-Consumption (Ext.15507=2).
+**Emulation Target**: FranklinWH Native Self-Consumption (`Ext.15507=2`)  
+**Emulation Fidelity**: **Partial**. We calculate net load and direct the battery to cover it, successfully minimizing grid import. However, if the home load exceeds inverter capacity off-grid, the native mode drops Smart Circuits; our virtual mode cannot, leading to an abrupt microgrid collapse.
 
 **Power Flow (Our Implementation)**:
 ```
-IF SoC >= target_soc:
+IF SoC >= target_soc + self_reserve:
     excess_solar = solar - home
     IF excess_solar > 0: charge from excess solar (up to max)
     IF excess_solar < 0: discharge to cover shortfall
     IF excess_solar = 0: idle
-ELSE (SoC < target):
+ELSE:
     FULL POWER CHARGE from grid+solar (to reach target ASAP)
 ```
-
-**Parameters**: `target_soc` (100%), `self_reserve_pct` (20%)
 
 **Validation Targets**:
 - [ ] Night, SoC < target: charge at max from grid
@@ -183,15 +184,14 @@ ELSE (SoC < target):
 
 ### 2. `emergency_backup` — Keep Battery Full
 
-**Intent**: Keep battery charged for outages. Matches aGate Emergency Backup (Ext.15507=0).
+**Emulation Target**: FranklinWH Native Emergency Backup (`Ext.15507=0`)  
+**Emulation Fidelity**: **Partial**. We successfully hold the battery at 100% and aggressively prevent discharging to the home. However, the native mode also triggers the Generator (if installed) during an outage to keep the battery topped up. We cannot trigger the generator via Modbus.
 
 **Power Flow**:
 ```
 IF SoC >= target: idle (0W) — do NOT discharge
 ELSE: charge proportionally (higher power when further from target)
 ```
-
-**Parameters**: `target_soc` (95%)
 
 **Validation Targets**:
 - [ ] SoC < target: charge at high power
@@ -202,7 +202,8 @@ ELSE: charge proportionally (higher power when further from target)
 
 ### 3. `grid_zero` — Minimize Grid Interaction
 
-**Intent**: Keep `M701.W` (grid power) as close to 0W as possible. Not a native aGate mode.
+**Emulation Target**: None (Custom Mode)  
+**Emulation Fidelity**: **N/A**. This is a purely custom orchestration plan that tries to zero-out the grid meter by directly reacting to `M701.W` (Grid Power) rather than relying on solar projections. It has no native equivalent.
 
 **Power Flow**:
 ```
@@ -212,8 +213,6 @@ IF net_load < 0 AND SoC < target: charge from excess (grid export → 0W)
 IF net_load < 0 AND SoC >= target: idle (excess exports)
 ```
 
-**Parameters**: `target_soc` (100%), `grid_zero_buffer` (100W)
-
 **Validation Targets**:
 - [ ] Home > solar: `M701.W` near 0W (battery discharging)
 - [ ] Solar > home: `M701.W` near 0W (battery absorbing excess)
@@ -222,7 +221,8 @@ IF net_load < 0 AND SoC >= target: idle (excess exports)
 
 ### 4. `peak_shave` — Reduce Peak Grid Demand
 
-**Intent**: Discharge only when home load exceeds a threshold. Reduces demand charges.
+**Emulation Target**: None (Custom Mode)  
+**Emulation Fidelity**: **N/A**. This is a purely custom orchestration plan designed to shave utility demand-charge spikes. It has no native equivalent.
 
 **Power Flow**:
 ```
@@ -231,17 +231,16 @@ IF home > threshold AND SoC > min + 5%:
 ELSE: idle (0W)
 ```
 
-**Parameters**: `peak_shave_threshold` (2000W), `min_discharge_soc`
-
 **Validation Targets**:
-- [ ] Home < 2000W: battery idle
-- [ ] Home > 2000W: battery discharges (threshold - home), grid caps at threshold
+- [ ] Home < threshold: battery idle
+- [ ] Home > threshold: battery discharges (threshold - home), grid caps at threshold
 
 ---
 
 ### 5. `time_of_use` — Schedule-Based Arbitrage
 
-**Intent**: Match aGate TOU (Ext.15507=1). Charge off-peak, discharge on-peak.
+**Emulation Target**: FranklinWH Native TOU (`Ext.15507=1`)  
+**Emulation Fidelity**: **Partial / Experimental**. We parse the TOU JSON schedule and force the battery to charge/discharge at the correct times. However, the native mode perfectly orchestrates solar curtailment and grid export limits during Peak periods. Our virtual mode must rely purely on aggressive battery discharging, which can sometimes "fight" the native grid topology.
 
 **Power Flow**:
 ```
@@ -253,8 +252,6 @@ strategy = schedule.get_strategy()  // "charge", "discharge", "grid_zero", "sola
 "solar_priority": charge from solar only, else self_consumption
 ```
 
-**Parameters**: TOU schedule (JSON), `target_soc`, `min_soc`/`max_soc` per period
-
 **Validation Targets**:
 - [ ] During "charge" period: battery charges
 - [ ] During "discharge" period: battery discharges
@@ -264,7 +261,8 @@ strategy = schedule.get_strategy()  // "charge", "discharge", "grid_zero", "sola
 
 ### 6. `manual` — Direct Power Control
 
-**Intent**: User specifies exact watts. Simplest mode.
+**Emulation Target**: Cloud API Standby/Forced Charge/Discharge  
+**Emulation Fidelity**: **Full**. This directly commands the battery at a specific wattage. It is the purest and most reliable Modbus mode, completely mirroring the Cloud API's manual overrides.
 
 **Power Flow**: `return manual_power_w`
 
