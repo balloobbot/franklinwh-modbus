@@ -104,16 +104,14 @@ The DERMode register is a bitfield indicating the current DER operating mode:
 | 1 | `GRID_FORMING` | Off-grid/island mode (aPower generates its own AC reference) |
 | 2 | `PV_CLIPPED` | PV curtailment active — solar output is being limited |
 
-> [!IMPORTANT]
-> **PV_CLIPPED is a FranklinWH-specific operational state**, most relevant in **off-grid/backup mode**. When the aPower switches to Grid Forming (bit 1), it can only handle a limited amount of solar input. If a solar inverter (e.g., SolarEdge SE 11400) produces more power than a single aPower can absorb (~6kW), the aPower signals PV curtailment through DERMode bit 2.
->
-> FranklinWH recommends:
-> - **Single aPower:** Derate solar inverter using SolarEdge PRI (Power Reduction Interface) to keep off-grid peak below 6kW
-> - **Two aPowers:** Provides sufficient capacity for larger solar arrays without curtailment
->
-> **References:**
-> - [SolarEdge De-rate in Off-Grid Mode](https://service.franklinwh.com/en/support/solutions/articles/73000622969-solar-edge-string-inverter-de-rate-in-off-grid-back-up-mode)
-> - FranklinWH PV Curtailment White Paper (PDF)
+!!! important
+    **PV_CLIPPED is a FranklinWH-specific operational state**, most relevant in **off-grid/backup mode**. When the aPower switches to Grid Forming (bit 1), it can only handle a limited amount of solar input. If a solar inverter (e.g., SolarEdge SE 11400) produces more power than a single aPower can absorb (~6kW), the aPower signals PV curtailment through DERMode bit 2.
+        FranklinWH recommends:
+    - **Single aPower:** Derate solar inverter using SolarEdge PRI (Power Reduction Interface) to keep off-grid peak below 6kW
+    - **Two aPowers:** Provides sufficient capacity for larger solar arrays without curtailment
+        **References:**
+    - [SolarEdge De-rate in Off-Grid Mode](https://service.franklinwh.com/en/support/solutions/articles/73000622969-solar-edge-string-inverter-de-rate-in-off-grid-back-up-mode)
+    - FranklinWH PV Curtailment White Paper (PDF)
 
 **Code:** `controller.py` reads DERMode as `grid_mode`:
 ```python
@@ -126,8 +124,8 @@ elif der_mode_raw & (1 << 0):
     grid_mode = 'Grid Following'
 ```
 
-> [!NOTE]
-> We have not directly observed `PV_CLIPPED` in testing — our system has no solar at night and operates on-grid. This bit would only appear during daytime off-grid events with active PV curtailment.
+!!! note
+    We have not directly observed `PV_CLIPPED` in testing — our system has no solar at night and operates on-grid. This bit would only appear during daytime off-grid events with active PV curtailment.
 
 ---
 
@@ -161,8 +159,8 @@ This XLSX documents:
 - Extension register definitions (SPAN tab)
 - The SOC reserve defect
 
-> [!WARNING]
-> **We do not fully trust this document.** Our live testing has found discrepancies between what the PICS document claims and actual aGate behavior. Always verify against the live device. Use the PICS as a starting point, not ground truth.
+!!! warning
+    **We do not fully trust this document.** Our live testing has found discrepancies between what the PICS document claims and actual aGate behavior. Always verify against the live device. Use the PICS as a starting point, not ground truth.
 
 See: `docs/VERIFICATION_BASELINE.md` for full register map and cross-verification.
 
@@ -271,8 +269,8 @@ See [VPP_MODE_REFERENCE.md](VPP_MODE_REFERENCE.md) for the Remote Control visual
 
 ### Crash-Orphan Risk
 
-> [!CAUTION]
-> If the consumer application crashes while `WSetEna=1`, the aGate remains in Remote Control indefinitely (mobile app continues to show "VPP Mode"). There is no hardware timeout to auto-revert (WSetRvrtTms behavior unverified). The library provides `reset_control_state()` for graceful shutdown, but **crash recovery is a consumer responsibility**, not a library concern.
+!!! caution
+    If the consumer application crashes while `WSetEna=1`, the aGate remains in Remote Control indefinitely (mobile app continues to show "VPP Mode"). There is no hardware timeout to auto-revert (WSetRvrtTms behavior unverified). The library provides `reset_control_state()` for graceful shutdown, but **crash recovery is a consumer responsibility**, not a library concern.
 
 ### The LocRemCtl Paradox (Model 715) — TESTED 2026-03-08
 
@@ -503,8 +501,8 @@ FranklinWH aGate SunSpec registers round power values to coarse resolution (~100
 
 ## Serial Number Structure (Unconfirmed)
 
-> [!WARNING]
-> FranklinWH does not publicly document their serial number encoding scheme. The following structure is our **best guess** based on observed patterns across aGate and aPower devices. It should not be treated as authoritative.
+!!! warning
+    FranklinWH does not publicly document their serial number encoding scheme. The following structure is our **best guess** based on observed patterns across aGate and aPower devices. It should not be treated as authoritative.
 
 FranklinWH serial numbers appear to encode device type, hardware revision, and unique ID:
 

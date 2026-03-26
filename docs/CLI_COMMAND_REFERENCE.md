@@ -208,11 +208,11 @@ $CLI --healthcheck
    Self-Consumption)            WSetPct=X%)               Self-Consumption)
 ```
 
-> [!WARNING]
-> **Commands persist indefinitely.** The aGate has no hardware timeout (PICS Issue 4). Always use `--stop` to release control, or `--revert N` for automatic software timeout.
+!!! warning
+    **Commands persist indefinitely.** The aGate has no hardware timeout (PICS Issue 4). Always use `--stop` to release control, or `--revert N` for automatic software timeout.
 
-> [!CAUTION]
-> **WiFi can cause orphaned control.** During this test, `--stop` timed out due to WiFi packet loss, leaving the aGate in Remote Control. The library detected this on next connect (`Active VPP state detected: WSetEna=1`). Use `--stop` again or the library will auto-release with `auto_release_orphan=True`.
+!!! caution
+    **WiFi can cause orphaned control.** During this test, `--stop` timed out due to WiFi packet loss, leaving the aGate in Remote Control. The library detected this on next connect (`Active VPP state detected: WSetEna=1`). Use `--stop` again or the library will auto-release with `auto_release_orphan=True`.
 
 ---
 
@@ -314,8 +314,8 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 ⏱️  Auto-revert in 30s (software timer)
 ```
 
-> [!WARNING]
-> **`--revert` requires the CLI process to stay running.** In fire-and-forget mode (no `--loop`), the CLI exits immediately after sending the command and the timer is lost. Use `--revert N --loop` for reliable auto-revert.
+!!! warning
+    **`--revert` requires the CLI process to stay running.** In fire-and-forget mode (no `--loop`), the CLI exits immediately after sending the command and the timer is lost. Use `--revert N --loop` for reliable auto-revert.
 
 ---
 
@@ -387,16 +387,13 @@ Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
 
 ## Virtual Modes (Not Included)
 
-> [!IMPORTANT]
-> **Virtual modes (`--mode self_consumption`, `--mode peak_shave`, etc.) are not covered in this reference.**
->
-> These modes use software-calculated power targets within Remote Control (`WSetEna=1`). They are **experimental** and not properly implemented — the aGate's native modes (Self-Consumption, TOU, Emergency Backup) handle these scenarios better.
->
-> **Future:** Virtual modes may be removed entirely, pending FranklinWH enabling:
-> 1. **LocRemCtl write access** — allowing proper Local/Remote handoff per SunSpec spec
-> 2. **Extension register write access** — enabling direct mode/reserve control via Modbus
->
-> Until then, the recommended approach is direct power commands (`--charge`, `--discharge`, `--stop`) for Remote Control (mobile app: "VPP Mode"), and the FranklinWH mobile app for mode/reserve changes.
+!!! important
+    **Virtual modes (`--mode self_consumption`, `--mode peak_shave`, etc.) are not covered in this reference.**
+        These modes use software-calculated power targets within Remote Control (`WSetEna=1`). They are **experimental** and not properly implemented — the aGate's native modes (Self-Consumption, TOU, Emergency Backup) handle these scenarios better.
+        **Future:** Virtual modes may be removed entirely, pending FranklinWH enabling:
+    1. **LocRemCtl write access** — allowing proper Local/Remote handoff per SunSpec spec
+    2. **Extension register write access** — enabling direct mode/reserve control via Modbus
+        Until then, the recommended approach is direct power commands (`--charge`, `--discharge`, `--stop`) for Remote Control (mobile app: "VPP Mode"), and the FranklinWH mobile app for mode/reserve changes.
 
 ---
 

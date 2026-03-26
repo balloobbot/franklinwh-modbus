@@ -24,8 +24,8 @@ Everything in this document is shaped by what the aGate actually exposes via Mod
 | **Hardware reversion timer** | ❌ | WSetRvrtTms accepted but never executes (quirk) |
 | **Hardware heartbeat** | ❌ | ControllerHb silently ignored (quirk) |
 
-> [!CAUTION]
-> **Our ONLY control lever is M704 battery power commands.** Everything else — mode, reserves, solar, smart circuits, load shedding — is either read-only or invisible. All virtual modes are constrained to: "tell the battery how many watts to charge or discharge." The aGate's native mode runs in parallel and resumes the instant we release control.
+!!! caution
+    **Our ONLY control lever is M704 battery power commands.** Everything else — mode, reserves, solar, smart circuits, load shedding — is either read-only or invisible. All virtual modes are constrained to: "tell the battery how many watts to charge or discharge." The aGate's native mode runs in parallel and resumes the instant we release control.
 
 ---
 
@@ -78,12 +78,12 @@ The FranklinWH system has **two independent control layers** running in parallel
 
 Our virtual modes **override** the aGate's native battery behavior by sending M704 power commands every 5 seconds. The native mode keeps running in the background — when we release control (`--stop`), the aGate resumes its native mode immediately.
 
-> [!IMPORTANT]
-> We can only control **battery charge/discharge power** via M704. We CANNOT:
-> - Change the aGate's operating mode (Ext.15507) without SPAN unlock
-> - Control Smart Circuit load shedding
-> - Directly control solar PV production or curtailment
-> - Control grid import/export limits (only indirect via battery)
+!!! important
+    We can only control **battery charge/discharge power** via M704. We CANNOT:
+    - Change the aGate's operating mode (Ext.15507) without SPAN unlock
+    - Control Smart Circuit load shedding
+    - Directly control solar PV production or curtailment
+    - Control grid import/export limits (only indirect via battery)
 
 ---
 

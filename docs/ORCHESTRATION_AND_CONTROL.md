@@ -64,8 +64,8 @@ sequenceDiagram
 
 Before any hardware commands are sent, the `VirtualModeController` calculates and sanitizes the power request based on the following SoC parameters. This entire process occurs within the application and acts as a safety guardrail.
 
-> [!IMPORTANT]
-> **Software ramp ≠ Hardware ramp.** The `--soc-ramp-window` CLI option is a **software-side SoC proximity ramp** (implemented in `modes.py`). The hardware `WRmp` register (M704, addr 40345) is **unimplemented** on FranklinWH — all writes are silently discarded. The software ramp works correctly; the hardware ramp does not exist.
+!!! important
+    **Software ramp ≠ Hardware ramp.** The `--soc-ramp-window` CLI option is a **software-side SoC proximity ramp** (implemented in `modes.py`). The hardware `WRmp` register (M704, addr 40345) is **unimplemented** on FranklinWH — all writes are silently discarded. The software ramp works correctly; the hardware ramp does not exist.
 
 | Parameter | Purpose | Scope |
 | :--- | :--- | :--- |
@@ -125,8 +125,8 @@ The following table maps user-facing actions to their underlying orchestration a
 ---
 ## 5. Software Command Timeout
 
-> [!IMPORTANT]
-> Hardware reversion (`WSetRvrtTms`) does **NOT** work on FranklinWH — the aGate accepts the value but never starts the countdown. See [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) for details.
+!!! important
+    Hardware reversion (`WSetRvrtTms`) does **NOT** work on FranklinWH — the aGate accepts the value but never starts the countdown. See [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) for details.
 
 The library provides a **software-side timeout** via `threading.Timer`:
 

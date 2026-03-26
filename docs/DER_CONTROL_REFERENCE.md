@@ -24,11 +24,11 @@ These are the primary battery control registers. **This is what we use.**
 | 40327 | `WSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | ⚠️ | ⚠️ **Config only** | Value accepted & persists, but countdown never activates (TESTED 2026-03-08) |
 | 40329 | `WSetRvrtRem` | Reversion Time Remaining (s) | uint32 | R | ✅ | ❌ **Non-functional** | Always 0 — countdown never activates despite WSetRvrtTms being set (TESTED 2026-03-08) |
 
-> [!IMPORTANT]
-> **Sign Convention Quirk:** `WSetPct` is inverted on FranklinWH hardware. Positive values = discharge (in standard SunSpec, positive = charge). The library inverts: `m704.WSetPct.value = -pct_raw`. See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
+!!! important
+    **Sign Convention Quirk:** `WSetPct` is inverted on FranklinWH hardware. Positive values = discharge (in standard SunSpec, positive = charge). The library inverts: `m704.WSetPct.value = -pct_raw`. See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
 
-> [!WARNING]
-> **WSet vs WSetPct:** Writing to `WSet` (absolute watts) alongside `WSetPct` causes mode flickering on the aGate. The library uses **only WSetPct** for all power commands. `WSet` is zeroed during `reset_control_state()` but never used for active control.
+!!! warning
+    **WSet vs WSetPct:** Writing to `WSet` (absolute watts) alongside `WSetPct` causes mode flickering on the aGate. The library uses **only WSetPct** for all power commands. `WSet` is zeroed during `reset_control_state()` but never used for active control.
 
 **Current Command Sequence:**
 ```
@@ -59,8 +59,8 @@ These are the primary battery control registers. **This is what we use.**
 | 40314 | `WMaxLimPctRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | ❌ Unimplemented |
 | 40316 | `WMaxLimPctRvrtRem` | Reversion Time Remaining | uint32 | R | None | ❌ Unimplemented |
 
-> [!NOTE]
-> **Potential Use Case:** Could be used to cap inverter output during grid-sensitive periods or to implement soft power ramp-down. Worth testing if the aGate respects this limit.
+!!! note
+    **Potential Use Case:** Could be used to cap inverter output during grid-sensitive periods or to implement soft power ramp-down. Worth testing if the aGate respects this limit.
 
 ---
 
@@ -79,8 +79,8 @@ These are the primary battery control registers. **This is what we use.**
 | 40306 | `PFWAbsRvrtTms` | PF Reversion Time (Abs) | uint32 | RW | None | ❌ Unimplemented |
 | 40308 | `PFWAbsRvrtRem` | PF Rev Time Remaining | uint32 | R | None | ❌ Unimplemented |
 
-> [!WARNING]
-> `PFWInjEna` = 1 — **Active and WRITABLE.** When enabled (=1): M701 PF = -1 (≈ unity). When disabled (=0): PF = 3 (0.003, essentially no correction). **Do not leave disabled** — the aGate's default PF correction is applied through this register.
+!!! warning
+    `PFWInjEna` = 1 — **Active and WRITABLE.** When enabled (=1): M701 PF = -1 (≈ unity). When disabled (=0): PF = 3 (0.003, essentially no correction). **Do not leave disabled** — the aGate's default PF correction is applied through this register.
 
 ---
 
@@ -146,11 +146,11 @@ These are the primary battery control registers. **This is what we use.**
 | 1094 | `AlarmReset` | Alarm Reset | uint16 | RW | 0 | 🔲 Untested | Used in `check_blocking_alarms()` but never written |
 | 1095 | `OpCtl` | Set Operation | enum16 | RW | 0 | 🔲 Untested | Start/Stop/Standby the DER |
 
-> [!CAUTION]
-> **LocRemCtl Paradox:** Per SunSpec 2, `LocRemCtl=1` (Local) should mean the DER rejects ALL client writes. FranklinWH violates this — M704 power writes work, but lifecycle features (heartbeat, reversion countdown) are non-functional. This is a **selective-write hybrid** unique to FranklinWH. See `FRANKLINWH_SUNSPEC_QUIRKS.md` for full analysis.
+!!! caution
+    **LocRemCtl Paradox:** Per SunSpec 2, `LocRemCtl=1` (Local) should mean the DER rejects ALL client writes. FranklinWH violates this — M704 power writes work, but lifecycle features (heartbeat, reversion countdown) are non-functional. This is a **selective-write hybrid** unique to FranklinWH. See `FRANKLINWH_SUNSPEC_QUIRKS.md` for full analysis.
 
-> [!IMPORTANT]
-> **ControllerHb TESTED 2026-03-08:** Writes accepted at protocol level (no Modbus exception) via both sunspec2 model.write() and raw TCP func 16 at address 1092. Value stays 0 after all writes. **aGate firmware silently discards heartbeat writes.** See `tests/results/2026-03-08_p1_control_tests.md`.
+!!! important
+    **ControllerHb TESTED 2026-03-08:** Writes accepted at protocol level (no Modbus exception) via both sunspec2 model.write() and raw TCP func 16 at address 1092. Value stays 0 after all writes. **aGate firmware silently discards heartbeat writes.** See `tests/results/2026-03-08_p1_control_tests.md`.
 
 ---
 
@@ -201,8 +201,8 @@ Legend:  ✅ Working   ⚠️ Partial   🔲 Untested   ❌ Broken/Blocked
 | **Set WSetRvrtTms** | Write timeout to 40327, issue command | ⚠️ **Config only** — value persists but countdown never activates | Test 2a/2b/2c |
 | **Monitor WSetRvrtRem** | Read countdown after timeout set | ❌ **Always 0** — hardware timer not implemented | Test 2b/2c |
 
-> [!IMPORTANT]
-> **Root cause: LocRemCtl Paradox.** Both features are SunSpec 2 remote controller lifecycle features that require `LocRemCtl=0` (Remote). The aGate keeps this at 1 (Local) and read-only, selectively accepting power writes but ignoring lifecycle features. **Software-side watchdog must be implemented instead.** See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
+!!! important
+    **Root cause: LocRemCtl Paradox.** Both features are SunSpec 2 remote controller lifecycle features that require `LocRemCtl=0` (Remote). The aGate keeps this at 1 (Local) and read-only, selectively accepting power writes but ignoring lifecycle features. **Software-side watchdog must be implemented instead.** See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
 
 ### Priority 2 — Power Limiting and Ramp Control
 
@@ -268,15 +268,14 @@ ctrl.disconnect()
 
 ## 7. Retrospective: Why Past Tests Failed
 
-> [!NOTE]
-> Previous attempts at battery control were largely "winging it" — writing to registers without understanding:
-> - **Correct addresses** — legacy code used PDU offsets (317, 318, 319) instead of absolute addresses (40318, 40319, 40320)
-> - **Sign conventions** — WSetPct is inverted on FranklinWH hardware (positive=discharge, not charge)
-> - **Sequencing requirements** — M704 requires a multi-step STOP→CONFIG→ENABLE→VERIFY sequence; single writes are ignored
-> - **WSet vs WSetPct conflict** — writing both causes mode flickering; must use only WSetPct
-> - **FranklinWH quirks** — LocRemCtl handoff not supported, extension registers read-only
->
-> This document now provides the correct baseline for future formal use-case testing of each register group.
+!!! note
+    Previous attempts at battery control were largely "winging it" — writing to registers without understanding:
+    - **Correct addresses** — legacy code used PDU offsets (317, 318, 319) instead of absolute addresses (40318, 40319, 40320)
+    - **Sign conventions** — WSetPct is inverted on FranklinWH hardware (positive=discharge, not charge)
+    - **Sequencing requirements** — M704 requires a multi-step STOP→CONFIG→ENABLE→VERIFY sequence; single writes are ignored
+    - **WSet vs WSetPct conflict** — writing both causes mode flickering; must use only WSetPct
+    - **FranklinWH quirks** — LocRemCtl handoff not supported, extension registers read-only
+        This document now provides the correct baseline for future formal use-case testing of each register group.
 
 ---
 
@@ -290,8 +289,8 @@ Goals for feature parity with the FranklinWH mobile app:
 - [ ] **Custom Inverter/Grid Operations** — app offers grid export limits and inverter power caps (map to VarSet or WMaxLim groups?)
 - [ ] **Reserve Level Management** — app sets Self-Consumption and TOU reserve percentages (extension registers 15508-15509, currently read-only)
 
-> [!IMPORTANT]
-> Achieving full App parity likely requires the **SPAN Modbus unlock** for extension register writes. Without it, we can emulate some behaviors via M704 power commands, but cannot natively change modes or reserves.
+!!! important
+    Achieving full App parity likely requires the **SPAN Modbus unlock** for extension register writes. Without it, we can emulate some behaviors via M704 power commands, but cannot natively change modes or reserves.
 
 ---
 

@@ -24,8 +24,8 @@ Complete guide for using the `franklinwh-modbus` library and CLI.
 
 ### Network Requirements
 
-> [!WARNING]
-> **WiFi connections are highly undesirable** for Modbus TCP control. WiFi latency, packet loss, and disconnections can cause missed keep-alive cycles, leaving the aGate stuck in VPP Mode.
+!!! warning
+    **WiFi connections are highly undesirable** for Modbus TCP control. WiFi latency, packet loss, and disconnections can cause missed keep-alive cycles, leaving the aGate stuck in VPP Mode.
 
 - **Fixed IP address required** — the aGate must have a static/reserved IP on your LAN
 - **LAN Ethernet preferred** — wired connection between Modbus client and aGate for reliability
@@ -55,8 +55,8 @@ These extension registers control the aGate operating mode and reserve levels. W
 
 ### Mobile App Conflicts
 
-> [!CAUTION]
-> **Do not use the FranklinWH mobile app to send commands** (charge, discharge, or schedule events) while this library is actively controlling the aGate. Conflicting commands cause unpredictable behavior and may damage equipment.
+!!! caution
+    **Do not use the FranklinWH mobile app to send commands** (charge, discharge, or schedule events) while this library is actively controlling the aGate. Conflicting commands cause unpredictable behavior and may damage equipment.
 
 **Before starting library control:**
 1. Set your aGate to **Emergency Backup** or **Self-Consumption** mode in the mobile app
@@ -77,8 +77,8 @@ This replaces the normal mode display (Self-Consumption, Time-of-Use, or Emergen
 
 ### Releasing Control
 
-> [!IMPORTANT]
-> **Always release control when done.** If control is not released, the aGate remains in VPP Mode until the Modbus keep-alive times out (typically 60–120 seconds).
+!!! important
+    **Always release control when done.** If control is not released, the aGate remains in VPP Mode until the Modbus keep-alive times out (typically 60–120 seconds).
 
 **Via CLI:**
 ```bash

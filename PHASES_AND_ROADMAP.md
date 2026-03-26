@@ -4,10 +4,10 @@
 **Current Phase:** Phase 2 — Core Library Stabilization  
 **Next Milestone:** Virtual mode hardware testing → PyPi publication
 
-> [!IMPORTANT]
-> **Strategic Decision (2026-03-07):** Web app is **archived** (`archive/webapp/`).
-> Priority is the core `franklinwh-modbus` library as a standalone, PyPi-publishable
-> package. Distribution name: `franklinwh-modbus`, import: `from franklinwh import ...`
+!!! important
+    **Strategic Decision (2026-03-07):** Web app is **archived** (`archive/webapp/`).
+    Priority is the core `franklinwh-modbus` library as a standalone, PyPi-publishable
+    package. Distribution name: `franklinwh-modbus`, import: `from franklinwh import ...`
 
 ---
 
