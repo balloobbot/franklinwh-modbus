@@ -339,15 +339,22 @@ class ModbusSunspecProber:
 
 class HTTPProber:
     """Probes for HTTP-based devices."""
-    
-    def __init__(self, timeout: float = 3.0):
+
+    def __init__(self, timeout: float = 3.0, pool_size: int = 10):
         self.timeout = timeout
         self.session = None
         if REQUESTS_AVAILABLE:
             self.session = requests.Session()
-            self.session.mount('http://', HTTPAdapter(max_retries=0))
-            self.session.mount('https://', HTTPAdapter(max_retries=0))
-    
+            # pool_size must match concurrent thread count to avoid connection
+            # pool exhaustion — the root cause of flaky detection in full scans.
+            adapter = HTTPAdapter(
+                max_retries=0,
+                pool_connections=pool_size,
+                pool_maxsize=pool_size,
+            )
+            self.session.mount('http://', adapter)
+            self.session.mount('https://', adapter)
+
     def probe_enphase(self, ip: str, port: int = 80) -> Optional[ScanResult]:
         """Probe for Enphase Envoy."""
         if not REQUESTS_AVAILABLE:
@@ -1388,8 +1395,9 @@ class NetworkScanner:
         DeviceType.MQTT_BROKER: [1883, 8883, 1884, 8080, 9001],  # Including WebSocket ports
         DeviceType.HOMEY: [80, 443],
         DeviceType.SPAN: [80, 443, 50058],  # SPAN Panel REST (mDNS/8883 is separate discovery path)
-        DeviceType.FRANKLINWH_EM: [9091],   # FranklinWH Energy Manager
-        DeviceType.FRANKLINWH_HA: [8099],   # FranklinWH HA Integrator
+        # FRANKLINWH_EM and FRANKLINWH_HA are NOT in the default scan — their ports
+        # are deployment-specific (9091, 8099 are defaults but can change).
+        # Use --devices fem,fha or --probe to target them explicitly.
     }
     
     def __init__(
@@ -1400,15 +1408,19 @@ class NetworkScanner:
         max_workers: int = 50,
         verbose: bool = False
     ):
-        self.device_types = device_types or list(DeviceType)
+        self.device_types = device_types or [
+            dt for dt in DeviceType
+            if dt not in (DeviceType.UNKNOWN, DeviceType.FRANKLINWH_EM, DeviceType.FRANKLINWH_HA)
+        ]
         self.timeout = timeout
         self.max_workers = max_workers
         self.verbose = verbose
         self.custom_ports = ports
-        
-        # Initialize probers
+        self.custom_probes: List[Dict] = []  # populated from --probe args
+
+        # Initialize probers — pool_size matches thread count to prevent pool exhaustion
         self.modbus_prober = ModbusSunspecProber(timeout) if PYMUSBUS_AVAILABLE else None
-        self.http_prober = HTTPProber(timeout) if REQUESTS_AVAILABLE else None
+        self.http_prober = HTTPProber(timeout, pool_size=max_workers) if REQUESTS_AVAILABLE else None
         self.mqtt_prober = MQTTProber(timeout)
         
     def discover_mdns(self, timeout: Optional[float] = None, comprehensive: bool = False) -> List[ScanResult]:
@@ -1516,34 +1528,42 @@ class NetworkScanner:
         """Scan a single IP for all configured device types."""
         results = []
         seen_ip_port = set()
-        
+
         for device_type in self.device_types:
             if device_type == DeviceType.UNKNOWN:
                 continue
-                
-            # Determine which ports to scan
+
             ports = self.custom_ports or self.DEFAULT_PORTS.get(device_type, [])
-            
+
             for port in ports:
-                # Skip if already found a device at this IP:port
                 if (ip, port) in seen_ip_port:
                     continue
-                    
-                # First, quick port check
+
                 is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 1.0))
-                
                 if not is_open:
                     continue
-                    
-                # Port is open, try device-specific probe
+
                 result = self._probe_device(ip, port, device_type)
-                
                 if result:
                     results.append(result)
                     seen_ip_port.add((ip, port))
-                    # Only report first successful probe per device type per IP
                     break
-                    
+
+        # Run any custom --probe specs against this IP
+        for spec in self.custom_probes:
+            port = spec['port']
+            if (ip, port) in seen_ip_port:
+                continue
+
+            is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 1.0))
+            if not is_open:
+                continue
+
+            result = self._probe_custom(ip, spec)
+            if result:
+                results.append(result)
+                seen_ip_port.add((ip, port))
+
         return results
     
     def _probe_device(self, ip: str, port: int, device_type: DeviceType) -> Optional[ScanResult]:
@@ -1595,10 +1615,82 @@ class NetworkScanner:
 
         elif device_type == DeviceType.SSH:
             return self._probe_ssh(ip, port)
-        
+
         elif device_type == DeviceType.DNS:
             return self._probe_dns(ip, port)
-                
+
+        return None
+
+    def _probe_custom(self, ip: str, spec: Dict) -> Optional[ScanResult]:
+        """
+        Execute a user-defined --probe spec against an IP.
+
+        spec keys:
+          port    (int)  — TCP port
+          path    (str)  — HTTP GET path, or 'tcp' for raw port-open check
+          keys    (list) — JSON keys that must be present (any match is enough)
+          label   (str)  — display label
+        """
+        port = spec['port']
+        path = spec.get('path', 'tcp')
+        keys = spec.get('keys', [])
+        label = spec.get('label', f'custom:{port}')
+        start_time = time.time()
+
+        if path == 'tcp':
+            # TCP-only: port open is sufficient — already confirmed by caller
+            elapsed = (time.time() - start_time) * 1000
+            return ScanResult(
+                ip=ip, port=port,
+                device_type=DeviceType.UNKNOWN,
+                is_reachable=True,
+                response_time_ms=elapsed,
+                model=label,
+                extra_data={'probe': 'tcp'},
+            )
+
+        if not self.http_prober:
+            return None
+
+        try:
+            url = f'http://{ip}:{port}{path}'
+            response = self.http_prober.session.get(url, timeout=self.timeout)
+            elapsed = (time.time() - start_time) * 1000
+
+            if response.status_code not in (200, 401, 403):
+                return None
+
+            # If no key check required, any 2xx/auth response is a hit
+            if not keys:
+                return ScanResult(
+                    ip=ip, port=port,
+                    device_type=DeviceType.UNKNOWN,
+                    is_reachable=True,
+                    response_time_ms=elapsed,
+                    model=label,
+                    extra_data={'probe': 'http', 'path': path, 'status': response.status_code},
+                )
+
+            # Key check: response must be JSON and contain at least one expected key
+            try:
+                data = response.json()
+                if isinstance(data, dict) and any(k in data for k in keys):
+                    matched = [k for k in keys if k in data]
+                    return ScanResult(
+                        ip=ip, port=port,
+                        device_type=DeviceType.UNKNOWN,
+                        is_reachable=True,
+                        response_time_ms=elapsed,
+                        model=label,
+                        extra_data={'probe': 'http', 'path': path, 'matched_keys': matched},
+                    )
+            except (ValueError, TypeError):
+                # Key check required but response is not JSON — no match
+                pass
+
+        except Exception:
+            pass
+
         return None
     
     def _probe_ssh(self, ip: str, port: int) -> Optional[ScanResult]:
@@ -1805,20 +1897,27 @@ Examples:
   %(prog)s --mdns
   %(prog)s --mdns --devices ha,enphase,homey
   %(prog)s --mdns-all
-  
+
   # IP Scanning
   %(prog)s 192.168.1.0/24
   %(prog)s 192.168.1.0/24 --devices modbus,enphase
   %(prog)s 192.168.1.50 --timeout 10
   %(prog)s 192.168.1.1-192.168.1.100
   %(prog)s 192.168.1.0/24 --ports 502,80,443,1883,8123
-  
+
   # Output formats
   %(prog)s --mdns -o json > devices.json
   %(prog)s 192.168.1.0/24 -o csv > devices.csv
-  
-  # Fast scan with more threads
-  %(prog)s 192.168.1.0/24 --threads 100 --timeout 2
+
+  # Custom HTTP probe (PORT:PATH[:KEYS[:LABEL]]) — repeatable
+  %(prog)s 192.168.1.0/24 --probe 9091:/api/status:agate,controlSource:FranklinWH_EM
+  %(prog)s 192.168.1.0/24 --probe 8099:/docs:franklinwh:FranklinWH_HA
+  %(prog)s 192.168.1.0/24 --probe 3000:/:grafana:Grafana
+  %(prog)s 192.168.1.0/24 --probe 50001:tcp:Custom_Modbus
+  %(prog)s 192.168.1.0/24 --probe 9091:/api/status:agate:FEM --probe 8099:/docs:franklinwh:FHAI
+
+  # Known FranklinWH services (opt-in, port-configurable via --probe)
+  %(prog)s 192.168.1.0/24 --devices fem,fha
 
 Supported Device Types:
   modbus, sunspec    - Modbus TCP SunSpec compliant devices
@@ -1828,8 +1927,14 @@ Supported Device Types:
   mqtt, broker       - MQTT Brokers
   homey              - Homey Smart Home Hub
   span               - SPAN Smart Panel (MAIN 32/40, MLO 48)
-  fem, franklinwh_em - FranklinWH Energy Manager (port 9091)
-  fha, franklinwh_ha - FranklinWH HA Integrator (port 8099)
+  fem, franklinwh_em - FranklinWH Energy Manager *opt-in, use --probe or --devices fem*
+  fha, franklinwh_ha - FranklinWH HA Integrator  *opt-in, use --probe or --devices fha*
+
+--probe FORMAT:  PORT:PATH[:KEYS[:LABEL]]
+  PORT   = TCP port number
+  PATH   = HTTP GET path, or 'tcp' for raw TCP-only check
+  KEYS   = comma-separated JSON keys (any match confirms device) [optional]
+  LABEL  = display name in output table [optional, default: custom:PORT]
 
 mDNS/Bonjour Discovery:
   Uses zeroconf library for cross-platform service discovery.
@@ -1911,7 +2016,20 @@ mDNS/Bonjour Discovery:
         default=5.0,
         help="mDNS discovery timeout in seconds (default: 5.0)"
     )
-    
+
+    parser.add_argument(
+        "--probe",
+        action="append",
+        dest="probes",
+        metavar="SPEC",
+        default=[],
+        help=(
+            "Custom HTTP probe: PORT:PATH[:KEYS[:LABEL]]. Repeatable. "
+            "PATH='tcp' for raw TCP check. KEYS=comma-separated JSON keys. "
+            "Example: --probe 9091:/api/status:agate,controlSource:FranklinWH_EM"
+        ),
+    )
+
     return parser
 
 
@@ -1934,10 +2052,27 @@ def main():
                 device_types.append(dt)
             else:
                 print(f"Warning: Unknown device type '{d}'", file=sys.stderr)
-                
+
         if not device_types:
             print("Error: No valid device types specified", file=sys.stderr)
             sys.exit(1)
+
+    # Parse --probe specs: PORT:PATH[:KEYS[:LABEL]]
+    custom_probes = []
+    for spec_str in (args.probes or []):
+        parts = spec_str.split(':')
+        if len(parts) < 1:
+            print(f"Warning: invalid --probe spec '{spec_str}' (need at least PORT)", file=sys.stderr)
+            continue
+        try:
+            port = int(parts[0])
+        except ValueError:
+            print(f"Warning: invalid port in --probe spec '{spec_str}'", file=sys.stderr)
+            continue
+        path  = parts[1] if len(parts) > 1 else 'tcp'
+        keys  = [k.strip() for k in parts[2].split(',')] if len(parts) > 2 and parts[2] else []
+        label = parts[3] if len(parts) > 3 and parts[3] else f'custom:{port}'
+        custom_probes.append({'port': port, 'path': path, 'keys': keys, 'label': label})
     
     # Parse ports
     ports = None
@@ -1973,6 +2108,7 @@ def main():
         max_workers=args.threads,
         verbose=args.verbose
     )
+    scanner.custom_probes = custom_probes
     
     # Run scan (mDNS or IP scanning)
     start_time = time.time()
