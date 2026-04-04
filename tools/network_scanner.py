@@ -1264,7 +1264,7 @@ class NetworkScanner:
         DeviceType.HOME_ASSISTANT: [8123],
         DeviceType.MQTT_BROKER: [1883, 8883, 1884, 8080, 9001],  # Including WebSocket ports
         DeviceType.HOMEY: [80, 443],
-        DeviceType.SPAN: [8883, 80, 443, 50058],  # SPAN: MQTTS first, then REST, then SPAN Drive
+        DeviceType.SPAN: [80, 443, 50058],  # SPAN Panel REST (mDNS/8883 is separate discovery path)
     }
     
     def __init__(
@@ -1457,7 +1457,7 @@ class NetworkScanner:
                 return self.http_prober.probe_homey(ip, port)
                 
         elif device_type == DeviceType.SPAN:
-            if self.http_prober and port in [80, 443, 8883]:
+            if self.http_prober and port in [80, 443]:
                 return self.http_prober.probe_span(ip, port)
         
         elif device_type == DeviceType.SSH:

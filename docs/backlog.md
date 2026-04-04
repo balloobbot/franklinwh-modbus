@@ -18,7 +18,7 @@
 
 | ID | Item | Severity | Notes |
 |----|------|----------|-------|
-| DEF-SCANNER-SPAN | `network_scanner.py` — SPAN Panel detection produces false positives for any device serving HTTP on port 80. `192.168.0.35` (likely a router) is incorrectly identified as a SPAN Smart Panel. | S3 | **Root cause:** Scanner probes ports `[80, 443, 50058]` for every IP. `probe_span()` falls through to weak content matching (HTML `<span>` tags, generic words). **Better detection hierarchy:** (1) mDNS `_span._tcp.local.` — SPAN advertises this with hostname `span-{serial}.local`; (2) Port 8883 MQTTS — SPAN's primary Homie MQTT protocol, unique to SPAN panels; (3) `/api/v1/status` with strict JSON validation — require `panel.serial` + `circuits` + `feeders` as top-level keys; (4) Only then fall back to content matching. mDNS is already wired (`MDNSDiscovery.SERVICE_TYPES` has `DeviceType.SPAN: "_span._tcp.local."`). Fix: run mDNS + port 8883 probes *before* HTTP port 80 scan, tighten JSON schema check, remove weak `'span' in content_lower` string match. See `docs/ADDON_SPAN_PANEL_INTEGRATION.md` for SPAN API detail. |
+| ~~DEF-SCANNER-SPAN~~ | ~~SPAN Panel detection false positives~~ | ~~S3~~ | **RESOLVED** `07de71f`. Both `192.168.0.118` (AWTRIX 3 LED display) and `192.168.0.35` were false positives — neither is a SPAN Panel. No real SPAN Panel exists on this network. Fix: `probe_span()` now requires strict JSON schema from `/api/v1/status` or `/api/v1/circuits` instead of HTML content matching. **Investigation also revealed:** HA, Modbus, and SSH disappearing on second scan run was a thread-race at `--threads 100` (probers work correctly when called directly). |
 
 ---
 
