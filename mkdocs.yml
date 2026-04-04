@@ -91,6 +91,8 @@ nav:
     - aGate Network Profile: AGATE_NETWORK_PROFILE.md
   - Troubleshooting:
     - WiFi DHCP Failure: troubleshooting/2026-03-21_wifi_dhcp_failure.md
+  - Contributing:
+    - Backlog: backlog.md
 
 extra:
   social:
