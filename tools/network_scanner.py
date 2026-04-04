@@ -205,68 +205,56 @@ class ModbusSunspecProber:
             
         start_time = time.time()
         
-        # Retry loop: aGate allows only 1 Modbus connection at a time.
-        # If HA's Modbus integration holds the connection, our read will
-        # fail immediately. Retry with backoff to catch a free slot.
-        MAX_PROBE_ATTEMPTS = 3
-        RETRY_BACKOFF_S = 0.4
+        for base_addr in self.SUNSPEC_BASE_ADDRESSES:
+            try:
+                client = ModbusTcpClient(
+                    host=ip,
+                    port=port,
+                    timeout=self.timeout,  # use full user timeout: needed so --timeout 30
+                    retries=0,             # lets us wait out HA's Modbus poll cycle
+                )
 
-        for attempt in range(MAX_PROBE_ATTEMPTS):
-            for base_addr in self.SUNSPEC_BASE_ADDRESSES:
-                try:
-                    client = ModbusTcpClient(
-                        host=ip,
-                        port=port,
-                        timeout=self.timeout,
-                        retries=1,
-                    )
-
-                    if not client.connect():
-                        continue
-
-                    try:
-                        # Read SunSpec ID (should be "SunS")
-                        result = client.read_holding_registers(
-                            address=base_addr + self.SUNSPEC_ID_ADDR,
-                            count=2,
-                            device_id=1
-                        )
-
-                        if result and not result.isError() and len(result.registers) >= 2:
-                            sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
-
-                            if sunspec_id == b'SunS':
-                                elapsed = (time.time() - start_time) * 1000
-                                device_info = self._read_common_model(client, base_addr)
-                                client.close()
-                                return ScanResult(
-                                    ip=ip,
-                                    port=port,
-                                    device_type=DeviceType.MODBUS_SUNSPEC,
-                                    is_reachable=True,
-                                    response_time_ms=elapsed,
-                                    manufacturer=device_info.get('manufacturer'),
-                                    model=device_info.get('model'),
-                                    serial_number=device_info.get('serial'),
-                                    version=device_info.get('version'),
-                                    sunspec_model=1,
-                                    extra_data={
-                                        'sunspec_base_addr': base_addr,
-                                        'device_id': device_info.get('device_id')
-                                    }
-                                )
-
-                    except ModbusException:
-                        pass
-                    finally:
-                        client.close()
-
-                except Exception:
+                if not client.connect():
                     continue
 
-            # All base addresses failed this attempt — back off before retry
-            if attempt < MAX_PROBE_ATTEMPTS - 1:
-                time.sleep(RETRY_BACKOFF_S)
+                try:
+                    result = client.read_holding_registers(
+                        address=base_addr + self.SUNSPEC_ID_ADDR,
+                        count=2,
+                        device_id=1
+                    )
+
+                    if result and not result.isError() and len(result.registers) >= 2:
+                        sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
+
+                        if sunspec_id == b'SunS':
+                            elapsed = (time.time() - start_time) * 1000
+                            device_info = self._read_common_model(client, base_addr)
+                            client.close()
+                            return ScanResult(
+                                ip=ip,
+                                port=port,
+                                device_type=DeviceType.MODBUS_SUNSPEC,
+                                is_reachable=True,
+                                response_time_ms=elapsed,
+                                manufacturer=device_info.get('manufacturer'),
+                                model=device_info.get('model'),
+                                serial_number=device_info.get('serial'),
+                                version=device_info.get('version'),
+                                sunspec_model=1,
+                                extra_data={
+                                    'sunspec_base_addr': base_addr,
+                                    'device_id': device_info.get('device_id')
+                                }
+                            )
+
+                except ModbusException:
+                    pass
+                finally:
+                    client.close()
+
+            except Exception:
+                continue
 
         return None
     
@@ -342,6 +330,10 @@ class HTTPProber:
 
     def __init__(self, timeout: float = 3.0, pool_size: int = 10):
         self.timeout = timeout
+        # Per-request HTTP timeout cap — prevents individual requests from
+        # hanging the full --timeout duration (e.g. 30s). LAN devices should
+        # respond within 5s; this cap applies per GET, not per device.
+        self.http_timeout = min(timeout, 5.0)
         self.session = None
         if REQUESTS_AVAILABLE:
             self.session = requests.Session()
@@ -366,7 +358,7 @@ class HTTPProber:
         # Try /info endpoint first - most reliable
         try:
             url = f"http://{ip}:{port}/info"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
             
             if response.status_code == 200:
@@ -397,7 +389,7 @@ class HTTPProber:
         # Fallback: Try /api/v1/production with strict validation
         try:
             url = f"http://{ip}:{port}/api/v1/production"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
             
             if response.status_code == 200:
@@ -455,7 +447,7 @@ class HTTPProber:
             # Try info endpoint
             response = self.session.get(
                 f"http://{ip}:{port}/info",
-                timeout=self.timeout
+                timeout=self.http_timeout
             )
             if response.status_code == 200:
                 # Try parsing as JSON
@@ -482,7 +474,7 @@ class HTTPProber:
         # First check: SolarEdge has a very specific SetApp interface
         try:
             url = f"http://{ip}:{port}/web/v1/maintenance"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
             
             if response.status_code == 200:
@@ -505,7 +497,7 @@ class HTTPProber:
         # Second check: Settings page with SolarEdge-specific content
         try:
             url = f"http://{ip}:{port}/settings"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
             
             if response.status_code == 200:
@@ -528,7 +520,7 @@ class HTTPProber:
         # Third check: Optimizer data endpoint (returns JSON)
         try:
             url = f"http://{ip}:{port}/api/v1/optimizerData"
-            response = self.session.get(url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
             
             if response.status_code == 200:
@@ -561,7 +553,7 @@ class HTTPProber:
             # Try API endpoint first
             response = self.session.get(
                 f"http://{ip}:{port}/api/",
-                timeout=self.timeout
+                timeout=self.http_timeout
             )
             elapsed = (time.time() - start_time) * 1000
             
@@ -587,7 +579,7 @@ class HTTPProber:
             # Try main page
             response = self.session.get(
                 f"http://{ip}:{port}",
-                timeout=self.timeout
+                timeout=self.http_timeout
             )
             
             if 'home assistant' in response.text.lower():
@@ -616,7 +608,7 @@ class HTTPProber:
         try:
             response = self.session.get(
                 f"http://{ip}:{port}/api/",
-                timeout=self.timeout
+                timeout=self.http_timeout
             )
             elapsed = (time.time() - start_time) * 1000
             
@@ -691,7 +683,7 @@ class HTTPProber:
         for check_port, endpoint in checks:
             try:
                 url = f"http://{ip}:{check_port}{endpoint}"
-                response = self.session.get(url, timeout=self.timeout)
+                response = self.session.get(url, timeout=self.http_timeout)
                 elapsed = (time.time() - start_time) * 1000
                 
                 if response.status_code in [200, 401]:
@@ -782,7 +774,7 @@ class HTTPProber:
         for endpoint in api_endpoints:
             try:
                 url = f"http://{ip}:{port}{endpoint}"
-                response = self.session.get(url, timeout=self.timeout)
+                response = self.session.get(url, timeout=self.http_timeout)
                 elapsed = (time.time() - start_time) * 1000
 
                 if response.status_code != 200:
@@ -881,7 +873,7 @@ class HTTPProber:
 
         start_time = time.time()
         try:
-            response = self.session.get(f"http://{ip}:{port}/api/status", timeout=self.timeout)
+            response = self.session.get(f"http://{ip}:{port}/api/status", timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
 
             if response.status_code != 200:
@@ -934,7 +926,7 @@ class HTTPProber:
 
         # Tier 1: custom health endpoint
         try:
-            response = self.session.get(f"http://{ip}:{port}/api/health", timeout=self.timeout)
+            response = self.session.get(f"http://{ip}:{port}/api/health", timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
 
             if response.status_code == 200:
@@ -959,7 +951,7 @@ class HTTPProber:
 
         # Tier 2: FastAPI Swagger docs containing FranklinWH branding
         try:
-            response = self.session.get(f"http://{ip}:{port}/docs", timeout=self.timeout)
+            response = self.session.get(f"http://{ip}:{port}/docs", timeout=self.http_timeout)
             elapsed = (time.time() - start_time) * 1000
 
             if response.status_code == 200 and 'franklinwh' in response.text.lower():
@@ -1539,7 +1531,7 @@ class NetworkScanner:
                 if (ip, port) in seen_ip_port:
                     continue
 
-                is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 1.0))
+                is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 2.0))
                 if not is_open:
                     continue
 
@@ -1555,7 +1547,7 @@ class NetworkScanner:
             if (ip, port) in seen_ip_port:
                 continue
 
-            is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 1.0))
+            is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 2.0))
             if not is_open:
                 continue
 
