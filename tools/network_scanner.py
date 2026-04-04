@@ -734,83 +734,42 @@ class HTTPProber:
     def probe_span(self, ip: str, port: int = 80) -> Optional[ScanResult]:
         """
         Probe for SPAN Smart Panel (MAIN 32, MAIN 40, MLO 48).
-        
-        SPAN Gen 1 & 2 (MAIN 32): REST API on port 80/443
-        SPAN Gen 3 (MAIN 40/MLO 48): gRPC protocol (also check for http endpoint)
-        
-        Detection endpoints:
-        - /api/v1/status - Main status endpoint
-        - /api/v1/circuits - Circuit information
-        - / - Main page (check for SPAN branding)
+
+        Detection hierarchy (most → least reliable):
+          1. /api/v1/status — strict JSON schema: requires panel.serial + circuits + feeders
+          2. /api/v1/circuits — strict JSON: requires list of circuit dicts
+          3. gRPC Content-Type header (Gen 3)
+
+        Port 8883 (MQTTS/Homie) is in the default port list and will be tried
+        before port 80 by the scanner orchestrator.
+
+        NOTE: Generic content-matching (HTML 'span' tag, loose keyword checks) has been
+        deliberately removed — it caused false positives on any device with port 80 open.
+        See DEF-SCANNER-SPAN in docs/backlog.md.
         """
         if not REQUESTS_AVAILABLE:
             return None
-            
+
         start_time = time.time()
-        
-        # SPAN API endpoints to check
-        endpoints = [
+
+        # Tier 1: SPAN-specific REST API endpoints with strict JSON schema
+        api_endpoints = [
             '/api/v1/status',
             '/api/v1/circuits',
-            '/',
         ]
-        
-        for endpoint in endpoints:
+
+        for endpoint in api_endpoints:
             try:
                 url = f"http://{ip}:{port}{endpoint}"
                 response = self.session.get(url, timeout=self.timeout)
                 elapsed = (time.time() - start_time) * 1000
-                
-                content = response.text
-                content_lower = content.lower()
-                headers = dict(response.headers)
-                
-                is_span = False
-                panel_type = None
-                panel_gen = None
-                firmware_version = None
-                
-                # Check for SPAN-specific indicators
-                # SPAN panels typically return JSON from API endpoints
-                if response.status_code == 200:
-                    # Check content for SPAN signatures
-                    if 'span' in content_lower and any(x in content_lower for x in ['panel', 'smart panel', 'span panel']):
-                        is_span = True
-                        panel_type = "SPAN Smart Panel"
-                    
-                    # Check for specific SPAN HTML/JSON signatures
-                    if 'span.io' in content_lower or 'span panel' in content_lower:
-                        is_span = True
-                        panel_type = "SPAN Smart Panel"
-                    
-                    # Try to parse JSON for API endpoints
-                    if endpoint.startswith('/api/'):
-                        try:
-                            data = response.json()
-                            if isinstance(data, dict):
-                                # Look for SPAN-specific fields
-                                if any(k in data for k in ['panel', 'circuits', 'feeders', 'grid']):
-                                    is_span = True
-                                    panel_type = data.get('panel', {}).get('model', 'SPAN Panel')
-                                    firmware_version = data.get('panel', {}).get('firmwareVersion')
-                                    panel_gen = "Gen 2" if '/api/v1/' in endpoint else "Unknown"
-                        except (ValueError, TypeError):
-                            pass
-                    
-                    # Check for SPAN login page (Gen 1/2)
-                    if 'span' in content_lower and any(x in content_lower for x in ['login', 'password', 'door']):
-                        is_span = True
-                        panel_type = "SPAN Smart Panel"
-                        panel_gen = "Gen 1/2 (REST)"
-                
-                # Check for gRPC-specific indicators (Gen 3)
-                # Gen 3 uses gRPC but may still have HTTP on port 80 for initial redirect
-                if 'grpc' in str(headers).lower() or 'application/grpc' in headers.get('Content-Type', ''):
-                    is_span = True
-                    panel_type = "SPAN Smart Panel"
-                    panel_gen = "Gen 3 (gRPC)"
-                
-                if is_span:
+
+                if response.status_code != 200:
+                    continue
+
+                # Tier 1a: gRPC header check (Gen 3 panels)
+                content_type = response.headers.get('Content-Type', '')
+                if 'application/grpc' in content_type:
                     return ScanResult(
                         ip=ip,
                         port=port,
@@ -818,19 +777,75 @@ class HTTPProber:
                         is_reachable=True,
                         response_time_ms=elapsed,
                         manufacturer="SPAN",
-                        model=panel_type,
-                        version=firmware_version,
-                        extra_data={
-                            'generation': panel_gen,
-                            'endpoint': endpoint,
-                            'protocol': 'REST' if panel_gen != 'Gen 3 (gRPC)' else 'gRPC',
-                            'api_available': endpoint.startswith('/api/')
-                        }
+                        model="SPAN Smart Panel",
+                        extra_data={'generation': 'Gen 3 (gRPC)', 'endpoint': endpoint}
                     )
-                    
+
+                # Tier 1b: Strict JSON schema validation
+                try:
+                    data = response.json()
+                except (ValueError, TypeError):
+                    continue
+
+                if not isinstance(data, dict):
+                    continue
+
+                # /api/v1/status must have panel.serial AND circuits AND feeders
+                if endpoint == '/api/v1/status':
+                    panel = data.get('panel', {})
+                    if (
+                        isinstance(panel, dict)
+                        and panel.get('serial')
+                        and 'circuits' in data
+                        and 'feeders' in data
+                    ):
+                        return ScanResult(
+                            ip=ip,
+                            port=port,
+                            device_type=DeviceType.SPAN,
+                            is_reachable=True,
+                            response_time_ms=elapsed,
+                            manufacturer="SPAN",
+                            model=panel.get('model', 'SPAN Smart Panel'),
+                            serial_number=panel.get('serial'),
+                            version=panel.get('firmwareVersion'),
+                            extra_data={
+                                'generation': 'Gen 2 (REST)',
+                                'endpoint': endpoint,
+                                'protocol': 'REST',
+                            }
+                        )
+
+                # /api/v1/circuits must be a non-empty list of circuit dicts
+                if endpoint == '/api/v1/circuits':
+                    circuits = data.get('circuits', data) if isinstance(data, dict) else data
+                    if (
+                        isinstance(circuits, (list, dict))
+                        and circuits
+                        and any(
+                            isinstance(v, dict) and ('id' in v or 'name' in v or 'circuitId' in v)
+                            for v in (circuits.values() if isinstance(circuits, dict) else circuits)
+                        )
+                    ):
+                        return ScanResult(
+                            ip=ip,
+                            port=port,
+                            device_type=DeviceType.SPAN,
+                            is_reachable=True,
+                            response_time_ms=elapsed,
+                            manufacturer="SPAN",
+                            model="SPAN Smart Panel",
+                            extra_data={
+                                'generation': 'Gen 2 (REST)',
+                                'endpoint': endpoint,
+                                'protocol': 'REST',
+                                'circuit_count': len(circuits),
+                            }
+                        )
+
             except requests.RequestException:
                 continue
-                
+
         return None
 
 
@@ -1249,7 +1264,7 @@ class NetworkScanner:
         DeviceType.HOME_ASSISTANT: [8123],
         DeviceType.MQTT_BROKER: [1883, 8883, 1884, 8080, 9001],  # Including WebSocket ports
         DeviceType.HOMEY: [80, 443],
-        DeviceType.SPAN: [80, 443, 50058],  # SPAN Panel REST API and SPAN Drive
+        DeviceType.SPAN: [8883, 80, 443, 50058],  # SPAN: MQTTS first, then REST, then SPAN Drive
     }
     
     def __init__(
@@ -1442,7 +1457,7 @@ class NetworkScanner:
                 return self.http_prober.probe_homey(ip, port)
                 
         elif device_type == DeviceType.SPAN:
-            if self.http_prober and port in [80, 443]:
+            if self.http_prober and port in [80, 443, 8883]:
                 return self.http_prober.probe_span(ip, port)
         
         elif device_type == DeviceType.SSH:
