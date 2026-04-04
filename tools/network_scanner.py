@@ -1561,18 +1561,19 @@ class NetworkScanner:
 
         # Run any custom --probe specs against this IP
         for spec in self.custom_probes:
-            port = spec['port']
-            if (ip, port) in seen_ip_port:
-                continue
+            for port in spec['ports']:  # ports is always a list (range/comma/single)
+                if (ip, port) in seen_ip_port:
+                    continue
 
-            is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 2.0))
-            if not is_open:
-                continue
+                is_open, _ = PortChecker.is_port_open(ip, port, timeout=min(self.timeout, 2.0))
+                if not is_open:
+                    continue
 
-            result = self._probe_custom(ip, spec, http_prober=http)
-            if result:
-                results.append(result)
-                seen_ip_port.add((ip, port))
+                result = self._probe_custom(ip, port, spec, http_prober=http)
+                if result:
+                    results.append(result)
+                    seen_ip_port.add((ip, port))
+                    break  # stop at first matching port in this probe spec
 
         return results
     
@@ -1633,18 +1634,17 @@ class NetworkScanner:
 
         return None
 
-    def _probe_custom(self, ip: str, spec: Dict,
+    def _probe_custom(self, ip: str, port: int, spec: Dict,
                       http_prober: Optional['HTTPProber'] = None) -> Optional[ScanResult]:
         """
-        Execute a user-defined --probe spec against an IP.
+        Execute a user-defined --probe spec against an IP:port.
 
         spec keys:
-          port    (int)  — TCP port
+          ports   (list) — TCP ports (caller passes the specific port to try)
           path    (str)  — HTTP GET path, or 'tcp' for raw port-open check
           keys    (list) — JSON keys that must be present (any match is enough)
           label   (str)  — display label
         """
-        port = spec['port']
         path = spec.get('path', 'tcp')
         keys = spec.get('keys', [])
         label = spec.get('label', f'custom:{port}')
@@ -1924,9 +1924,11 @@ Examples:
   %(prog)s --mdns -o json > devices.json
   %(prog)s 192.168.1.0/24 -o csv > devices.csv
 
-  # Custom HTTP probe (PORT:PATH[:KEYS[:LABEL]]) — repeatable
+  # Custom HTTP probe (PORTS:PATH[:KEYS[:LABEL]]) — repeatable
   %(prog)s 192.168.1.0/24 --probe 9091:/api/status:agate,controlSource:FranklinWH_EM
   %(prog)s 192.168.1.0/24 --probe 8099:/docs:franklinwh:FranklinWH_HA
+  %(prog)s 192.168.1.0/24 --probe 9090-9095:/api/status:agate:FEM_range
+  %(prog)s 192.168.1.0/24 --probe 9090,9091,9099:/api/status:agate:FEM_list
   %(prog)s 192.168.1.0/24 --probe 3000:/:grafana:Grafana
   %(prog)s 192.168.1.0/24 --probe 50001:tcp:Custom_Modbus
   %(prog)s 192.168.1.0/24 --probe 9091:/api/status:agate:FEM --probe 8099:/docs:franklinwh:FHAI
@@ -1945,11 +1947,11 @@ Supported Device Types:
   fem, franklinwh_em - FranklinWH Energy Manager *opt-in, use --probe or --devices fem*
   fha, franklinwh_ha - FranklinWH HA Integrator  *opt-in, use --probe or --devices fha*
 
---probe FORMAT:  PORT:PATH[:KEYS[:LABEL]]
-  PORT   = TCP port number
+--probe FORMAT:  PORTS:PATH[:KEYS[:LABEL]]
+  PORTS  = single port (9091), range (9090-9099), or comma-list (9090,9091,9095)
   PATH   = HTTP GET path, or 'tcp' for raw TCP-only check
   KEYS   = comma-separated JSON keys (any match confirms device) [optional]
-  LABEL  = display name in output table [optional, default: custom:PORT]
+  LABEL  = display name in output table [optional, default: custom:PORTS]
 
 mDNS/Bonjour Discovery:
   Uses zeroconf library for cross-platform service discovery.
@@ -2072,22 +2074,33 @@ def main():
             print("Error: No valid device types specified", file=sys.stderr)
             sys.exit(1)
 
-    # Parse --probe specs: PORT:PATH[:KEYS[:LABEL]]
+    # Parse --probe specs: PORTS:PATH[:KEYS[:LABEL]]
+    # PORTS can be: single (9091), range (9090-9099), or comma-list (9090,9091,9095)
     custom_probes = []
     for spec_str in (args.probes or []):
         parts = spec_str.split(':')
         if len(parts) < 1:
             print(f"Warning: invalid --probe spec '{spec_str}' (need at least PORT)", file=sys.stderr)
             continue
+
+        # Expand port spec into a list of ints
+        port_spec = parts[0].strip()
         try:
-            port = int(parts[0])
+            if '-' in port_spec:
+                lo, hi = port_spec.split('-', 1)
+                probe_ports = list(range(int(lo), int(hi) + 1))
+            elif ',' in port_spec:
+                probe_ports = [int(p.strip()) for p in port_spec.split(',')]
+            else:
+                probe_ports = [int(port_spec)]
         except ValueError:
-            print(f"Warning: invalid port in --probe spec '{spec_str}'", file=sys.stderr)
+            print(f"Warning: invalid port spec '{port_spec}' in --probe '{spec_str}'", file=sys.stderr)
             continue
+
         path  = parts[1] if len(parts) > 1 else 'tcp'
         keys  = [k.strip() for k in parts[2].split(',')] if len(parts) > 2 and parts[2] else []
-        label = parts[3] if len(parts) > 3 and parts[3] else f'custom:{port}'
-        custom_probes.append({'port': port, 'path': path, 'keys': keys, 'label': label})
+        label = parts[3] if len(parts) > 3 and parts[3] else f'custom:{port_spec}'
+        custom_probes.append({'ports': probe_ports, 'path': path, 'keys': keys, 'label': label})
     
     # Parse ports
     ports = None
