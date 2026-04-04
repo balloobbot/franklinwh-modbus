@@ -177,8 +177,10 @@ class PortChecker:
 class ModbusSunspecProber:
     """Probes for SunSpec compliant Modbus devices."""
     
-    # Common SunSpec base addresses to try
-    SUNSPEC_BASE_ADDRESSES = [40000, 0, 50000, 30000]
+    # Common SunSpec base addresses to try.
+    # 0 is listed first: FranklinWH aGate, SolarEdge, and other inverters commonly
+    # use base 0. 40000 is the canonical SunSpec default and tried second.
+    SUNSPEC_BASE_ADDRESSES = [0, 40000, 50000, 30000]
     
     # Model 1 (Common) register offsets from SunSpec base address
     # SunSpec structure: ID(2) + ModelID(1) + Length(1) + Manufacturer(16) + Model(16) + ...
@@ -205,56 +207,67 @@ class ModbusSunspecProber:
             
         start_time = time.time()
         
-        for base_addr in self.SUNSPEC_BASE_ADDRESSES:
-            try:
-                client = ModbusTcpClient(
-                    host=ip,
-                    port=port,
-                    timeout=self.timeout,  # use full user timeout: needed so --timeout 30
-                    retries=0,             # lets us wait out HA's Modbus poll cycle
-                )
+        # Use a short per-read timeout so we don't hang the full --timeout on a
+        # wrong base address or when HA's Modbus poll holds the connection.
+        # The retry loop gives multiple windows to catch a free slot.
+        MODBUS_OP_TIMEOUT = min(self.timeout, 3.0)  # 3s per read; fast fail on wrong base addr
+        MAX_PROBE_ATTEMPTS = 3   # total ~9s window to catch HA's poll cycle gap
+        RETRY_BACKOFF_S = 0.3
 
-                if not client.connect():
-                    continue
-
+        for attempt in range(MAX_PROBE_ATTEMPTS):
+            for base_addr in self.SUNSPEC_BASE_ADDRESSES:
                 try:
-                    result = client.read_holding_registers(
-                        address=base_addr + self.SUNSPEC_ID_ADDR,
-                        count=2,
-                        device_id=1
+                    client = ModbusTcpClient(
+                        host=ip,
+                        port=port,
+                        timeout=MODBUS_OP_TIMEOUT,
+                        retries=0,
                     )
 
-                    if result and not result.isError() and len(result.registers) >= 2:
-                        sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
+                    if not client.connect():
+                        continue
 
-                        if sunspec_id == b'SunS':
-                            elapsed = (time.time() - start_time) * 1000
-                            device_info = self._read_common_model(client, base_addr)
-                            client.close()
-                            return ScanResult(
-                                ip=ip,
-                                port=port,
-                                device_type=DeviceType.MODBUS_SUNSPEC,
-                                is_reachable=True,
-                                response_time_ms=elapsed,
-                                manufacturer=device_info.get('manufacturer'),
-                                model=device_info.get('model'),
-                                serial_number=device_info.get('serial'),
-                                version=device_info.get('version'),
-                                sunspec_model=1,
-                                extra_data={
-                                    'sunspec_base_addr': base_addr,
-                                    'device_id': device_info.get('device_id')
-                                }
-                            )
+                    try:
+                        result = client.read_holding_registers(
+                            address=base_addr + self.SUNSPEC_ID_ADDR,
+                            count=2,
+                            device_id=1
+                        )
 
-                except ModbusException:
-                    pass
-                finally:
-                    client.close()
+                        if result and not result.isError() and len(result.registers) >= 2:
+                            sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
 
-            except Exception:
-                continue
+                            if sunspec_id == b'SunS':
+                                elapsed = (time.time() - start_time) * 1000
+                                device_info = self._read_common_model(client, base_addr)
+                                client.close()
+                                return ScanResult(
+                                    ip=ip,
+                                    port=port,
+                                    device_type=DeviceType.MODBUS_SUNSPEC,
+                                    is_reachable=True,
+                                    response_time_ms=elapsed,
+                                    manufacturer=device_info.get('manufacturer'),
+                                    model=device_info.get('model'),
+                                    serial_number=device_info.get('serial'),
+                                    version=device_info.get('version'),
+                                    sunspec_model=1,
+                                    extra_data={
+                                        'sunspec_base_addr': base_addr,
+                                        'device_id': device_info.get('device_id')
+                                    }
+                                )
+
+                    except ModbusException:
+                        pass
+                    finally:
+                        client.close()
+
+                except Exception:
+                    continue
+
+            if attempt < MAX_PROBE_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF_S)
 
         return None
     
@@ -1521,6 +1534,11 @@ class NetworkScanner:
         results = []
         seen_ip_port = set()
 
+        # Create a per-thread HTTPProber so each of the 50 scan threads has its
+        # own requests.Session. Sharing one session across threads causes silent
+        # probe failures (connection reuse race, response body corruption).
+        http = HTTPProber(self.timeout, pool_size=1) if REQUESTS_AVAILABLE else None
+
         for device_type in self.device_types:
             if device_type == DeviceType.UNKNOWN:
                 continue
@@ -1535,7 +1553,7 @@ class NetworkScanner:
                 if not is_open:
                     continue
 
-                result = self._probe_device(ip, port, device_type)
+                result = self._probe_device(ip, port, device_type, http_prober=http)
                 if result:
                     results.append(result)
                     seen_ip_port.add((ip, port))
@@ -1551,59 +1569,61 @@ class NetworkScanner:
             if not is_open:
                 continue
 
-            result = self._probe_custom(ip, spec)
+            result = self._probe_custom(ip, spec, http_prober=http)
             if result:
                 results.append(result)
                 seen_ip_port.add((ip, port))
 
         return results
     
-    def _probe_device(self, ip: str, port: int, device_type: DeviceType) -> Optional[ScanResult]:
+    def _probe_device(self, ip: str, port: int, device_type: DeviceType,
+                      http_prober: Optional['HTTPProber'] = None) -> Optional[ScanResult]:
         """Probe specific device type at IP:port."""
-        
+        # Use caller-supplied prober (per-thread) when available, otherwise fall
+        # back to the shared singleton (used for direct API calls).
+        http = http_prober if http_prober is not None else self.http_prober
+
         if device_type == DeviceType.MODBUS_SUNSPEC:
             if self.modbus_prober:
                 return self.modbus_prober.probe(ip, port)
-                
+
         elif device_type == DeviceType.ENPHASE:
-            if self.http_prober:
-                return self.http_prober.probe_enphase(ip, port)
-                
+            if http:
+                return http.probe_enphase(ip, port)
+
         elif device_type == DeviceType.SOLAREDGE:
-            if self.http_prober and port == 80:
-                return self.http_prober.probe_solaredge(ip, port)
+            if http and port == 80:
+                return http.probe_solaredge(ip, port)
             elif self.modbus_prober and port == 502:
                 return self.modbus_prober.probe(ip, port)
-                
+
         elif device_type == DeviceType.HOME_ASSISTANT:
-            if self.http_prober:
-                return self.http_prober.probe_home_assistant(ip, port)
-                
+            if http:
+                return http.probe_home_assistant(ip, port)
+
         elif device_type == DeviceType.MQTT_BROKER:
-            # Try native MQTT first
             result = self.mqtt_prober.probe(ip, port)
             if result:
                 return result
-            # Fall back to HTTP-based detection for WebSocket interfaces
-            if self.http_prober and port in [8080, 9001, 1884]:
-                return self.http_prober.probe_mqtt_http(ip, port)
+            if http and port in [8080, 9001, 1884]:
+                return http.probe_mqtt_http(ip, port)
             return None
-            
+
         elif device_type == DeviceType.HOMEY:
-            if self.http_prober:
-                return self.http_prober.probe_homey(ip, port)
-                
+            if http:
+                return http.probe_homey(ip, port)
+
         elif device_type == DeviceType.SPAN:
-            if self.http_prober and port in [80, 443]:
-                return self.http_prober.probe_span(ip, port)
+            if http and port in [80, 443]:
+                return http.probe_span(ip, port)
 
         elif device_type == DeviceType.FRANKLINWH_EM:
-            if self.http_prober:
-                return self.http_prober.probe_franklinwh_em(ip, port)
+            if http:
+                return http.probe_franklinwh_em(ip, port)
 
         elif device_type == DeviceType.FRANKLINWH_HA:
-            if self.http_prober:
-                return self.http_prober.probe_franklinwh_ha(ip, port)
+            if http:
+                return http.probe_franklinwh_ha(ip, port)
 
         elif device_type == DeviceType.SSH:
             return self._probe_ssh(ip, port)
@@ -1613,7 +1633,8 @@ class NetworkScanner:
 
         return None
 
-    def _probe_custom(self, ip: str, spec: Dict) -> Optional[ScanResult]:
+    def _probe_custom(self, ip: str, spec: Dict,
+                      http_prober: Optional['HTTPProber'] = None) -> Optional[ScanResult]:
         """
         Execute a user-defined --probe spec against an IP.
 
@@ -1628,6 +1649,8 @@ class NetworkScanner:
         keys = spec.get('keys', [])
         label = spec.get('label', f'custom:{port}')
         start_time = time.time()
+
+        http = http_prober if http_prober is not None else self.http_prober
 
         if path == 'tcp':
             # TCP-only: port open is sufficient — already confirmed by caller
