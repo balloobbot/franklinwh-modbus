@@ -95,8 +95,10 @@ class DeviceType(Enum):
     MQTT_BROKER = "mqtt_broker"
     HOMEY = "homey"
     SPAN = "span"  # SPAN Smart Panel
+    FRANKLINWH_EM = "franklinwh_em"    # FranklinWH Energy Manager (port 9091)
+    FRANKLINWH_HA = "franklinwh_ha"   # FranklinWH HA Integrator (port 8099)
     UNKNOWN = "unknown"
-    
+
     @classmethod
     def from_string(cls, s: str) -> "DeviceType":
         """Parse device type from string."""
@@ -116,6 +118,12 @@ class DeviceType(Enum):
             "mqtt": cls.MQTT_BROKER,
             "broker": cls.MQTT_BROKER,
             "homey": cls.HOMEY,
+            "franklinwh_em": cls.FRANKLINWH_EM,
+            "fem": cls.FRANKLINWH_EM,
+            "energy_manager": cls.FRANKLINWH_EM,
+            "franklinwh_ha": cls.FRANKLINWH_HA,
+            "fha": cls.FRANKLINWH_HA,
+            "ha_integrator": cls.FRANKLINWH_HA,
         }
         return mapping.get(s.lower().strip(), cls.UNKNOWN)
 
@@ -197,63 +205,69 @@ class ModbusSunspecProber:
             
         start_time = time.time()
         
-        for base_addr in self.SUNSPEC_BASE_ADDRESSES:
-            try:
-                client = ModbusTcpClient(
-                    host=ip,
-                    port=port,
-                    timeout=self.timeout,
-                    retries=0
-                )
-                
-                if not client.connect():
-                    continue
-                    
+        # Retry loop: aGate allows only 1 Modbus connection at a time.
+        # If HA's Modbus integration holds the connection, our read will
+        # fail immediately. Retry with backoff to catch a free slot.
+        MAX_PROBE_ATTEMPTS = 3
+        RETRY_BACKOFF_S = 0.4
+
+        for attempt in range(MAX_PROBE_ATTEMPTS):
+            for base_addr in self.SUNSPEC_BASE_ADDRESSES:
                 try:
-                    # Read SunSpec ID (should be "SunS")
-                    result = client.read_holding_registers(
-                        address=base_addr + self.SUNSPEC_ID_ADDR,
-                        count=2,
-                        device_id=1
+                    client = ModbusTcpClient(
+                        host=ip,
+                        port=port,
+                        timeout=self.timeout,
+                        retries=1,
                     )
-                    
-                    if result and not result.isError() and len(result.registers) >= 2:
-                        # Check for SunSpec magic bytes
-                        sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
-                        
-                        if sunspec_id == b'SunS':
-                            elapsed = (time.time() - start_time) * 1000
-                            
-                            # Read Model 1 (Common) data
-                            device_info = self._read_common_model(client, base_addr)
-                            
-                            client.close()
-                            
-                            return ScanResult(
-                                ip=ip,
-                                port=port,
-                                device_type=DeviceType.MODBUS_SUNSPEC,
-                                is_reachable=True,
-                                response_time_ms=elapsed,
-                                manufacturer=device_info.get('manufacturer'),
-                                model=device_info.get('model'),
-                                serial_number=device_info.get('serial'),
-                                version=device_info.get('version'),
-                                sunspec_model=1,
-                                extra_data={
-                                    'sunspec_base_addr': base_addr,
-                                    'device_id': device_info.get('device_id')
-                                }
-                            )
-                            
-                except ModbusException:
-                    pass
-                finally:
-                    client.close()
-                    
-            except Exception:
-                continue
-                
+
+                    if not client.connect():
+                        continue
+
+                    try:
+                        # Read SunSpec ID (should be "SunS")
+                        result = client.read_holding_registers(
+                            address=base_addr + self.SUNSPEC_ID_ADDR,
+                            count=2,
+                            device_id=1
+                        )
+
+                        if result and not result.isError() and len(result.registers) >= 2:
+                            sunspec_id = struct.pack('>HH', result.registers[0], result.registers[1])
+
+                            if sunspec_id == b'SunS':
+                                elapsed = (time.time() - start_time) * 1000
+                                device_info = self._read_common_model(client, base_addr)
+                                client.close()
+                                return ScanResult(
+                                    ip=ip,
+                                    port=port,
+                                    device_type=DeviceType.MODBUS_SUNSPEC,
+                                    is_reachable=True,
+                                    response_time_ms=elapsed,
+                                    manufacturer=device_info.get('manufacturer'),
+                                    model=device_info.get('model'),
+                                    serial_number=device_info.get('serial'),
+                                    version=device_info.get('version'),
+                                    sunspec_model=1,
+                                    extra_data={
+                                        'sunspec_base_addr': base_addr,
+                                        'device_id': device_info.get('device_id')
+                                    }
+                                )
+
+                    except ModbusException:
+                        pass
+                    finally:
+                        client.close()
+
+                except Exception:
+                    continue
+
+            # All base addresses failed this attempt — back off before retry
+            if attempt < MAX_PROBE_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF_S)
+
         return None
     
     def _read_common_model(self, client: ModbusTcpClient, base_addr: int) -> Dict[str, str]:
@@ -848,6 +862,115 @@ class HTTPProber:
 
         return None
 
+    def probe_franklinwh_em(self, ip: str, port: int = 9091) -> Optional[ScanResult]:
+        """
+        Probe for FranklinWH Energy Manager (franklinwh-cloud / FEM).
+
+        Detection: GET /api/status returns JSON with FEM-specific keys:
+          agate, controlSource, currentDispatch, currentWave, capabilities
+        """
+        if not REQUESTS_AVAILABLE:
+            return None
+
+        start_time = time.time()
+        try:
+            response = self.session.get(f"http://{ip}:{port}/api/status", timeout=self.timeout)
+            elapsed = (time.time() - start_time) * 1000
+
+            if response.status_code != 200:
+                return None
+
+            try:
+                data = response.json()
+            except (ValueError, TypeError):
+                return None
+
+            if not isinstance(data, dict):
+                return None
+
+            # FEM-specific keys — very unlikely in any other JSON API
+            fem_keys = {'agate', 'controlSource', 'currentDispatch', 'currentWave', 'capabilities'}
+            if len(fem_keys & set(data.keys())) >= 2:
+                version = (
+                    (data.get('agate') or {}).get('firmware')
+                    or (data.get('capabilities') or {}).get('version')
+                )
+                return ScanResult(
+                    ip=ip,
+                    port=port,
+                    device_type=DeviceType.FRANKLINWH_EM,
+                    is_reachable=True,
+                    response_time_ms=elapsed,
+                    manufacturer="FranklinWH",
+                    model="Energy Manager",
+                    version=version,
+                    extra_data={'matched_keys': list(fem_keys & set(data.keys()))}
+                )
+
+        except requests.RequestException:
+            pass
+
+        return None
+
+    def probe_franklinwh_ha(self, ip: str, port: int = 8099) -> Optional[ScanResult]:
+        """
+        Probe for FranklinWH HA Integrator (franklinwh-ha-integrator / FHAI).
+
+        Detection hierarchy:
+          1. GET /api/health — custom health endpoint (JSON with 'status' key)
+          2. GET /docs      — FastAPI Swagger UI containing 'FranklinWH'
+        """
+        if not REQUESTS_AVAILABLE:
+            return None
+
+        start_time = time.time()
+
+        # Tier 1: custom health endpoint
+        try:
+            response = self.session.get(f"http://{ip}:{port}/api/health", timeout=self.timeout)
+            elapsed = (time.time() - start_time) * 1000
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    if isinstance(data, dict) and 'status' in data:
+                        return ScanResult(
+                            ip=ip,
+                            port=port,
+                            device_type=DeviceType.FRANKLINWH_HA,
+                            is_reachable=True,
+                            response_time_ms=elapsed,
+                            manufacturer="FranklinWH",
+                            model="HA Integrator",
+                            version=data.get('version'),
+                            extra_data={'endpoint': '/api/health'}
+                        )
+                except (ValueError, TypeError):
+                    pass
+        except requests.RequestException:
+            pass
+
+        # Tier 2: FastAPI Swagger docs containing FranklinWH branding
+        try:
+            response = self.session.get(f"http://{ip}:{port}/docs", timeout=self.timeout)
+            elapsed = (time.time() - start_time) * 1000
+
+            if response.status_code == 200 and 'franklinwh' in response.text.lower():
+                return ScanResult(
+                    ip=ip,
+                    port=port,
+                    device_type=DeviceType.FRANKLINWH_HA,
+                    is_reachable=True,
+                    response_time_ms=elapsed,
+                    manufacturer="FranklinWH",
+                    model="HA Integrator",
+                    extra_data={'endpoint': '/docs'}
+                )
+        except requests.RequestException:
+            pass
+
+        return None
+
 
 class MQTTProber:
     """Probes for MQTT brokers."""
@@ -1265,6 +1388,8 @@ class NetworkScanner:
         DeviceType.MQTT_BROKER: [1883, 8883, 1884, 8080, 9001],  # Including WebSocket ports
         DeviceType.HOMEY: [80, 443],
         DeviceType.SPAN: [80, 443, 50058],  # SPAN Panel REST (mDNS/8883 is separate discovery path)
+        DeviceType.FRANKLINWH_EM: [9091],   # FranklinWH Energy Manager
+        DeviceType.FRANKLINWH_HA: [8099],   # FranklinWH HA Integrator
     }
     
     def __init__(
@@ -1459,7 +1584,15 @@ class NetworkScanner:
         elif device_type == DeviceType.SPAN:
             if self.http_prober and port in [80, 443]:
                 return self.http_prober.probe_span(ip, port)
-        
+
+        elif device_type == DeviceType.FRANKLINWH_EM:
+            if self.http_prober:
+                return self.http_prober.probe_franklinwh_em(ip, port)
+
+        elif device_type == DeviceType.FRANKLINWH_HA:
+            if self.http_prober:
+                return self.http_prober.probe_franklinwh_ha(ip, port)
+
         elif device_type == DeviceType.SSH:
             return self._probe_ssh(ip, port)
         
@@ -1695,6 +1828,8 @@ Supported Device Types:
   mqtt, broker       - MQTT Brokers
   homey              - Homey Smart Home Hub
   span               - SPAN Smart Panel (MAIN 32/40, MLO 48)
+  fem, franklinwh_em - FranklinWH Energy Manager (port 9091)
+  fha, franklinwh_ha - FranklinWH HA Integrator (port 8099)
 
 mDNS/Bonjour Discovery:
   Uses zeroconf library for cross-platform service discovery.
