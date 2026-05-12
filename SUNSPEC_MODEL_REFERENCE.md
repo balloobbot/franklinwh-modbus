@@ -80,25 +80,26 @@ sequenceDiagram
 ## M702 — DER Capacity
 **Purpose:** Hardware ratings and software capacity ceilings.
 
-| Addr | Point | Description | Compliance |
-| :---: | :--- | :--- | :---: |
-| 227 | WMaxRtg | Max Active Power Rating | ✅ |
-| 248 | CtrlModes | Supported Modes Bitfield | ✅ |
-| **251** | **WMax** | **Active Power Max Setting** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m702--der-capacity-settings) |
+| Addr | Point | Description | Compliance | Verification Test |
+| :---: | :--- | :--- | :---: | :--- |
+| 227 | WMaxRtg | Max Active Power Rating | ✅ | — |
+| 248 | CtrlModes | Supported Modes Bitfield | ✅ | — |
+| **251** | **WMax** | **Active Power Max Setting** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m702--der-capacity-settings) | [wmax_conformance.json](examples/diagnostics/wmax_conformance.json) |
 
 ---
 
 ## M704 — DER AC Controls
 **Purpose:** Primary control path for active and reactive power.
 
-| Addr | Point | Description | Compliance |
-| :---: | :--- | :--- | :---: |
-| **310** | **WMaxLimPctEna** | **Curtailment Enable** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
-| **311** | **WMaxLimPct** | **Curtailment Limit (%)** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
-| **318** | **WSetEna** | **Remote Control Enable** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
-| **320** | **WSet** | **Power Setpoint (W)** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
-| **324** | **WSetPct** | **Power Setpoint (%)** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
-| **331** | **VarSetEna** | **Reactive Power Enable** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) |
+| Addr | Point | Description | Compliance | Verification Test |
+| :---: | :--- | :--- | :---: | :--- |
+| **310** | **WMaxLimPctEna** | **Curtailment Enable** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | [curtailment_conformance.json](examples/diagnostics/curtailment_conformance.json) |
+| **311** | **WMaxLimPct** | **Curtailment Limit (%)** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | [curtailment_conformance.json](examples/diagnostics/curtailment_conformance.json) |
+| **318** | **WSetEna** | **Remote Control Enable** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | — |
+| **320** | **WSet** | **Power Setpoint (W)** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | — |
+| **324** | **WSetPct** | **Power Setpoint (%)** | [✅ WORKING](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | — |
+| **331** | **VarSetEna** | **Reactive Power Enable** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m704--der-ac-controls) | [reactive_power_conformance.json](examples/diagnostics/reactive_power_conformance.json) |
+| **327** | **WSetRvrtTms**| **Dead-man Timer** | [🔴 Issue 4](PICS_CONFORMANCE_CROSS_REFERENCE.md#issue-4--wsetrvrttms-cosmetic-reversion-never-fires-safety) | [reversion_conformance.json](examples/diagnostics/reversion_conformance.json) |
 
 ---
 
@@ -116,11 +117,11 @@ sequenceDiagram
 ## M715 — DER Lifecycle
 **Purpose:** Safety heartbeats and control mode lifecycle.
 
-| Addr | Point | Description | Compliance |
-| :---: | :--- | :--- | :---: |
-| 1089 | LocRemCtl | Local/Remote Mode (Read-only) | ✅ |
-| **1092** | **ControllerHb** | **Controller Heartbeat** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m715--der-lifecycle) |
-| 1095 | OpCtl | Operation Control (Connect/Disconnect) | ⚠️ Untested |
+| Addr | Point | Description | Compliance | Verification Test |
+| :---: | :--- | :--- | :---: | :--- |
+| 1089 | LocRemCtl | Local/Remote Mode (Read-only) | ✅ | — |
+| **1092** | **ControllerHb** | **Controller Heartbeat** | [🔴 BROKEN](PICS_CONFORMANCE_CROSS_REFERENCE.md#m715--der-lifecycle) | [heartbeat_conformance.json](examples/diagnostics/heartbeat_conformance.json) |
+| 1095 | OpCtl | Operation Control (Connect/Disconnect) | ⚠️ Untested | — |
 
 ---
 
@@ -140,3 +141,17 @@ sequenceDiagram
 **Purpose:** Autonomous grid response curves (Volt-Var, Volt-Watt, Frequency Droop).
 *   **Status:** Most curve models are readable but writes have not been verified. 
 *   **Reference:** See [PICS Conformance](PICS_CONFORMANCE_CROSS_REFERENCE.md) for details on specific unimplemented curve registers.
+
+---
+
+## Conformance Tracking Suite
+
+The following diagnostic sequences are designed to test the functional status of the "Broken" or "Unimplemented" registers listed above. Running these sequences will immediately report whether the hardware has been updated to support these standard SunSpec features.
+
+| Test Name | File Path | Targeted Issue |
+| :--- | :--- | :--- |
+| **Curtailment Test** | [curtailment_conformance.json](examples/diagnostics/curtailment_conformance.json) | Active Power limits discarding writes. |
+| **Reactive Power Test** | [reactive_power_conformance.json](examples/diagnostics/reactive_power_conformance.json) | Var setpoints discarding writes. |
+| **Heartbeat Test** | [heartbeat_conformance.json](examples/diagnostics/heartbeat_conformance.json) | Safety heartbeat discarding writes. |
+| **Capacity Test** | [wmax_conformance.json](examples/diagnostics/wmax_conformance.json) | M702.WMax ceiling discarding writes. |
+| **Safety Reversion Test** | [reversion_conformance.json](examples/diagnostics/reversion_conformance.json) | Dead-man timer countdown with no physical reversion. |
