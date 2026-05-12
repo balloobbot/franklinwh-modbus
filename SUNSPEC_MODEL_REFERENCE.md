@@ -130,10 +130,18 @@ sequenceDiagram
 
 | Addr | Point | Description | Compliance |
 | :---: | :--- | :--- | :---: |
+| 15500 | PVUse | PV Installed (Native) | ✅ |
+| 15501 | apBoxPVUse | Remote PV Installed | ✅ |
+| 15502 | PVOutputP | **Total PV Power (W)** | ✅ |
+| 15503 | proximalPVOutputP | Proximal PV Power (W) | ✅ |
+| 15504 | Remote1PV | Remote 1 PV Power (W) | ✅ |
+| 15505 | Remote2PV | Remote 2 PV Power (W) | ✅ |
+| 15506 | LoadActiveP | **Home Load Power (W)** | ✅ |
 | 15507 | OnGridMode | Operating Mode (TOU, Self-Consum, etc) | ✅ |
 | 15508 | SelfReserve | Self-Consumption SOC Reserve (%) | ✅ |
 | 15509 | TouReserve | TOU SOC Reserve (%) | ✅ |
-| 15510 | PVOutputWh | Total PV Generation (Wh) | ✅ |
+| 15510 | PVOutputWh | **Total PV Generation (Wh)** (High/Low) | ✅ |
+| 15512 | proximalOutputWh | Proximal PV Generation (Wh) (High/Low) | ✅ |
 
 ---
 
