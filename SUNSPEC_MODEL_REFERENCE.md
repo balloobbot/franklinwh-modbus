@@ -6,7 +6,7 @@ This document provides a detailed map of the SunSpec models implemented in the F
 
 | Control Models | Monitoring Models | Settings Models | Extensions |
 | :--- | :--- | :--- | :--- |
-| [M704 — DER AC Controls](#m704-der-ac-controls) | [M701 — DER Measurement](#m701-der-measurement) | [M702 — DER Capacity](#m702-der-capacity) | [FWH Extensions](#fwh-extensions-15500) |
+| [M704 — DER AC Controls](#m704-der-ac-controls) | [M701 — DER Measurement](#m701-der-measurement) | [M702 — DER Capacity](#m702-der-capacity) | [FranklinWH Extensions](#franklinwh-modbus-extensions-15500) |
 | [M715 — DER Lifecycle](#m715-der-lifecycle) | [M713 — Storage Capacity](#m713-storage-capacity) | [M703 — Enter Service](#m703-enter-service) | [M1 — Common](#m1-common) |
 | [M711 — Freq Droop](#m711-der-freq-droop) | [M714 — DC Measurement](#m714-dc-measurement) | [M502 — Solar Module](#m502-solar-module) | [M705+ Curves](#m705-m712-curves) |
 
@@ -125,8 +125,13 @@ sequenceDiagram
 
 ---
 
-## FWH Extensions (15500+)
-**Purpose:** Manufacturer-specific registers for operating modes and reserves.
+## FranklinWH Modbus Extensions (15500+)
+**Purpose:** Manufacturer-specific registers for operating modes, reserves, and granular telemetry.
+
+These extensions provide access to hardware and software features that are unique to the FranklinWH ecosystem and are not part of the standard SunSpec Modbus Models. 
+
+*   **Granularity**: While some registers (like Solar Power) may appear as duplicates of SunSpec points, the extensions often provide more granular data (e.g., distinguishing between proximal and remote PV sources).
+*   **System Control**: Core system settings like Operating Mode and SOC Reserves are managed exclusively through these extension registers.
 
 | Addr | Point | Description | Compliance |
 | :---: | :--- | :--- | :---: |
