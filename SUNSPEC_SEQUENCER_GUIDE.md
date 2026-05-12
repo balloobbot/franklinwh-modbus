@@ -9,6 +9,14 @@ FranklinWH aGate systems often require specific sequences of register writes (e.
 2.  **State is Verified**: Every write is followed by a readback loop to confirm the hardware actually accepted and persisted the change.
 3.  **Fail-Fast Execution**: Sequences can be configured to abort immediately if a critical step fails.
 
+For a detailed list of supported registers and their compliance status, see the [SunSpec Model Reference](SUNSPEC_MODEL_REFERENCE.md).
+
+---
+
+## Native Addressing
+
+While the SunSpec standard often defaults to `40000`, the FranklinWH native base address is **`1`**. The sequencer automatically handles this based on the `-b` or `--base-address` flag.
+
 ---
 
 ## Usage
