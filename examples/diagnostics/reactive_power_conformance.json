@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Test Reactive Power Control",
+    "description": "Tests if M704 VarSetEna and VarSet are functional.",
+    "writes": {
+      "704.VarSetEna": 1,
+      "704.VarSet": 1000
+    },
+    "verify": true,
+    "abort_on_failure": false
+  }
+]

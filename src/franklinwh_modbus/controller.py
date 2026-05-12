@@ -86,8 +86,18 @@ class FranklinWHController:
                 timeout=self.timeout,
             )
             
-            logger.debug("Scanning for SunSpec models...")
-            self.dev.scan()
+            logger.debug(f"Scanning for SunSpec models (base_addr={self.base_address})...")
+            # Try different parameter names for scan method (matching reader.py logic)
+            try:
+                self.dev.scan(base_addr=self.base_address)
+            except TypeError:
+                try:
+                    self.dev.scan(self.base_address)
+                except TypeError:
+                    try:
+                        self.dev.scan(address=self.base_address)
+                    except TypeError:
+                        self.dev.scan()
             
             self.models = {
                 int(k) if str(k).isdigit() else k: v 

@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Step 1: Set Baseline Power",
+    "writes": {
+      "704.WSetEna": 1,
+      "704.WSetPct": 50
+    },
+    "verify": true
+  },
+  {
+    "name": "Step 2: Configure Reversion",
+    "description": "Enable reversion to 0% with a 10s timer.",
+    "writes": {
+      "704.WSetEnaRvrt": 1,
+      "704.WSetPctRvrt": 0,
+      "704.WSetRvrtTms": 10
+    },
+    "verify": true
+  },
+  {
+    "name": "Step 3: Wait for Reversion",
+    "description": "Waiting to see if power actually reverts to 0% after 10s expiry.",
+    "type": "wait_for",
+    "point": "704.WSetPct",
+    "value": 0,
+    "timeout": 20,
+    "interval": 2
+  }
+]

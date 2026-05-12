@@ -1,0 +1,18 @@
+[
+  {
+    "name": "Enable Remote Control",
+    "writes": {
+      "704.WSetEna": 1
+    },
+    "verify": true,
+    "abort_on_failure": true
+  },
+  {
+    "name": "Set Power to 30%",
+    "writes": {
+      "704.WSetPct": 30
+    },
+    "verify": true,
+    "abort_on_failure": true
+  }
+]

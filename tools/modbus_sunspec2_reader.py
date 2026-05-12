@@ -568,6 +568,8 @@ def print_device_info(
             print("-" * 105)
 
             for p in points:
+                if not isinstance(p, dict):
+                    continue
                 addr = p.get("address", "")
                 name = p["name"]
                 # Default to empty if missing

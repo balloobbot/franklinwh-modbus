@@ -1,0 +1,23 @@
+[
+  {
+    "step": "Limit Curtailment Example",
+    "writes": {
+      "704.WMaxLimPctEna": 1,
+      "704.WMaxLimPct": 50,
+      "704.WMaxLimPctRvrtTms": 300,
+      "704.WMaxLimPctRvrt": 100
+    },
+    "verify": true,
+    "verify_timeout_ms": 2000
+  },
+  {
+    "step": "Read Status",
+    "sleep_ms": 1000,
+    "reads": [
+      "704.WMaxLimPctEna",
+      "704.WMaxLimPct",
+      "704.WMaxLimPctRvrtRem",
+      "713.SoC"
+    ]
+  }
+]

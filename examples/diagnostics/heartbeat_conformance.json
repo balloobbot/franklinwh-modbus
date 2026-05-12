@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Test Controller Heartbeat",
+    "description": "Tests if M715 ControllerHb is functional.",
+    "writes": {
+      "715.ControllerHb": 100
+    },
+    "verify": true,
+    "abort_on_failure": false
+  }
+]

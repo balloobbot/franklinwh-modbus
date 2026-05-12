@@ -692,6 +692,53 @@ else:
 ctrl.disconnect()
 ```
 
+### SunSpec InfoPoint Sequencer
+
+The Sequencer is a powerful tool for orchestrating complex, multi-step register operations with built-in verification and safety checks. It is ideal for testing hardware responses and automating multi-register control flows.
+
+**Key Features:**
+- **Step-by-Step Execution**: Define sequences in JSON files or in-line CLI strings.
+- **Wait Conditions (`wait_for`)**: Poll registers until a specific value or condition is met (e.g., SoC >= 95%).
+- **Verification**: Automatically polls post-write to ensure the hardware has accepted the command.
+- **Fail-Fast Safety**: Prematurely exits the sequence with an error code if a condition is not met or a write fails.
+
+#### Basic Usage (CLI)
+
+```bash
+# Execute a sequence from a file
+python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence-file examples/curtailment_sequence.json
+
+# Execute a single-step sequence via in-line JSON
+python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"704.WMaxLimPctEna": 1, "704.WMaxLimPct": 50}'
+```
+
+#### JSON Sequence Schema
+
+```json
+[
+  {
+    "name": "SoC Gating",
+    "wait_for": {
+      "point": "713.SoC",
+      "operator": ">=",
+      "value": 90,
+      "timeout_ms": 300000
+    },
+    "abort_on_failure": true
+  },
+  {
+    "name": "Apply Limits",
+    "writes": {
+      "704.WMaxLimPctEna": 1,
+      "704.WMaxLimPct": 50
+    },
+    "verify": true
+  }
+]
+```
+
+**Supported Operators:** `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not in`.
+
 ---
 
 ## API Reference

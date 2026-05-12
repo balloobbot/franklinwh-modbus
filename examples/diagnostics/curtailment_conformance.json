@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Test Active Power Curtailment",
+    "description": "Tests if M704 WMaxLimPctEna and WMaxLimPct are functional.",
+    "writes": {
+      "704.WMaxLimPctEna": 1,
+      "704.WMaxLimPct": 50
+    },
+    "verify": true,
+    "abort_on_failure": false
+  }
+]

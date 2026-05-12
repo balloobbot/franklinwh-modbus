@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Test M702 Capacity Ceiling",
+    "description": "Tests if M702 WMax is functional.",
+    "writes": {
+      "702.WMax": 5000
+    },
+    "verify": true,
+    "abort_on_failure": false
+  }
+]

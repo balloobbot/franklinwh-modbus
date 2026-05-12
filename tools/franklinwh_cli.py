@@ -27,7 +27,7 @@ import os
 import time
 
 # Add src to path for development (not needed if package is installed)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
 from franklinwh_modbus import (
     FranklinWHController,
@@ -77,6 +77,7 @@ Examples:
     parser.add_argument('-i', '--ip', required=True, help='aGate IP address')
     parser.add_argument('-p', '--port', type=int, default=502, help='Modbus port (default: 502)')
     parser.add_argument('-u', '--unit', type=int, default=2, help='Modbus unit ID (default: 2)')
+    parser.add_argument('-b', '--base-address', type=int, default=40000, help='Base Modbus address (default: 40000)')
     parser.add_argument('-t', '--timeout', type=float, default=10.0, help='Connection timeout')
     
     # Control modes
@@ -141,10 +142,16 @@ Examples:
     parser.add_argument('--validate-schedule', metavar='FILE', help='Validate schedule file')
     
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging')
-    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress non-error output (useful with --monitor')
+    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress non-error output (useful with --monitor)')
     parser.add_argument('--detail', action='store_true', help='Show detailed status output (default: compact summary)')
     parser.add_argument('--theme', choices=['dark', 'green', 'amber', 'white', 'paper'], 
                        default='dark', help='Color theme for monitor (default: dark)')
+    
+    # Sequencing
+    seq_group = parser.add_argument_group('Sequencing')
+    seq_group.add_argument('--sequence', help='In-line JSON sequence string or single step dict')
+    seq_group.add_argument('--sequence-file', help='JSON sequence file')
+    seq_group.add_argument('--brief', action='store_true', help='Minimal sequencer output')
     
     return parser
 
@@ -714,6 +721,7 @@ def main():
         port=args.port,
         unit_id=args.unit,
         timeout=args.timeout,
+        base_address=args.base_address,
     )
     
     if not ctrl.connect():
@@ -730,6 +738,47 @@ def main():
         args.power = -ctrl.RATED_MAX_DISCHARGE_W
         print(f"Using max discharge rate: {abs(args.power)}W (from M702 nameplate)")
     
+    # Handle sequencing before battery control logic
+    if args.sequence or args.sequence_file:
+        import json
+        from franklinwh_modbus.sequencer import SunSpecSequencer
+        
+        sequence = []
+        if args.sequence_file:
+            try:
+                with open(args.sequence_file, 'r') as f:
+                    sequence = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load sequence file: {e}")
+                sys.exit(1)
+        else:
+            try:
+                data = json.loads(args.sequence)
+                if isinstance(data, list):
+                    sequence = data
+                elif isinstance(data, dict):
+                    if "writes" in data or "reads" in data:
+                        sequence = [data]
+                    else:
+                        # Treat as single step
+                        sequence = [{"name": "Single Step", "writes": data}]
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in --sequence: {e}")
+                sys.exit(1)
+        
+        if args.brief:
+            logging.getLogger("franklinwh_modbus.sequencer").setLevel(logging.WARNING)
+            
+        sequencer = SunSpecSequencer(ctrl.dev, base_address=args.base_address)
+        sequencer.verbose = args.verbose
+        
+        try:
+            success = sequencer.run_sequence(sequence, dry_run=args.dry_run)
+            sys.exit(0 if success else 1)
+        except Exception as e:
+            logger.error(f"Sequence execution failed: {e}")
+            sys.exit(1)
+
     try:
         # Health check
         if args.healthcheck:
