@@ -26,14 +26,16 @@ graph TD
     end
 
     subgraph Proprietary_Interface_15500_Extensions
-        EXT_PV[15502: PV DC Total]
+        EXT_PV_AC[15510: Built-in PV AC]
+        EXT_PV_REM[15512: Remote PV aPBox]
         EXT_MODE[15507: Native Mode]
         EXT_LOAD[16000: Home Load]
     end
 
     subgraph Physical_Hardware
         GRID((Utility Grid))
-        PV[Solar PV Arrays]
+        PV_INT[Built-in Solar]
+        PV_EXT[Remote aPBox Solar]
         BAT[aPower Batteries]
         LOADS[Home Electrical Loads]
     end
@@ -43,9 +45,13 @@ graph TD
     M704 -->|WSetPct| BAT
     M714 --- BAT
     M701 --- GRID
+    M502 --- PV_INT
+    M502 --- PV_EXT
 
-    %% Extension Logic
-    EXT_PV -->|Yield Data| M701
+    %% Extension Logic (Filling the Gaps)
+    EXT_PV_AC -->|Granular Yield| M502
+    EXT_PV_REM -->|Granular Yield| M502
+    EXT_LOAD -.->|GAP: No Standard Model| LOADS
     EXT_MODE -->|Sync| M715
     EXT_LOAD -->|Demand| M701
 
@@ -53,9 +59,9 @@ graph TD
     classDef extension fill:#ffd,stroke:#333,stroke-dasharray: 5 5;
     classDef physical fill:#ddd,stroke:#333;
 
-    class M701,M714,M704,M715 standard;
-    class EXT_PV,EXT_MODE,EXT_LOAD extension;
-    class GRID,PV,BAT,LOADS physical;
+    class M701,M714,M704,M715,M502 standard;
+    class EXT_PV_AC,EXT_PV_REM,EXT_MODE,EXT_LOAD extension;
+    class GRID,PV_INT,PV_EXT,BAT,LOADS physical;
 ```
 
 ## 3. Key Operational Scenarios (M Interactions)
