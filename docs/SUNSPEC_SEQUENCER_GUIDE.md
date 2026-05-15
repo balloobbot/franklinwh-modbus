@@ -52,7 +52,22 @@ Writes one or more values and optionally verifies them.
 }
 ```
 
-### 2. Wait For Step
+### 3. Timing & Settling (`sleep_ms`)
+
+FranklinWH hardware often requires time to process register changes before they reflect in telemetry or physical state. You can add explicit delays using `sleep_ms`.
+
+```json
+{
+  "step": "Enable Remote Control",
+  "writes": { "704.WSetEna": 1 },
+  "sleep_ms": 500
+}
+```
+
+- **`sleep_ms`**: Executed *after* the writes/verification of the current step.
+- **`post_sleep_ms`**: An alias for `sleep_ms`.
+
+### 4. Waiting for Conditions (`wait_for`)
 Polls a register until it matches a specific value (useful for verifying slow state transitions or dead-man timers).
 
 ```json
