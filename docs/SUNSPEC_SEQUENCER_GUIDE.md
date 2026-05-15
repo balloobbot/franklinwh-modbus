@@ -81,9 +81,30 @@ These examples serve as a "Conformance Test" to track when features become funct
 | `heartbeat_conformance.json` | Tests `ControllerHb` | Checks if the hardware safety heartbeat is active. |
 | `reversion_conformance.json` | Tests `WSetRvrtTms` | Validates if the dead-man switch actually reverts power. |
 
+### 6. Cleanup & Releasing Control
+
+While the CLI provides a dedicated `--stop` flag, you can also include a "Stop" step at the end of your JSON sequences to ensure the gateway returns to its native operating mode automatically.
+
+**A "Clean Release" sequence step:**
+```json
+{
+  "m": 704,
+  "p": ["WSetEna", "WSetPct", "WSet"],
+  "v": [0, 0, 0],
+  "note": "Release Modbus control"
+}
+```
+
+**Why use the Sequencer to stop?**
+- **Atomic Automation**: Charge for N seconds, then release, all in one command without needing a separate `--stop` call.
+- **Verification**: The sequencer will verify that `WSetEna` actually returned to `0`, catching any persistent "Zombie States."
+- **Custom Fallbacks**: In advanced scenarios, you may want to set a specific power level *before* disabling the master switch.
+
 ---
 
-## Hardware-Specific Learnings
+## Hardware-Specific Learnings (aGate X)
+
+*Last Updated: 2026-05-15*
 
 Through development and testing on aGate firmware `V10R01B04D00`, the following patterns were established:
 
