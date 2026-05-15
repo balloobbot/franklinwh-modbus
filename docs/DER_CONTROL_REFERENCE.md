@@ -12,17 +12,17 @@ Complete reference of all DER control registers on the FranklinWH aGate, documen
 
 These are the primary battery control registers. **This is what we use.**
 
-| Address | Field | Label | Type | RW | Used | Status | Code Reference |
-|---------|-------|-------|------|----|------|--------|----------------|
-| 40318 | `WSetEna` | Active Power Enable | enum16 | RW | ✅ | ✅ **Working** | `send_command()` step 1 (disable=0) & 3 (enable=1) |
-| 40319 | `WSetMod` | Active Power Mode | enum16 | RW | ✅ | ✅ **Working** | `send_command()` step 2 (set=0) |
-| 40320 | `WSet` | Active Power Setpoint (W) | int32 | RW | ❌ | ⚠️ **Avoided** | Not used — causes mode flickering when set alongside WSetPct |
-| 40322 | `WSetRvrt` | Reversion Power (W) | int32 | RW | ❌ | 🔲 **Untested** | Read by `read_control_status()` only |
-| 40324 | `WSetPct` | Active Power Setpoint (%) | int16 | RW | ✅ | ✅ **Working** | `send_command()` step 2 — **sign inverted** (see quirks) |
-| 40325 | `WSetPctRvrt` | Reversion Power (%) | int16 | RW | ❌ | 🔲 **Untested** | Could set fallback power level |
-| 40326 | `WSetEnaRvrt` | Reversion Enable | enum16 | RW | ❌ | 🔲 **Untested** | What happens when command reverts |
-| 40327 | `WSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | ⚠️ | ⚠️ **Config only** | Value accepted & persists, but countdown never activates (TESTED 2026-03-08) |
-| 40329 | `WSetRvrtRem` | Reversion Time Remaining (s) | uint32 | R | ✅ | ❌ **Non-functional** | Always 0 — countdown never activates despite WSetRvrtTms being set (TESTED 2026-03-08) |
+| Address | Field | Label | Type | RW | PICS Status | Used | Status | Code Reference |
+|---------|-------|-------|------|----|-------------|------|--------|----------------|
+| 40318 | `WSetEna` | Active Power Enable | enum16 | RW | supported | ✅ | ✅ **Working** | `send_command()` step 1 (disable=0) & 3 (enable=1) |
+| 40319 | `WSetMod` | Active Power Mode | enum16 | RW | supported | ✅ | ✅ **Working** | `send_command()` step 2 (set=0) |
+| 40320 | `WSet` | Active Power Setpoint (W) | int32 | RW | supported | ❌ | ⚠️ **Avoided** | Not used — causes mode flickering when set alongside WSetPct |
+| 40322 | `WSetRvrt` | Reversion Power (W) | int32 | RW | supported | ❌ | 🔲 **Untested** | Read by `read_control_status()` only |
+| 40324 | `WSetPct` | Active Power Setpoint (%) | int16 | RW | supported | ✅ | ✅ **Working** | `send_command()` step 2 — **sign inverted** (see quirks) |
+| 40325 | `WSetPctRvrt` | Reversion Power (%) | int16 | RW | supported | ❌ | 🔲 **Untested** | Could set fallback power level |
+| 40326 | `WSetEnaRvrt` | Reversion Enable | enum16 | RW | supported | ❌ | 🔲 **Untested** | What happens when command reverts |
+| 40327 | `WSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | supported | ⚠️ | ⚠️ **Config only** | Value accepted & persists, but countdown never activates (TESTED 2026-03-08) |
+| 40329 | `WSetRvrtRem` | Reversion Time Remaining (s) | uint32 | R | supported | ✅ | ❌ **Non-functional** | Always 0 — countdown never activates despite WSetRvrtTms being set (TESTED 2026-03-08) |
 
 !!! important
     **Sign Convention Quirk:** `WSetPct` is inverted on FranklinWH hardware. Positive values = discharge (in standard SunSpec, positive = charge). The library inverts: `m704.WSetPct.value = -pct_raw`. See `FRANKLINWH_SUNSPEC_QUIRKS.md`.
@@ -50,14 +50,14 @@ These are the primary battery control registers. **This is what we use.**
 
 **Not currently used by the library.** Could limit max inverter power.
 
-| Address | Field | Label | Type | RW | Current Value | Status |
-|---------|-------|-------|------|----|---------------|--------|
-| 40310 | `WMaxLimPctEna` | Max Power Limit Enable | enum16 | RW | 0 (disabled) | ❌ **Read-only** (P2 tested) |
-| 40311 | `WMaxLimPct` | Max Power Limit (%) | uint16 | RW | 100% (raw: 1000) | ❌ **Read-only** (P2 tested) |
-| 40312 | `WMaxLimPctRvrt` | Reversion Limit (%) | uint16 | RW | None | ❌ Unimplemented |
-| 40313 | `WMaxLimPctEnaRvrt` | Reversion Enable | enum16 | RW | None | ❌ Unimplemented |
-| 40314 | `WMaxLimPctRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | ❌ Unimplemented |
-| 40316 | `WMaxLimPctRvrtRem` | Reversion Time Remaining | uint32 | R | None | ❌ Unimplemented |
+| Address | Field | Label | Type | RW | PICS Status | Current Value | Status |
+|---------|-------|-------|------|----|-------------|---------------|--------|
+| 40310 | `WMaxLimPctEna` | Max Power Limit Enable | enum16 | RW | supported | 0 (disabled) | ❌ **Read-only** (P2 tested) |
+| 40311 | `WMaxLimPct` | Max Power Limit (%) | uint16 | RW | supported | 100% (raw: 1000) | ❌ **Read-only** (P2 tested) |
+| 40312 | `WMaxLimPctRvrt` | Reversion Limit (%) | uint16 | RW | unimplemented | None | ❌ Unimplemented |
+| 40313 | `WMaxLimPctEnaRvrt` | Reversion Enable | enum16 | RW | unimplemented | None | ❌ Unimplemented |
+| 40314 | `WMaxLimPctRvrtTms` | Reversion Timeout (s) | uint32 | RW | unimplemented | None | ❌ Unimplemented |
+| 40316 | `WMaxLimPctRvrtRem` | Reversion Time Remaining | uint32 | R | unimplemented | None | ❌ Unimplemented |
 
 !!! note
     **Potential Use Case:** Could be used to cap inverter output during grid-sensitive periods or to implement soft power ramp-down. Worth testing if the aGate respects this limit.
@@ -88,18 +88,18 @@ These are the primary battery control registers. **This is what we use.**
 
 **Not currently used by the library.** Controls reactive power (Var) output.
 
-| Address | Field | Label | Type | RW | Current Value | Status |
-|---------|-------|-------|------|----|---------------|--------|
-| 40331 | `VarSetEna` | Reactive Power Enable | enum16 | RW | 0 | ❌ **Read-only** (P3 tested) |
-| 40332 | `VarSetMod` | Reactive Power Mode | enum16 | RW | 1 | ❌ Read-only (pre-configured) |
-| 40333 | `VarSetPri` | Reactive Power Priority | enum16 | RW | 2 | ❌ Read-only (pre-configured) |
-| 40334 | `VarSet` | Reactive Power (Var) | int32 | RW | 0 | ❌ **Read-only** (P3 tested) |
-| 40336 | `VarSetRvrt` | Reversion Reactive Power | int32 | RW | None | ❌ Unimplemented |
-| 40338 | `VarSetPct` | Reactive Power (%) | int16 | RW | None | ❌ Unimplemented |
-| 40339 | `VarSetPctRvrt` | Reversion Reactive (%) | int16 | RW | None | ❌ Unimplemented |
-| 40340 | `VarSetEnaRvrt` | Reversion Enable | enum16 | RW | None | ❌ Unimplemented |
-| 40341 | `VarSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | None | ❌ Unimplemented |
-| 40343 | `VarSetRvrtRem` | Reversion Time Remaining | uint32 | R | None | ❌ Unimplemented |
+| Address | Field | Label | Type | RW | PICS Status | Current Value | Status |
+|---------|-------|-------|------|----|-------------|---------------|--------|
+| 40331 | `VarSetEna` | Reactive Power Enable | enum16 | RW | supported | 0 | ❌ **Read-only** (P3 tested) |
+| 40332 | `VarSetMod` | Reactive Power Mode | enum16 | RW | supported | 1 | ❌ Read-only (pre-configured) |
+| 40333 | `VarSetPri` | Reactive Power Priority | enum16 | RW | supported | 2 | ❌ Read-only (pre-configured) |
+| 40334 | `VarSet` | Reactive Power (Var) | int32 | RW | supported | 0 | ❌ **Read-only** (P3 tested) |
+| 40336 | `VarSetRvrt` | Reversion Reactive Power | int32 | RW | unimplemented | None | ❌ Unimplemented |
+| 40338 | `VarSetPct` | Reactive Power (%) | int16 | RW | unimplemented | None | ❌ Unimplemented |
+| 40339 | `VarSetPctRvrt` | Reversion Reactive (%) | int16 | RW | unimplemented | None | ❌ Unimplemented |
+| 40340 | `VarSetEnaRvrt` | Reversion Enable | enum16 | RW | unimplemented | None | ❌ Unimplemented |
+| 40341 | `VarSetRvrtTms` | Reversion Timeout (s) | uint32 | RW | unimplemented | None | ❌ Unimplemented |
+| 40343 | `VarSetRvrtRem` | Reversion Time Remaining | uint32 | R | unimplemented | None | ❌ Unimplemented |
 
 ---
 
@@ -138,13 +138,13 @@ These are the primary battery control registers. **This is what we use.**
 
 > **Note:** M715 registers use base-1 addressing (1087-1095) for raw Modbus TCP. Base-40000 addresses (41087+) return ILLEGAL_DATA_ADDRESS.
 
-| Address (base-1) | Field | Label | Type | RW | Current Value | Status | Notes |
-|---------|-------|-------|------|----|---------------|--------|-------|
-| 1089 | `LocRemCtl` | Control Mode | enum16 | ❌ R | **1 (Local)** | ❌ **Read-only** | SunSpec says writable — aGate ignores (see LocRemCtl Paradox) |
-| 1090 | `DERHb` | DER Heartbeat | uint32 | R | 0 | ❌ **Non-functional** | Always 0 — DER heartbeat protocol not implemented (TESTED) |
-| 1092 | `ControllerHb` | Controller Heartbeat | uint32 | RW* | 0 | ❌ **Non-functional** | Write accepted, value silently ignored (TESTED via sunspec2 + raw TCP) |
-| 1094 | `AlarmReset` | Alarm Reset | uint16 | RW | 0 | 🔲 Untested | Used in `check_blocking_alarms()` but never written |
-| 1095 | `OpCtl` | Set Operation | enum16 | RW | 0 | 🔲 Untested | Start/Stop/Standby the DER |
+| Address (base-1) | Field | Label | Type | RW | PICS Status | Current Value | Status | Notes |
+|---------|-------|-------|------|----|-------------|---------------|--------|-------|
+| 1089 | `LocRemCtl` | Control Mode | enum16 | ❌ R | supported | **1 (Local)** | ❌ **Read-only** | SunSpec says writable — aGate ignores (see LocRemCtl Paradox) |
+| 1090 | `DERHb` | DER Heartbeat | uint32 | R | supported | 0 | ❌ **Non-functional** | Always 0 — DER heartbeat protocol not implemented (TESTED) |
+| 1092 | `ControllerHb` | Controller Heartbeat | uint32 | RW* | supported | 0 | ❌ **Non-functional** | Write accepted, value silently ignored (TESTED via sunspec2 + raw TCP) |
+| 1094 | `AlarmReset` | Alarm Reset | uint16 | RW | supported | 0 | 🔲 Untested | Used in `check_blocking_alarms()` but never written |
+| 1095 | `OpCtl` | Set Operation | enum16 | RW | supported | 0 | 🔲 Untested | Start/Stop/Standby the DER |
 
 !!! caution
     **LocRemCtl Paradox:** Per SunSpec 2, `LocRemCtl=1` (Local) should mean the DER rejects ALL client writes. FranklinWH violates this — M704 power writes work, but lifecycle features (heartbeat, reversion countdown) are non-functional. This is a **selective-write hybrid** unique to FranklinWH. See `FRANKLINWH_SUNSPEC_QUIRKS.md` for full analysis.
@@ -156,11 +156,11 @@ These are the primary battery control registers. **This is what we use.**
 
 ## 3. FranklinWH Extension Controls (15507–15509)
 
-| Address | Field | Label | Type | RW | Current Value | Status | Notes |
-|---------|-------|-------|------|----|---------------|--------|-------|
-| 15507 | `OnGridMode` | Operating Mode | uint16 | R* | 2 (Self-Consumption) | ✅ **Read works** | ❌ Write blocked without SPAN |
-| 15508 | `SelfReserve` | Self-Consumption Reserve | uint16 | R* | 20 (%) | ✅ **Read works** | ❌ Write blocked without SPAN |
-| 15509 | `TouReserve` | TOU Reserve | uint16 | R* | 20 (%) | ✅ **Read works** | ❌ Write blocked without SPAN |
+| Address | Field | Label | Type | RW | PICS Status | Current Value | Status | Notes |
+|---------|-------|-------|------|----|-------------|---------------|--------|-------|
+| 15507 | `OnGridMode` | Operating Mode | uint16 | R* | supported | 2 (Self-Consumption) | ✅ **Read works** | ❌ Write blocked without SPAN |
+| 15508 | `SelfReserve` | Self-Consumption Reserve | uint16 | R* | supported | 20 (%) | ✅ **Read works** | ❌ Write blocked without SPAN |
+| 15509 | `TouReserve` | TOU Reserve | uint16 | R* | supported | 20 (%) | ✅ **Read works** | ❌ Write blocked without SPAN |
 
 *R = Read-only without SPAN Modbus unlock. See `FRANKLINWH_SUNSPEC_QUIRKS.md` "Write Access Asymmetry".
 
