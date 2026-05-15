@@ -4,100 +4,36 @@
 
 The `franklinwh_cli.py` tool is the primary interface for controlling and monitoring FranklinWH aGate systems via Modbus TCP. It supports both native hardware modes and advanced virtual software orchestration.
 
-## 1. Connection & Global Options
+### Master Option Reference
 
-| Option | Alias | Default | Description |
-|:-------|:------|:--------|:------------|
-| `-i` | `--ip` | **Required** | Target aGate IP address. |
-| `-p` | `--port` | `502` | Modbus TCP port. |
-| `-u` | `--unit` | `2` | Modbus Unit ID (aGate default is 2). |
-| `-b` | `--base-address` | `40000` | Start address for SunSpec discovery. |
-| `-t` | `--timeout` | `10.0` | Connection timeout in seconds. |
-
-## 2. Operating Modes
-
-### Native Hardware Mode (`--mode`)
-Switches the aGate's native firmware operating mode via Register 15507.
-- **Values**: `backup`, `self-consumption` (or `self`, `sc`), `tou`.
-- **Note**: Requires "SPAN Modbus" unlock. The CLI performs a read-back verification to ensure the hardware accepted the change.
-
-### Virtual Software Mode (`--vmode`)
-Runs a software-orchestrated control loop using standard SunSpec Model 704 commands.
-- **Values**: `self_consumption`, `emergency_backup`, `time_of_use`, `peak_shave`, `manual`.
-- **Note**: Does not require SPAN unlock. Operates by overriding aGate logic with direct charge/discharge commands.
-
-## 3. Battery Control Actions
-
-| Option | Argument | Description |
-|:-------|:---------|:------------|
-| `--charge` | `WATTS` | Force charge from grid at specific wattage. |
-| `--discharge` | `WATTS` | Force discharge to home/grid at specific wattage. |
-| `--max-charge` | - | Charge at the device's maximum rated nameplate power. |
-| `--max-discharge` | - | Discharge at the device's maximum rated nameplate power. |
-| `--standby` | - | Set battery to 0W idle (grid powers home). |
-| `--power` | `WATTS` | Legacy alias: Positive=Charge, Negative=Discharge. |
-| `--stop` | - | **Release control** and return the aGate to native firmware mode. |
-
-## 4. Control Parameters & Thresholds
-
-| Option | Default | Description |
-|:-------|:--------|:------------|
-| `--target-soc` | `100` | Target SoC for charge/discharge operations. |
-| `--reserve` | `20` | SoC reserve level for Self-Consumption/TOU modes. |
-| `--threshold` | `2000` | Power threshold (W) for Peak Shave mode. |
-| `--target-soc-auto`| `PCT` | Target SoC % - auto-stop when reached (for charge/discharge). |
-| `--max-charge-soc` | - | Max charge SoC - will EXIT when reached during charging. |
-| `--min-discharge-soc`| - | Min discharge SoC - will EXIT when reached during discharging. |
-| `--soc-ramp-window` | - | SoC ramping window for smooth transitions. |
-| `--loop` | - | Monitor SoC continuously and auto-stop at target. |
-
-## 5. Execution & Safety
-
-| Option | Description |
-|:-------|:------------|
-| `--duration` | Run the command for N seconds and then exit. |
-| `--revert` | **Safety**: Auto-release control after N seconds (Software watchdog). |
-| `--force` | Override safety SoC limits (use with caution). |
-| `--off-grid-permitted`| Allow operation when grid is disconnected. |
-| `--assume-clean-state`| Skip startup conflict detection (prevents "VPP mode active" warning). |
-| `--reset-on-start` | Explicitly reset control state (WSetEna=0) before starting. |
-| `--dry-run` | Simulate command execution without writing to registers. |
-
-## 6. Monitoring & Diagnostics
-
-| Option | Description |
-|:-------|:------------|
-| `--status` | Show system summary (SoC, Power Flow, Control State). |
-| `--detail` | Add granular register data and lifetime energy metrics to `--status`. |
-| `--monitor` | Launch the interactive Terminal UI (TUI) dashboard. |
-| `--healthcheck` | Run comprehensive system diagnostics and zombie detection. |
-| `--check-alarms` | Display detailed bitfield status for all system and DC alarms. |
-| `--clear-alarms` | Attempt to reset active alarms via the `AlarmReset` register. |
-| `--test-extension-write`| Test if 15507-15509 extension registers are writable. |
-| `--check-span` | Scan local network for SPAN panels. |
-
-## 7. Sequencing & Automation
-
-Execute complex multi-step register operations with automated timing and verification.
-
-| Option | Description |
-|:-------|:------------|
-| `--sequence` | Execute a JSON string sequence (e.g., `'[{"charge": 1000}, {"wait": 10}]'`). |
-| `--sequence-file` | Execute a multi-step sequence from a JSON file. |
-| `--brief` | Minimal output for automated sequencing scripts. |
-| `--schedule-file` | Load a JSON TOU schedule for virtual mode orchestration. |
-| `--show-schedule` | Visualize the contents of a schedule file. |
-| `--validate-schedule`| Perform schema validation on a schedule JSON. |
-
-> **See also:** [SunSpec DER Sequencing Protocol](./SUNSPEC_DER_SEQUENCER_REFERENCE.md) for timing and implementation details.
-
-## 8. Global UI & Logging
-
-| Option | Description |
-|:-------|:------------|
-| `-v`, `--verbose` | Enable debug logging of SunSpec discovery and Modbus traffic. |
-| `-q`, `--quiet` | Suppress all non-error output. |
-| `--theme` | Set TUI theme: `dark` (default), `green`, `amber`, `white`, `paper`. |
+| Category | Option | Purpose / Function | Typical Use Case |
+|:---------|:-------|:-------------------|:-----------------|
+| **Connection** | `-i`, `--ip` | Target device network address. | **Mandatory** for all operations. |
+| | `-u`, `--unit` | Modbus Unit ID (Slave ID). | Use `2` for aGate, `1` for direct PDU access. |
+| | `-t`, `--timeout` | Connection wait time (seconds). | Increase if on a high-latency WiFi link. |
+| **Modes** | `--mode` | Change **Native Hardware** mode. | Switching between SC and TOU permanently. |
+| | `--vmode` | Run **Virtual Software** loop. | Orchestrating Peak Shaving or Emergency Backup. |
+| **Actions** | `--charge` | Import power from grid to battery. | Force charging before a storm or low-rate window. |
+| | `--discharge` | Export power from battery to home/grid. | Reducing grid usage during expensive Peak periods. |
+| | `--max-charge` | Force charge at full inverter rating. | Rapidly filling battery when time is limited. |
+| | `--standby` | Idle the battery (0W flow). | Disabling battery usage without turning off system. |
+| | `--stop` | Release Modbus control (WSetEna=0). | Returning system to cloud control after manual test. |
+| **Limits** | `--target-soc` | Goal SoC for current action. | Charging battery to exactly 80% to preserve life. |
+| | `--reserve` | Minimum SoC for SC/TOU modes. | Ensuring 30% is kept for outages in SC mode. |
+| | `--threshold` | Power trigger for Peak Shaving. | Starting discharge only when home load exceeds 2kW. |
+| | `--max-charge-soc`| Safety ceiling for charging. | Auto-stopping a charge at 95% to avoid cell stress. |
+| **Safety** | `--revert` | Software watchdog timer (seconds). | **Critical Safety**: Auto-stop if your PC/script crashes. |
+| | `--duration` | Total run time for a command. | Charging for exactly 30 minutes then exiting. |
+| | `--force` | Bypass safety SoC checks. | Discharging below 10% during a testing emergency. |
+| **Automation** | `--sequence` | Execute an in-line JSON sequence. | Enabling remote control and charging in one line. |
+| | `--sequence-file`| Execute a multi-step JSON file. | Running a 10-step hardware verification test. |
+| | `--schedule-file`| Load a 24h TOU JSON schedule. | Fully automating battery logic for a specific utility. |
+| **Diagnostics** | `--status` | Snapshot of current metrics. | Checking SoC and current power flow via terminal. |
+| | `--monitor` | Real-time TUI dashboard. | Monitoring system behavior during a manual test. |
+| | `--healthcheck` | Comprehensive system scan. | Troubleshooting "Zombie States" or connection issues. |
+| | `--check-alarms` | Decode hardware error bitfields. | Diagnosing battery internal faults or grid errors. |
+| **UI** | `--theme` | Change dashboard color palette. | Using 'Paper' theme for high-contrast visibility. |
+| | `--detail` | Enable verbose status output. | Seeing raw register values in the status summary. |
 
 ---
 
