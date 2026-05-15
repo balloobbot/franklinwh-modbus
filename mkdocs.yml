@@ -72,6 +72,7 @@ nav:
   - Getting Started:
     - Setup Guide: GETTING_STARTED.md
     - Python Integration: HOWTO_PYTHON.md
+    - Modbus Protocol Guide: FRANKLINWH_MODBUS_GUIDE.md
     - What is Modbus TCP?: WHAT_IS_MODBUS_TCP.md
     - Architecture Overview: ARCHITECTURE.md
   - Command Line Tools:
@@ -83,6 +84,7 @@ nav:
     - Safety Controls: SAFETY_CONTROLS.md
     - Orchestration Logic: ORCHESTRATION_AND_CONTROL.md
     - VPP Mode Reference: VPP_MODE_REFERENCE.md
+    - VPP Terminology: VPP_TERMINOLOGY_XREF.md
     - Virtual Mode Specs: VIRTUAL_MODE_SPECIFICATIONS.md
   - Hardware & Standards:
     - SunSpec Interop Guide: SUNSPEC_700_INTEROP_GUIDE.md
