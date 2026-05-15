@@ -1,34 +1,34 @@
 # SunSpec 700-Series Interoperability Guide
 
-This document defines how the FranklinWH aGate orchestrates complex energy use cases by interlinking multiple SunSpec Alliance Information Models (IM). 
+**Baseline Reference**: SunSpec DER Information Model Specification V1.2  
+**Publication Date**: 2020-03-24  
+**Version**: 1.2 (Chapter 7: DER Storage, Chapter 8: DER Monitoring)
 
-## 1. Use Case to Model Mapping
+## 1. Workarounds & Hardware Deviations
 
-| Use Case | Primary Model(s) | Role |
+The FranklinWH aGate implementation contains several deviations from the SunSpec DER V1.2 standard. Our implementation compensates for these via the following software-side logic:
+
+| SunSpec Point | aGate Deviation | Software Workaround |
 | :--- | :--- | :--- |
-| **Islanding / Grid State** | **IM 701** | Monitors `ConnSt` to detect Utility Outage vs. Connected states. |
-| **Solar Harvesting** | **IM 502** | Authoritative for PV DC generation and module-level health. |
-| **Battery Management** | **IM 713 / 714** | `SoC`, `SoH`, and real-time DC power flow. |
-| **Active Power Control** | **IM 704 / 715** | Orchestrates charging/discharging limits and DER operational modes. |
-| **System Diagnostics** | **IM 1 / 715** | Aggregates `Alrm` bitfields and `St` (Status) enumerations. |
+| **M713.Sta** | **ALWAYS 0**. Battery state (Charge/Discharge) is not reported in this status register. | **DCW Polarity**: State is derived from `M714.DCW` (Positive=Discharge, Negative=Charge). |
+| **M704.WSetRvrtTms**| **COSMETIC**. The hardware countdown runs but does NOT reset `WSetEna` or `WSetPct` at zero. | **Software Watchdog**: A continuous control loop must heartbeat or explicitly call `WSetEna=0`. |
+| **M704.WSetPct** | **SCALING**. Uses `WMaxRtg` (1000W AC) as denominator instead of `WChaRteMaxRtg` (5000W DC). | **Denominator Override**: Scaling math uses the direction-aware nameplate rating from `M702`. |
 
 ## 2. End-to-End Orchestration Architecture
-
-This diagram illustrates the relationship between the Public Standard (SunSpec) and Private Manufacturer (15500 Extensions) layers.
 
 ```mermaid
 graph TD
     subgraph Standard_Interface_SunSpec_700
-        IM701[701: Grid AC Reality]
-        IM714[714: Battery DC Flow]
-        IM704[704: Charging Limits]
-        IM715[715: System State Master]
+        M701[701: Grid AC Reality]
+        M714[714: Battery DC Flow]
+        M704[704: Charging Limits]
+        M715[715: System State Master]
     end
 
     subgraph Proprietary_Interface_15500_Extensions
-        EXT_PV[Local PV Port Relays]
-        EXT_AP[aPbox Link Status]
-        EXT_BMS[Unit-Level Diagnostics]
+        EXT_PV[15502: PV DC Total]
+        EXT_MODE[15507: Native Mode]
+        EXT_LOAD[16000: Home Load]
     end
 
     subgraph Physical_Hardware
@@ -40,37 +40,44 @@ graph TD
 
     %% Standard Logic
     IM715 -->|Target State| IM704
-    IM704 -->|Current/Watt Limits| BAT
+    IM704 -->|WSetPct| BAT
     IM714 --- BAT
     IM701 --- GRID
 
     %% Extension Logic
-    EXT_PV -->|Gatekeeper| PV
-    EXT_AP -->|Data Integrity| PV
-    EXT_BMS --- BAT
-
-    %% Inter-Layer Dependency
-    EXT_PV -.->|If Relay Open| IM701
-    EXT_AP -.->|If Link Down| IM701
-    IM701 --- LOADS
-    IM714 --- LOADS
+    EXT_PV -->|Yield Data| IM701
+    EXT_MODE -->|Sync| IM715
+    EXT_LOAD -->|Demand| IM701
 
     classDef standard fill:#f9f,stroke:#333,stroke-width:2px;
     classDef extension fill:#ffd,stroke:#333,stroke-dasharray: 5 5;
     classDef physical fill:#ddd,stroke:#333;
 
-    class IM701,IM714,IM704,IM715 standard;
-    class EXT_PV,EXT_AP,EXT_BMS extension;
+    class M701,M714,M704,M715 standard;
+    class EXT_PV,EXT_MODE,EXT_LOAD extension;
     class GRID,PV,BAT,LOADS physical;
 ```
 
-## 3. Key Operational Scenarios
+## 3. Key Operational Scenarios (IM Interactions)
 
-### 3.1 Solar Sponge (Charge from Excess PV)
-- **Monitoring**: Read `IM 502` (PV Watts) and `IM 701` (Grid Watts).
-- **Logic**: If `IM 701` W > 0 (Exporting), increase charge limit in `IM 704`.
-- **Validation**: Confirm `IM 714` (Battery DC) shows increasing negative Watts (Charging).
+### 3.1 Solar to Home Loads / Grid
+*   **Interaction**: `M502.OutWh` (Yield) vs `M701.W` (Grid Power).
+*   **Orchestration**: If `M701.W` is negative (Export), solar exceeds load.
+*   **Units**: Reported in Watts (W) with Scale Factor `W_SF`.
 
----
-**Baseline Reference**: SunSpec DER Information Model Specification V1.2
-**Implementation Context**: FranklinWH aGate Firmware V10R01+
+### 3.2 Battery Charge or Discharging
+*   **Interaction**: `M714.DCW` (Current Flow) vs `M704.WSetPct` (Command).
+*   **Orchestration**: Set `M704.WSetPct` to -X% for Charge or +X% for Discharge.
+*   **Workaround**: Ignore `M713.Sta`; rely strictly on `M714.DCW` polarity.
+
+### 3.3 Grid Import to Home Loads / Battery
+*   **Interaction**: `M701.W` (Positive) + `M704.WSetPct` (Negative).
+*   **Orchestration**: To charge from grid, `WSetEna` must be 1. Inverted signs (SunSpec standard) apply: Positive Grid = Import.
+
+### 3.4 SOC and SOH Monitoring
+*   **Interaction**: `M713.SoC` (State of Charge) and `M713.SoH` (State of Health).
+*   **Units**: Percent (%). Scaling: `SoC_SF` (typically 0 or 1).
+
+### 3.5 System Alarms
+*   **Interaction**: `M1` (Common) and `M715.Alrm` (DER Alarms).
+*   **Orchestration**: Read bitfields to detect over-voltage, thermal runaway, or communication loss.
