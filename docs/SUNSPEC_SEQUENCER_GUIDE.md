@@ -33,24 +33,30 @@ python3 tools/franklinwh_cli.py -i <IP> -b 1000 -u 1 --sequence-file <PATH>
 
 ---
 
-## JSON Sequence Schema
+### 2. JSON Schema Master Reference
 
-A sequence is a JSON array of "steps". Each step can perform writes or wait for specific conditions.
+| Key | Type | Purpose / Function | Typical Use Case |
+|:----|:-----|:-------------------|:-----------------|
+| `name` / `step` | string | Descriptive label for the step in logs. | `"Step": "Enable VPP Mode"` |
+| `writes` | object | Dictionary of `Model.Point: Value` to write. | `{"704.WSetEna": 1}` |
+| `reads` | list | List of `Model.Point` tags to read and log. | `["704.WSetPct", "714.DCW"]` |
+| `verify` | bool | Wait for readback to match written value. | `true` (Default) |
+| `verify_timeout_ms`| int | Max time to poll for write verification. | `2000` (Default) |
+| `abort_on_failure` | bool | Stop sequence if this step fails. | `true` (Default) |
+| `sleep_ms` | int | Wait after step completion (settling time). | `500` for hardware propagation. |
+| `wait_for` | object | Poll a register until a condition is met. | See "Wait For Configuration" below. |
 
-### 1. Write Step (Default)
-Writes one or more values and optionally verifies them.
+#### Wait For Configuration (`wait_for`)
 
-```json
-{
-  "name": "Limit Power to 30%",
-  "writes": {
-    "704.WSetEna": 1,
-    "704.WSetPct": 30
-  },
-  "verify": true,
-  "abort_on_failure": true
-}
-```
+| Sub-Key | Type | Purpose | Example |
+|:--------|:-----|:--------|:--------|
+| `point` | string | The `Model.Point` tag to poll. | `"704.WSetRvrtRem"` |
+| `operator` | string | Comparison: `==`, `!=`, `>`, `<`, `>=`, `<=`. | `"<="` |
+| `value` | any | The target value to compare against. | `0` |
+| `timeout_ms` | int | Max polling time (default 30s). | `60000` (1 minute) |
+| `poll_ms` | int | Time between poll attempts (default 1s). | `500` (twice a second) |
+
+---
 
 ### 3. Timing & Settling (`sleep_ms`)
 
