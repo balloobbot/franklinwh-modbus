@@ -68,8 +68,8 @@ nav:
     - CLI Command Reference: CLI_COMMAND_REFERENCE.md
     - Modbus Reader Reference: MODBUS_READER_REFERENCE.md
     - TUI Monitor Guide: TUI_MONITOR_GUIDE.md
-    - Modbus Sequencer Guide: SUNSPEC_SEQUENCER_GUIDE.md
-    - Sequencing Protocol: SUNSPEC_DER_SEQUENCER_REFERENCE.md
+    - Infopoint Sequencer Guide: SUNSPEC_SEQUENCER_GUIDE.md
+    - 6-Phase Sequencing Protocol: SUNSPEC_DER_SEQUENCER_REFERENCE.md
   - Control & Safety:
     - DER Control Reference: DER_CONTROL_REFERENCE.md
     - Safety Controls: SAFETY_CONTROLS.md

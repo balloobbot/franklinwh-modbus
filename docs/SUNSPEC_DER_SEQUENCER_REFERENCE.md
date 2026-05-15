@@ -1,4 +1,4 @@
-# SunSpec DER Control — Phased Sequencing Reference
+# 6-Phase Sequencing Protocol Reference
 
 > **Source:** Claude Sonnet 4.6 agent analysis of SunSpec Model 123 (Reactive Power).
 > Applicable to ALL SunSpec DER control groups (WSet, VarSet, WMaxLimPct, WChaRteMax, etc.)

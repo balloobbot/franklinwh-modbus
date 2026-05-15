@@ -1,4 +1,4 @@
-# SunSpec InfoPoint Sequencer Guide
+# SunSpec Infopoint Sequencer Guide
 
 The **SunSpec InfoPoint Sequencer** is a high-level orchestration engine integrated into `franklinwh-cli`. it enables complex, multi-step Modbus operations defined via JSON configuration files.
 
