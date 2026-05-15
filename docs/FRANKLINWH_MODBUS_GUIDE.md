@@ -160,7 +160,7 @@ Writing to `WSet` (absolute watts) alongside `WSetPct` causes **mode flickering*
 
 | Address | Name | Access | Notes |
 |---------|------|--------|-------|
-| 15507 | OnGridMode | R (RW with SPAN) | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
+| 15507 | OnGridMode | R (RW with SPAN) | 1=Backup, 2=Self-Consumption, 3=TOU |
 | 15508 | SelfReserve | R (RW with SPAN) | Reserve SOC % |
 | 15509 | TouReserve | R (RW with SPAN) | ⚠️ **Always mirrors 15508** (firmware defect) |
 

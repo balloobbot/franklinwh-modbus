@@ -8,10 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SunSpec InfoPoint Sequencer for automated register control sequences
+- Diagnostic conformance suite for hardware register verification
+- Comprehensive SunSpec Model Reference documentation (`SUNSPEC_MODEL_REFERENCE.md`)
 - MIT License, CONTRIBUTING.md, GitHub issue/PR templates
 - Branch protection rulesets for `develop` and `master`
 - Repository topics for discoverability
 - Grid lifetime energy metrics (`M701.TotWhInj`, `M701.TotWhAbs`) in `read_grid_status()`, monitor TUI, and `--status --detail` (FEAT-MONITOR-GRID-LIFETIME)
+
+### Fixed
+- **CRITICAL:** Synchronized Grid and Battery telemetry signs with confirmed hardware behavior (Negative = Charge/Import). Resolves directional labeling conflict in CLI and Monitor (Batch 4 / Issue #6).
+- Corrected `battery_state` derivation in `controller.py` to match physical power flow.
 
 ### Changed
 - Replaced hardcoded IP addresses with `YOUR_AGATE_IP` placeholder

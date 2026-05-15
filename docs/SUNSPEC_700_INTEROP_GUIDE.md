@@ -39,15 +39,15 @@ graph TD
     end
 
     %% Standard Logic
-    IM715 -->|Target State| IM704
-    IM704 -->|WSetPct| BAT
-    IM714 --- BAT
-    IM701 --- GRID
+    M715 -->|Target State| M704
+    M704 -->|WSetPct| BAT
+    M714 --- BAT
+    M701 --- GRID
 
     %% Extension Logic
-    EXT_PV -->|Yield Data| IM701
-    EXT_MODE -->|Sync| IM715
-    EXT_LOAD -->|Demand| IM701
+    EXT_PV -->|Yield Data| M701
+    EXT_MODE -->|Sync| M715
+    EXT_LOAD -->|Demand| M701
 
     classDef standard fill:#f9f,stroke:#333,stroke-width:2px;
     classDef extension fill:#ffd,stroke:#333,stroke-dasharray: 5 5;
@@ -58,7 +58,7 @@ graph TD
     class GRID,PV,BAT,LOADS physical;
 ```
 
-## 3. Key Operational Scenarios (IM Interactions)
+## 3. Key Operational Scenarios (M Interactions)
 
 ### 3.1 Solar to Home Loads / Grid
 *   **Interaction**: `M502.OutWh` (Yield) vs `M701.W` (Grid Power).
@@ -78,6 +78,19 @@ graph TD
 *   **Interaction**: `M713.SoC` (State of Charge) and `M713.SoH` (State of Health).
 *   **Units**: Percent (%). Scaling: `SoC_SF` (typically 0 or 1).
 
-### 3.5 System Alarms
+### 3.5 Native Mode Control
+*   **Interaction**: Register `15507` (OnGridMode) vs `M715.St`.
+*   **Orchestration**: Direct hardware mode switching. 
+    *   `1`: Backup
+    *   `2`: Self-Consumption
+    *   `3`: TOU
+*   **Note**: Requires installer "SPAN Modbus" unlock.
+
+### 3.5 Home Load Monitoring
+*   **Interaction**: Register `16000` (HomeLoadHighRes) vs `M701.W`.
+*   **Orchestration**: Direct consumption measurement from smart sensor CTs.
+*   **Precision**: Use `16000` for 1W resolution (Proprietary Extension). Standard SunSpec calculation (`Solar - Grid - Battery`) is often less precise due to quantization in `M701`.
+
+### 3.6 System Alarms
 *   **Interaction**: `M1` (Common) and `M715.Alrm` (DER Alarms).
 *   **Orchestration**: Read bitfields to detect over-voltage, thermal runaway, or communication loss.

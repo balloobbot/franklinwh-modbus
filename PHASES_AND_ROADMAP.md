@@ -137,6 +137,9 @@
 - ✅ Auto-quiet mode
 - ⚠️ **PARKED** - Waiting for user validation
 
+#### 2.6 Documentation Update 🔴 QUEUED
+- 🔴 `TODO_CLI_COMMAND_REFERENCE.md` — Comprehensive CLI option documentation — **APPROVED**
+
 ---
 
 ### Phase 3: Enhanced Conflict Detection 🟢

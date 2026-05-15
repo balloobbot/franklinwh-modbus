@@ -108,8 +108,11 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --healthcheck
 # Charge at 3000W with auto-revert after 2 hours
 python3 franklinwh_cli.py -i YOUR_AGATE_IP --charge 3000 --revert 7200
 
-# Self-consumption mode
-python3 franklinwh_cli.py -i YOUR_AGATE_IP --mode self_consumption --target-soc 90
+# Native hardware mode (Register 15507)
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --mode self-consumption
+
+# Virtual software mode (Orchestrated control loop)
+python3 franklinwh_cli.py -i YOUR_AGATE_IP --vmode self_consumption --target-soc 90
 
 # Terminal UI monitor (requires `rich`)
 python3 franklinwh_cli.py -i YOUR_AGATE_IP --monitor
@@ -177,7 +180,7 @@ franklinwh-modbus/
 
 | Register | Address | Access | Description |
 |----------|---------|--------|-------------|
-| OnGridMode | 15507 | R (RW with SPAN) | 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual |
+| OnGridMode | 15507 | R (RW with SPAN) | 1=Backup, 2=Self-Consumption, 3=TOU |
 | Self Reserve SOC | 15508 | R (RW with SPAN) | Self-consumption reserve percentage (0-100) |
 | TOU Reserve SOC | 15509 | R (RW with SPAN) | ⚠️ Known defect: always mirrors 15508 |
 

@@ -10,14 +10,22 @@ Several proprietary registers map directly to standard SunSpec Info Points. This
 
 | Proprietary Addr | FranklinWH Name | SunSpec M | Map | Units | SF | Notes |
 |:-----------------|:----------------|:-----------|:----|:------|:---|:------|
-| **15020**        | WHRtg (Internal)| **713**    | `WHRtg`| Wh | - | Matches 13600 WH |
-| **15025**        | V_LNV (Internal)| **701**    | `LNV`  | V | -1 | Matches 241.8V (2380-2418) |
-| **15036**        | SoH (Internal)  | **713**    | `SoH`  | % | -1 | Matches 95.6% (956) |
-| **15506**        | LoadActiveP     | **None**   | N/A | W | 0 | Home load from smart sensor |
-| **15507**        | OnGridMode      | **715**    | `St`   | Enum | - | Maps to native DER states |
-| **15510**        | PVOutputWh (H)  | **502**    | `OutWh`| Wh | - | Matches PV Total Energy |
-| **15512**        | proxOutputWh (H)| **502**    | `OutWh`| Wh | - | Matches PV Proximal Energy |
-| **16000**        | HomeLoadHighRes | **None**   | N/A | W | 0 | High-precision home load (1W) |
+| **15011**        | ModelID (Internal) | **707**    | `ID`   | - | - | Matches Model 707 ID |
+| **15013**        | ModelID (Internal) | **701**    | `ID`   | - | - | Matches Model 701 ID |
+| **15017**        | TmpAmb (Internal) | **701**    | `TmpAmb`| °C | - | Matches 701.TmpAmb (scaled) |
+| **15020**        | WHRtg (Internal) | **713**    | `WHRtg`| Wh | - | Matches 13600 WH |
+| **15022**        | NPt (Internal)   | **705**    | `NPt`  | - | - | Matches 705.NPt |
+| **15025**        | V_LNV (Internal) | **701**    | `LNV`  | V | -1 | Matches 241.8V (2380-2418) |
+| **15036**        | SoH (Internal)   | **713**    | `SoH`  | % | -1 | Matches 95.6% (956) |
+| **15506**        | LoadActiveP      | **714**    | `DCW`? | W | 0 | **Speculation**: Often matches 714.DCW when IDLE/balanced. |
+| **15507**        | OnGridMode       | **715**    | `St`   | Enum | - | Maps to native DER states |
+| **15508**        | SelfReserve      | **712**    | `NPt`  | % | - | Matches 712.NPt (Number of points) |
+| **15509**        | TouReserve       | **712**    | `NPt`  | % | - | Matches 712.NPt (Number of points) |
+| **15510**        | PVOutputWh (H)   | **502**    | `OutWh`| Wh | - | Matches PV Total Energy |
+| **15512**        | proxOutputWh (H) | **502**    | `OutWh`| Wh | - | Matches PV Proximal Energy |
+| **16000**        | HomeLoadHighRes  | **None**   | N/A | W | 0 | High-precision home load (1W) |
+| **16001**        | NPt (Mirror)     | **712**    | `NPt`  | - | - | Mirror of 15508/15509 (Reserves=6) |
+| **16002**        | TmpAmb (Mirror)  | **701**    | `TmpAmb`| °C | - | Matches 701.TmpAmb (scaled=20) |
 
 ---
 
@@ -65,7 +73,7 @@ Addr     Hex    UInt16   Int16    Value           Acc Bits (Binary)      Guess/N
 Addr     Hex    UInt16   Int16    Value           Acc Bits (Binary)      Guess/Notes
 --------------------------------------------------------------------------------------------------------------
 15506    0258   600      600      600             R   0000001001011000   Home Load (LoadActiveP) W
-15507    0003   3        3        3               RW  0000000000000011   Operating Mode (OnGridMode). 1: Backup, 2: Self-Consumption, 3: TOU, 4: Manual. Maps to SunSpec M715 `St` transitions.
+15507    0003   3        3        3               RW  0000000000000011   Operating Mode (OnGridMode). 1: Backup, 2: Self-Consumption, 3: TOU. Verified 1-indexed mapping. NOTE: Hardware may echo success but silently discard writes if "SPAN Modbus" is locked.
 15508    000A   10       10       10              RW  0000000000001010   Self-Consumption SOC Reserve (SelfReserve) %
 15509    000A   10       10       10              RW  0000000000001010   TOU SOC Reserve (TouReserve) %
 15510    00C5   197      197      12959408        R   0000000011000101   PV Energy Total (PVOutputWh) [Matches: 502.OutWh (raw)]
