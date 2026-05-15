@@ -71,28 +71,31 @@ nav:
   - Home: index.md
   - Getting Started:
     - Setup Guide: GETTING_STARTED.md
-    - Python Setup: HOWTO_PYTHON.md
+    - Python Integration: HOWTO_PYTHON.md
     - What is Modbus TCP?: WHAT_IS_MODBUS_TCP.md
-    - Modbus Guide: FRANKLINWH_MODBUS_GUIDE.md
-    - Architecture: ARCHITECTURE.md
+    - Architecture Overview: ARCHITECTURE.md
+  - Command Line Tools:
     - CLI Command Reference: CLI_COMMAND_REFERENCE.md
+    - Modbus Reader Reference: MODBUS_READER_REFERENCE.md
     - TUI Monitor Guide: TUI_MONITOR_GUIDE.md
   - Control & Safety:
     - DER Control Reference: DER_CONTROL_REFERENCE.md
-    - Orchestration & Control: ORCHESTRATION_AND_CONTROL.md
     - Safety Controls: SAFETY_CONTROLS.md
+    - Orchestration Logic: ORCHESTRATION_AND_CONTROL.md
     - VPP Mode Reference: VPP_MODE_REFERENCE.md
-    - VPP Terminology: VPP_TERMINOLOGY_XREF.md
     - Virtual Mode Specs: VIRTUAL_MODE_SPECIFICATIONS.md
-  - Hardware:
+  - Hardware & Standards:
+    - SunSpec Interop Guide: SUNSPEC_700_INTEROP_GUIDE.md
     - SunSpec Quirks: FRANKLINWH_SUNSPEC_QUIRKS.md
     - PICS Conformance: PICS_CONFORMANCE_CROSS_REFERENCE.md
-    - Hardware Test Guide: HARDWARE_TEST_GUIDE.md
+    - Extensions Manifest: FRANKLINWH_EXTENSIONS_MANIFEST.md
     - aGate Network Profile: AGATE_NETWORK_PROFILE.md
+    - Hardware Test Guide: HARDWARE_TEST_GUIDE.md
   - Troubleshooting:
     - WiFi DHCP Failure: troubleshooting/2026-03-21_wifi_dhcp_failure.md
-  - Contributing:
+  - Project Info:
     - Backlog: backlog.md
+    - Changelog: CHANGELOG.md
 
 extra:
   social:
