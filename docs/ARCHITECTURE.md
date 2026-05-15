@@ -1,5 +1,7 @@
 # FranklinWH System Architecture
 
+*Last Updated: 2026-05-15 18:59*
+
 This document clarifies the AC-coupled vs DC-coupled architecture of FranklinWH systems.
 
 ## Overview
@@ -160,6 +162,3 @@ Solar Inputs:      2x 63A AC circuits (+ remote via aPbox/aHub)
 - [FranklinWH aPower S Datasheet](https://franklinwh.com)
 - SunSpec Alliance DER Model Specification
 
----
-
-*Last Updated: February 22, 2026*

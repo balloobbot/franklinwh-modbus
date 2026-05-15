@@ -1,5 +1,7 @@
 # Modbus SunSpec2 Reader Reference
 
+*Last Updated: 2026-05-15 18:57*
+
 The `modbus_sunspec2_reader.py` tool is a high-performance diagnostic utility for scanning, discovering, and monitoring SunSpec-compliant devices. It includes specific enhancements for FranklinWH aGate systems, such as extension register matching and non-zero filtering.
 
 ## 1. Connection Options

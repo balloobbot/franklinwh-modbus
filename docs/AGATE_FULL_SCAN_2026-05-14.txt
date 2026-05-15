@@ -1,0 +1,466 @@
+
+======================================================================
+Device: 192.168.0.110:502
+======================================================================
+Unit ID:        1
+Base Address:   40000
+
+Models Found:   17
+
+----------------------------------------------------------------------
+Model 1: common
+----------------------------------------------------------------------
+
+Points: 9
+  40002  ID                             = 1                         (uint16)
+  40003  L                              = 66                        (uint16)
+  40004  Mn                             = FranklinWH Technologies Co., Ltd (string)
+  40020  Md                             = aGate X                   (string)
+  40036  Opt                            = Option Name               (string)
+  40044  Vr                             = V10R01B04D00              (string)
+  40052  SN                             = SN-REDACTED-XXXX      (string)
+  40068  DA                             = 1                         (uint16)
+  40069  Pad                            = 32768                     (pad)
+
+----------------------------------------------------------------------
+Model 502: solar_module
+----------------------------------------------------------------------
+
+Points: 23
+  41096  ID                             = 502                       (uint16)
+  41097  L                              = 28                        (uint16)
+  41098  A_SF                           = 0                         (sunssf)
+  41099  V_SF                           = 0                         (sunssf)
+  41100  W_SF                           = 0                         (sunssf)
+  41101  Wh_SF                          = 0                         (sunssf)
+  41102  Stat                           = 0 [Unknown]               (enum16)
+  41103  StatVend                       = 0                         (enum16)
+  41104  Evt                            = 0 [Unknown]               (bitfield32)
+  41106  EvtVend                        = 0                         (bitfield32)
+  41108  Ctl                            = None                      (enum16)
+  41109  CtlVend                        = None                      (enum32)
+  41111  CtlVal                         = None                      (int32)
+  41113  Tms                            = 0 Secs                    (uint32)
+  41115  OutA                           = 0 A                       (int16)
+  41116  OutV                           = 0 V                       (int16)
+  41117  OutWh                          = 12959408 Wh               (acc32)
+  41119  OutPw                          = 0 W                       (int16)
+  41120  Tmp                            = 0 C                       (int16)
+  41121  InA                            = 0 A                       (int16)
+  41122  InV                            = 0 V                       (int16)
+  41123  InWh                           = None Wh                   (acc32)
+  41125  InW                            = 0 W                       (int16)
+
+----------------------------------------------------------------------
+Model 701: DERMeasureAC
+----------------------------------------------------------------------
+
+Points: 72
+  40070  ID                             = 701                       (uint16)
+  40071  L                              = 153                       (uint16)
+  40072  ACType                         = 0                         (enum16)
+  40073  St                             = 1                         (enum16)
+  40074  InvSt                          = 3 [Unknown]               (enum16)
+  40075  ConnSt                         = 1                         (enum16)
+  40076  Alrm                           = 0                         (bitfield32)
+  40078  DERMode                        = 1                         (bitfield32)
+  40080  W                              = 2 W                       (int16)
+  40081  VA                             = 834 VA                    (int16)
+  40082  Var                            = -715 Var                  (int16)
+  40083  PF                             = -0.019                    (int16)
+  40084  A                              = 3.400 A                   (int16)
+  40085  LLV                            = 241.8 V                   (uint16)
+  40086  LNV                            = 241.8 V                   (uint16)
+  40087  Hz                             = 49.99 Hz                  (uint32)
+  40089  TotWhInj                       = 4614656 Wh                (uint64)
+  40093  TotWhAbs                       = 1463431 Wh                (uint64)
+  40097  TotVarhInj                     = 0 Varh                    (uint64)
+  40101  TotVarhAbs                     = 0 Varh                    (uint64)
+  40105  TmpAmb                         = 18.40 C                   (int16)
+  40106  TmpCab                         = 26.90 C                   (int16)
+  40107  TmpSnk                         = 0.000 C                   (int16)
+  40108  TmpTrns                        = 0.000 C                   (int16)
+  40109  TmpSw                          = 25.00 C                   (int16)
+  40110  TmpOt                          = 0.000 C                   (int16)
+  40111  WL1                            = -16 W                     (int16)
+  40112  VAL1                           = 834 VA                    (int16)
+  40113  VarL1                          = -715 Var                  (int16)
+  40114  PFL1                           = -0.019                    (int16)
+  40115  AL1                            = 3.400 A                   (int16)
+  40116  VL1L2                          = 241.8 V                   (uint16)
+  40117  VL1                            = 241.8 V                   (uint16)
+  40118  TotWhInjL1                     = 4614941 Wh                (uint64)
+  40122  TotWhAbsL1                     = 1463790 Wh                (uint64)
+  40126  TotVarhInjL1                   = 0 Varh                    (uint64)
+  40130  TotVarhAbsL1                   = 0 Varh                    (uint64)
+  40134  WL2                            = 0 W                       (int16)
+  40135  VAL2                           = 0 VA                      (int16)
+  40136  VarL2                          = 0 Var                     (int16)
+  40137  PFL2                           = 0.000                     (int16)
+  40138  AL2                            = 0.000 A                   (int16)
+  40139  VL2L3                          = 0.000 V                   (uint16)
+  40140  VL2                            = 0.000 V                   (uint16)
+  40141  TotWhInjL2                     = 0 Wh                      (uint64)
+  40145  TotWhAbsL2                     = 0 Wh                      (uint64)
+  40149  TotVarhInjL2                   = 0 Varh                    (uint64)
+  40153  TotVarhAbsL2                   = 0 Varh                    (uint64)
+  40157  WL3                            = 0 W                       (int16)
+  40158  VAL3                           = 0 VA                      (int16)
+  40159  VarL3                          = 0 Var                     (int16)
+  40160  PFL3                           = 0.000                     (int16)
+  40161  AL3                            = 0.000 A                   (int16)
+  40162  VL3L1                          = 0.000 V                   (uint16)
+  40163  VL3                            = 0.000 V                   (uint16)
+  40164  TotWhInjL3                     = 0 Wh                      (uint64)
+  40168  TotWhAbsL3                     = 0 Wh                      (uint64)
+  40172  TotVarhInjL3                   = 0 Varh                    (uint64)
+  40176  TotVarhAbsL3                   = 0 Varh                    (uint64)
+  40180  ThrotPct                       = None Pct                  (uint16)
+  40181  ThrotSrc                       = None                      (bitfield32)
+  40183  A_SF                           = -1                        (sunssf)
+  40184  V_SF                           = -1                        (sunssf)
+  40185  Hz_SF                          = -3                        (sunssf)
+  40186  W_SF                           = 0                         (sunssf)
+  40187  PF_SF                          = -3                        (sunssf)
+  40188  VA_SF                          = 0                         (sunssf)
+  40189  Var_SF                         = 0                         (sunssf)
+  40190  TotWh_SF                       = 0                         (sunssf)
+  40191  TotVarh_SF                     = 3                         (sunssf)
+  40192  Tmp_SF                         = -1                        (sunssf)
+  40193  MnAlrmInfo                     = Manufacturer custom error info (string)
+
+----------------------------------------------------------------------
+Model 702: DERCapacity
+----------------------------------------------------------------------
+
+Points: 51
+  40225  ID                             = 702                       (uint16)
+  40226  L                              = 50                        (uint16)
+  40227  WMaxRtg                        = 0 W                       (uint16)
+  40228  WOvrExtRtg                     = 5000 W                    (uint16)
+  40229  WOvrExtRtgPF                   = 0.850                     (uint16)
+  40230  WUndExtRtg                     = 5000 W                    (uint16)
+  40231  WUndExtRtgPF                   = 0.850                     (uint16)
+  40232  VAMaxRtg                       = 5800 VA                   (uint16)
+  40233  VarMaxInjRtg                   = 2940 Var                  (uint16)
+  40234  VarMaxAbsRtg                   = 2940 Var                  (uint16)
+  40235  WChaRteMaxRtg                  = 5000 W                    (uint16)
+  40236  WDisChaRteMaxRtg               = 5000 W                    (uint16)
+  40237  VAChaRteMaxRtg                 = 5800 VA                   (uint16)
+  40238  VADisChaRteMaxRtg              = 5800 VA                   (uint16)
+  40239  VNomRtg                        = 240 V                     (uint16)
+  40240  VMaxRtg                        = 288 V                     (uint16)
+  40241  VMinRtg                        = 192 V                     (uint16)
+  40242  AMaxRtg                        = 24.50 A                   (uint16)
+  40243  PFOvrExtRtg                    = 0.850                     (uint16)
+  40244  PFUndExtRtg                    = 0.850                     (uint16)
+  40245  ReactSusceptRtg                = 3725 S                    (uint16)
+  40246  NorOpCatRtg                    = 1                         (enum16)
+  40247  AbnOpCatRtg                    = 2                         (enum16)
+  40248  CtrlModes                      = 14271                     (bitfield32)
+  40250  IntIslandCatRtg                = 1                         (bitfield16)
+  40251  WMax                           = 0 W                       (uint16)
+  40252  WMaxOvrExt                     = None W                    (uint16)
+  40253  WOvrExtPF                      = None                      (uint16)
+  40254  WMaxUndExt                     = None W                    (uint16)
+  40255  WUndExtPF                      = None                      (uint16)
+  40256  VAMax                          = 0 VA                      (uint16)
+  40257  VarMaxInj                      = None Var                  (uint16)
+  40258  VarMaxAbs                      = None Var                  (uint16)
+  40259  WChaRteMax                     = None W                    (uint16)
+  40260  WDisChaRteMax                  = None W                    (uint16)
+  40261  VAChaRteMax                    = None VA                   (uint16)
+  40262  VADisChaRteMax                 = None VA                   (uint16)
+  40263  VNom                           = None V                    (uint16)
+  40264  VMax                           = None V                    (uint16)
+  40265  VMin                           = None V                    (uint16)
+  40266  AMax                           = None A                    (uint16)
+  40267  PFOvrExt                       = None                      (uint16)
+  40268  PFUndExt                       = None                      (uint16)
+  40269  IntIslandCat                   = None                      (bitfield16)
+  40270  W_SF                           = 0                         (sunssf)
+  40271  PF_SF                          = -3                        (sunssf)
+  40272  VA_SF                          = 0                         (sunssf)
+  40273  Var_SF                         = 0                         (sunssf)
+  40274  V_SF                           = 0                         (sunssf)
+  40275  A_SF                           = -1                        (sunssf)
+  40276  S_SF                           = 0                         (sunssf)
+
+----------------------------------------------------------------------
+Model 703: DEREnterService
+----------------------------------------------------------------------
+
+Points: 13
+  40277  ID                             = 703                       (uint16)
+  40278  L                              = 17                        (uint16)
+  40279  ES                             = 1 [Unknown]               (enum16)
+  40280  ESVHi                          = 253.0 Pct                 (uint16)
+  40281  ESVLo                          = 205.0 Pct                 (uint16)
+  40282  ESHzHi                         = 50.15 Hz                  (uint32)
+  40284  ESHzLo                         = 47.50 Hz                  (uint32)
+  40286  ESDlyTms                       = 60 Secs                   (uint32)
+  40288  ESRndTms                       = None Secs                 (uint32)
+  40290  ESRmpTms                       = 360 Secs                  (uint32)
+  40292  ESDlyRemTms                    = None Secs                 (uint32)
+  40294  V_SF                           = -1                        (sunssf)
+  40295  Hz_SF                          = -2                        (sunssf)
+
+----------------------------------------------------------------------
+Model 704: DERCtlAC
+----------------------------------------------------------------------
+
+Points: 45
+  40296  ID                             = 704                       (uint16)
+  40297  L                              = 65                        (uint16)
+  40298  PFWInjEna                      = 1                         (enum16)
+  40299  PFWInjEnaRvrt                  = None                      (enum16)
+  40300  PFWInjRvrtTms                  = None Secs                 (uint32)
+  40302  PFWInjRvrtRem                  = None Secs                 (uint32)
+  40304  PFWAbsEna                      = None                      (enum16)
+  40305  PFWAbsEnaRvrt                  = None                      (enum16)
+  40306  PFWAbsRvrtTms                  = None Secs                 (uint32)
+  40308  PFWAbsRvrtRem                  = None Secs                 (uint32)
+  40310  WMaxLimPctEna                  = 0                         (enum16)
+  40311  WMaxLimPct                     = 100.0 Pct                 (uint16)
+  40312  WMaxLimPctRvrt                 = None Pct                  (uint16)
+  40313  WMaxLimPctEnaRvrt              = None                      (enum16)
+  40314  WMaxLimPctRvrtTms              = None Secs                 (uint32)
+  40316  WMaxLimPctRvrtRem              = None Secs                 (uint32)
+  40318  WSetEna                        = 0                         (enum16)
+  40319  WSetMod                        = 0                         (enum16)
+  40320  WSet                           = 0 W                       (int32)
+  40322  WSetRvrt                       = 0 W                       (int32)
+  40324  WSetPct                        = 0.000 Pct                 (int16)
+  40325  WSetPctRvrt                    = 0.000 Pct                 (int16)
+  40326  WSetEnaRvrt                    = 1                         (enum16)
+  40327  WSetRvrtTms                    = 60 Secs                   (uint32)
+  40329  WSetRvrtRem                    = 0 Secs                    (uint32)
+  40331  VarSetEna                      = 0                         (enum16)
+  40332  VarSetMod                      = 1                         (enum16)
+  40333  VarSetPri                      = 2                         (enum16)
+  40334  VarSet                         = 0 Var                     (int32)
+  40336  VarSetRvrt                     = None Var                  (int32)
+  40338  VarSetPct                      = None Pct                  (int16)
+  40339  VarSetPctRvrt                  = None Pct                  (int16)
+  40340  VarSetEnaRvrt                  = None                      (enum16)
+  40341  VarSetRvrtTms                  = None Secs                 (uint32)
+  40343  VarSetRvrtRem                  = None Secs                 (uint32)
+  40345  WRmp                           = None %Max/Sec             (uint16)
+  40346  WRmpRef                        = None                      (enum16)
+  40347  VarRmp                         = None %Max/Sec             (uint16)
+  40348  AntiIslEna                     = None                      (enum16)
+  40349  PF_SF                          = -3                        (sunssf)
+  40350  WMaxLimPct_SF                  = -1                        (sunssf)
+  40351  WSet_SF                        = 0                         (sunssf)
+  40352  WSetPct_SF                     = -1                        (sunssf)
+  40353  VarSet_SF                      = 0                         (sunssf)
+  40354  VarSetPct_SF                   = -1                        (sunssf)
+
+----------------------------------------------------------------------
+Model 705: DERVoltVar
+----------------------------------------------------------------------
+
+Points: 13
+  40363  ID                             = 705                       (uint16)
+  40364  L                              = 67                        (uint16)
+  40365  Ena                            = 1                         (enum16)
+  40366  AdptCrvReq                     = 0                         (uint16)
+  40367  AdptCrvRslt                    = 0                         (enum16)
+  40368  NPt                            = 4                         (uint16)
+  40369  NCrv                           = 3                         (uint16)
+  40370  RvrtTms                        = None Secs                 (uint32)
+  40372  RvrtRem                        = None Secs                 (uint32)
+  40374  RvrtCrv                        = None                      (uint16)
+  40375  V_SF                           = -2                        (sunssf)
+  40376  DeptRef_SF                     = -2                        (sunssf)
+  40377  RspTms_SF                      = 0                         (sunssf)
+
+----------------------------------------------------------------------
+Model 706: DERVoltWatt
+----------------------------------------------------------------------
+
+Points: 13
+  40432  ID                             = 706                       (uint16)
+  40433  L                              = 31                        (uint16)
+  40434  Ena                            = 1                         (enum16)
+  40435  AdptCrvReq                     = 0                         (uint16)
+  40436  AdptCrvRslt                    = 0                         (enum16)
+  40437  NPt                            = 2                         (uint16)
+  40438  NCrv                           = 2                         (uint16)
+  40439  RvrtTms                        = None Secs                 (uint32)
+  40441  RvrtRem                        = None Secs                 (uint32)
+  40443  RvrtCrv                        = None                      (uint16)
+  40444  V_SF                           = 0                         (sunssf)
+  40445  DeptRef_SF                     = 0                         (sunssf)
+  40446  RspTms_SF                      = -1                        (sunssf)
+
+----------------------------------------------------------------------
+Model 707: DERTripLV
+----------------------------------------------------------------------
+
+Points: 9
+  40465  ID                             = 707                       (uint16)
+  40466  L                              = 105                       (uint16)
+  40467  Ena                            = 1                         (enum16)
+  40468  AdptCrvReq                     = 0                         (uint16)
+  40469  AdptCrvRslt                    = 0                         (enum16)
+  40470  NPt                            = 5                         (uint16)
+  40471  NCrvSet                        = 2                         (uint16)
+  40472  V_SF                           = -1                        (sunssf)
+  40473  Tms_SF                         = -2                        (sunssf)
+
+----------------------------------------------------------------------
+Model 708: DERTripHV
+----------------------------------------------------------------------
+
+Points: 9
+  40572  ID                             = 708                       (uint16)
+  40573  L                              = 105                       (uint16)
+  40574  Ena                            = 1                         (enum16)
+  40575  AdptCrvReq                     = 0                         (uint16)
+  40576  AdptCrvRslt                    = 0                         (enum16)
+  40577  NPt                            = 5                         (uint16)
+  40578  NCrvSet                        = 2                         (uint16)
+  40579  V_SF                           = -1                        (sunssf)
+  40580  Tms_SF                         = -2                        (sunssf)
+
+----------------------------------------------------------------------
+Model 709: DERTripLF
+----------------------------------------------------------------------
+
+Points: 9
+  40679  ID                             = 709                       (uint16)
+  40680  L                              = 135                       (uint16)
+  40681  Ena                            = 1                         (enum16)
+  40682  AdptCrvReq                     = 0                         (uint16)
+  40683  AdptCrvRslt                    = 0                         (enum16)
+  40684  NPt                            = 5                         (uint16)
+  40685  NCrvSet                        = 2                         (uint16)
+  40686  Hz_SF                          = -1                        (sunssf)
+  40687  Tms_SF                         = -2                        (sunssf)
+
+----------------------------------------------------------------------
+Model 710: DERTripHF
+----------------------------------------------------------------------
+
+Points: 9
+  40816  ID                             = 710                       (uint16)
+  40817  L                              = 135                       (uint16)
+  40818  Ena                            = 1                         (enum16)
+  40819  AdptCrvReq                     = 0                         (uint16)
+  40820  AdptCrvRslt                    = 0                         (enum16)
+  40821  NPt                            = 5                         (uint16)
+  40822  NCrvSet                        = 2                         (uint16)
+  40823  Hz_SF                          = -1                        (sunssf)
+  40824  Tms_SF                         = -2                        (sunssf)
+
+----------------------------------------------------------------------
+Model 711: DERFreqDroop
+----------------------------------------------------------------------
+
+Points: 12
+  40953  ID                             = 711                       (uint16)
+  40954  L                              = 32                        (uint16)
+  40955  Ena                            = 1                         (enum16)
+  40956  AdptCtlReq                     = 0                         (uint16)
+  40957  AdptCtlRslt                    = 0                         (enum16)
+  40958  NCtl                           = 2                         (uint16)
+  40959  RvrtTms                        = None Secs                 (uint32)
+  40961  RvrtRem                        = None Secs                 (uint32)
+  40963  RvrtCtl                        = None                      (uint16)
+  40964  Db_SF                          = -3                        (sunssf)
+  40965  K_SF                           = -3                        (sunssf)
+  40966  RspTms_SF                      = -1                        (sunssf)
+
+----------------------------------------------------------------------
+Model 712: DERWattVar
+----------------------------------------------------------------------
+
+Points: 12
+  40987  ID                             = 712                       (uint16)
+  40988  L                              = 44                        (uint16)
+  40989  Ena                            = 0                         (enum16)
+  40990  AdptCrvReq                     = 0                         (uint16)
+  40991  AdptCrvRslt                    = 0                         (enum16)
+  40992  NPt                            = 6                         (uint16)
+  40993  NCrv                           = 2                         (uint16)
+  40994  RvrtTms                        = None Secs                 (uint32)
+  40996  RvrtRem                        = None Secs                 (uint32)
+  40998  RvrtCrv                        = None                      (uint16)
+  40999  W_SF                           = -1                        (sunssf)
+  41000  DeptRef_SF                     = -1                        (sunssf)
+
+----------------------------------------------------------------------
+Model 713: DERStorageCapacity
+----------------------------------------------------------------------
+
+Points: 9
+  41033  ID                             = 713                       (uint16)
+  41034  L                              = 7                         (uint16)
+  41035  WHRtg                          = 13600 WH                  (uint16)
+  41036  WHAvail                        = 7515 WH                   (uint16)
+  41037  SoC                            = 55.00 Pct                 (uint16)
+  41038  SoH                            = 95.60 Pct                 (uint16)
+  41039  Sta                            = 0                         (enum16)
+  41040  WH_SF                          = 0                         (sunssf)
+  41041  Pct_SF                         = -1                        (sunssf)
+
+----------------------------------------------------------------------
+Model 714: DERMeasureDC
+----------------------------------------------------------------------
+
+Points: 13
+  41042  ID                             = 714                       (uint16)
+  41043  L                              = 43                        (uint16)
+  41044  PrtAlrms                       = 0                         (bitfield32)
+  41046  NPrt                           = 1                         (uint16)
+  41047  DCA                            = 0 A                       (int16)
+  41048  DCW                            = 500 W                     (int16)
+  41049  DCWhInj                        = 6344500 Wh                (uint64)
+  41053  DCWhAbs                        = 6478740 Wh                (uint64)
+  41057  DCA_SF                         = 0                         (sunssf)
+  41058  DCV_SF                         = 0                         (sunssf)
+  41059  DCW_SF                         = 0                         (sunssf)
+  41060  DCWH_SF                        = 0                         (sunssf)
+  41061  Tmp_SF                         = 0                         (sunssf)
+
+----------------------------------------------------------------------
+Model 715: DERCtl
+----------------------------------------------------------------------
+
+Points: 7
+  41087  ID                             = 715                       (uint16)
+  41088  L                              = 7                         (uint16)
+  41089  LocRemCtl                      = 1                         (enum16)
+  41090  DERHb                          = 0                         (uint32)
+  41092  ControllerHb                   = 0                         (uint32)
+  41094  AlarmReset                     = 0                         (uint16)
+  41095  OpCtl                          = 0                         (enum16)
+
+======================================================================
+
+======================================================================
+Device: 192.168.0.110:502
+======================================================================
+Unit ID:        1
+Base Address:   40000
+
+================================================================================
+Raw Read: Start 15500, Count 14
+--------------------------------------------------------------------------------
+Addr     Hex    UInt16   Int16    Value           Acc Bits (Binary)      Guess/Notes
+--------------------------------------------------------------------------------------------------------------
+15500    0000   0        0        0               R   0000000000000000   PV Installed (PVUse) (NotUsed)
+15501    0000   0        0        0               R   0000000000000000   Remote PV Installed (apBoxPVUse) (NotUsed)
+15502    0000   0        0        0               R   0000000000000000   PV Total Power (PVOutputP) W
+15503    0000   0        0        0               R   0000000000000000   PV Proximal Power (proximalPVOutputP) W
+15504    0000   0        0        0               R   0000000000000000   PV Remote 1 Power (Remote1PV) W
+15505    0000   0        0        0               R   0000000000000000   PV Remote 2 Power (Remote2PV) W
+15506    01F4   500      500      500             R   0000000111110100   Home Load (LoadActiveP) W
+15507    0002   2        2        2               RW  0000000000000010   Operating Mode (OnGridMode) (Self)
+15508    0006   6        6        6               RW  0000000000000110   Self-Consumption SOC Reserve (SelfReserve) %
+15509    0006   6        6        6               RW  0000000000000110   TOU SOC Reserve (TouReserve) %
+15510    00C5   197      197      12959408        R   0000000011000101   PV Energy Total (PVOutputWh) (High Word)
+15511    BEB0   48816    -        -               -   -                    -> Low Word
+15512    00C5   197      197      12959408        R   0000000011000101   PV Energy Proximal (proximalOutputWh) (High Word)
+15513    BEB0   48816    -        -               -   -                    -> Low Word

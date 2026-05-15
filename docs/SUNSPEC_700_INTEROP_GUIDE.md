@@ -1,5 +1,7 @@
 # SunSpec 700-Series Interoperability Guide
 
+*Last Updated: 2026-05-15 18:57*
+
 **Baseline Reference**: SunSpec DER Information Model Specification V1.2  
 **Publication Date**: 2020-03-24  
 **Version**: 1.2 (Chapter 7: DER Storage, Chapter 8: DER Monitoring)

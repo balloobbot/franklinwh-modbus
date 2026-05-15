@@ -1,5 +1,7 @@
 # DER Control Register Reference
 
+*Last Updated: 2026-05-15 18:57*
+
 Complete reference of all DER control registers on the FranklinWH aGate, documenting what we use, what works, what's untested, and the future test plan.
 
 **Cross-references:** [ORCHESTRATION_AND_CONTROL.md](./ORCHESTRATION_AND_CONTROL.md) (legacy command sequencing), [FRANKLINWH_SUNSPEC_QUIRKS.md](./FRANKLINWH_SUNSPEC_QUIRKS.md) (known quirks)
