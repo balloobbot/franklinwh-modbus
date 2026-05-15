@@ -198,4 +198,6 @@ MIT License — see [LICENSE](./LICENSE) for details.
 
 - 🐛 [Report a Bug](https://github.com/david2069/franklinwh-modbus/issues/new?template=bug_report.md)
 - 💡 [Request a Feature](https://github.com/david2069/franklinwh-modbus/issues/new?template=feature_request.md)
-- 📖 [Documentation](./docs/README.md)
+- 📖 [CLI Command Reference](./docs/CLI_COMMAND_REFERENCE.md)
+- 📖 [Modbus Reader Reference](./docs/MODBUS_READER_REFERENCE.md)
+- 📖 [Full Documentation](./docs/README.md)

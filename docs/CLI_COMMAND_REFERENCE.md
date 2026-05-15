@@ -1,402 +1,113 @@
 # CLI Command Reference
 
-> **Live output captured:** 2026-03-22 19:25–19:28 AEDT  
-> **Device:** aGate X (FW V10R01B04D00, SoC 77%, evening, no solar)  
-> **Connection:** WiFi to 192.168.0.110:502
+The `franklinwh_cli.py` tool is the primary interface for controlling and monitoring FranklinWH aGate systems via Modbus TCP. It supports both native hardware modes and advanced virtual software orchestration.
+
+## 1. Connection & Global Options
+
+| Option | Alias | Default | Description |
+|:-------|:------|:--------|:------------|
+| `-i` | `--ip` | **Required** | Target aGate IP address. |
+| `-p` | `--port` | `502` | Modbus TCP port. |
+| `-u` | `--unit` | `2` | Modbus Unit ID (aGate default is 2). |
+| `-b` | `--base-address` | `40000` | Start address for SunSpec discovery. |
+| `-t` | `--timeout` | `10.0` | Connection timeout in seconds. |
+
+## 2. Operating Modes
+
+### Native Hardware Mode (`--mode`)
+Switches the aGate's native firmware operating mode via Register 15507.
+- **Values**: `backup`, `self-consumption` (or `self`, `sc`), `tou`.
+- **Note**: Requires "SPAN Modbus" unlock. The CLI performs a read-back verification to ensure the hardware accepted the change.
+
+### Virtual Software Mode (`--vmode`)
+Runs a software-orchestrated control loop using standard SunSpec Model 704 commands.
+- **Values**: `self_consumption`, `emergency_backup`, `time_of_use`, `peak_shave`, `manual`.
+- **Note**: Does not require SPAN unlock. Operates by overriding aGate logic with direct charge/discharge commands.
+
+## 3. Direct Battery Control
+
+| Option | Argument | Description |
+|:-------|:---------|:------------|
+| `--charge` | `WATTS` | Force charge from grid at specific wattage. |
+| `--discharge` | `WATTS` | Force discharge to home/grid at specific wattage. |
+| `--max-charge` | - | Charge at the device's maximum rated nameplate power. |
+| `--max-discharge` | - | Discharge at the device's maximum rated nameplate power. |
+| `--standby` | - | Set battery to 0W idle (grid powers home). |
+| `--power` | `WATTS` | Legacy alias: Positive=Charge, Negative=Discharge. |
+
+## 4. Control Parameters & Safety
+
+| Option | Default | Description |
+|:-------|:--------|:------------|
+| `--target-soc` | `100` | Target SoC for charge/discharge operations. |
+| `--reserve` | `20` | SoC reserve level for Self-Consumption/TOU modes. |
+| `--threshold` | `2000` | Power threshold (W) for Peak Shave mode. |
+| `--duration` | - | Run the command for N seconds and then exit. |
+| `--revert` | - | **Safety**: Auto-release control after N seconds (Software watchdog). |
+| `--target-soc-auto` | - | Auto-stop once specific SoC % is reached. |
+| `--loop` | - | Maintain control loop until target is reached. |
+| `--force` | - | Override safety SoC limits (use with caution). |
+
+## 5. Monitoring & Diagnostics
+
+| Option | Description |
+|:-------|:------------|
+| `--status` | Show system summary (SoC, Power Flow, Control State). |
+| `--detail` | Add granular register data and lifetime energy metrics to `--status`. |
+| `--monitor` | Launch the interactive Terminal UI (TUI) dashboard. |
+| `--healthcheck` | Run comprehensive system diagnostics and zombie detection. |
+| `--check-alarms` | Display detailed bitfield status for all system and DC alarms. |
+| `--stop` | Release Modbus control and return the aGate to native firmware mode. |
+
+## 6. Utilities & Scheduling
+
+| Option | Description |
+|:-------|:------------|
+| `--schedule-file` | Load a JSON TOU schedule for virtual mode orchestration. |
+| `--show-schedule` | Visualize the contents of a schedule file. |
+| `--validate-schedule`| Perform schema validation on a schedule JSON. |
+| `--clear-alarms` | Attempt to reset active alarms via the `AlarmReset` register. |
+| `--test-extension-write` | Check if 15507-15509 extension registers are writable (PICS check). |
+| `--check-span` | Scan local network for SPAN panels to determine feature availability. |
+
+## 7. Sequencing
+
+| Option | Description |
+|:-------|:------------|
+| `--sequence` | Execute a JSON string sequence (e.g., `'[{"charge": 1000}, {"wait": 10}]'`). |
+| `--sequence-file` | Execute a multi-step sequence from a JSON file. |
+| `--brief` | Minimal output for automated sequencing scripts. |
+
+## 8. Global UI
+
+| Option | Description |
+|:-------|:------------|
+| `-v`, `--verbose` | Enable debug logging of SunSpec discovery and Modbus traffic. |
+| `-q`, `--quiet` | Suppress all non-error output. |
+| `--theme` | Set TUI theme: `dark` (default), `green`, `amber`, `white`, `paper`. |
+| `--dry-run` | Simulate command execution without writing to registers. |
 
 ---
 
-## Quick Reference
+## Example Scenarios
 
+### 1. Simple Status Check
 ```bash
-CLI="python3 tools/franklinwh_cli.py -i YOUR_AGATE_IP"
-
-$CLI --status                    # Compact status (default)
-$CLI --status --verbose          # Full verbose status with debug
-$CLI --charge 3000               # Charge battery at 3000W
-$CLI --discharge 2000            # Discharge battery at 2000W
-$CLI --charge 0                  # Force standby (battery idle, grid powers home)
-$CLI --stop                      # Release control → aGate native mode resumes
-$CLI --healthcheck               # System health check
-$CLI --monitor                   # Interactive TUI dashboard
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --status
 ```
 
----
-
-## 1. Status — Idle (aGate Native Mode)
-
-Battery discharging 600W to serve 565W home load — normal Self-Consumption behavior.
-
-```
-  ⚡ FranklinWH aGate | SoC: 77% | Self-Consumption | Reserve: 12%
-  ──────────────────────────────────────────────────────
-    Solar:       0W idle          Battery: ↑ DISCHARGING 600W
-    Home:      565W consuming     Grid:    ~0W (Grid Following)
-  ──────────────────────────────────────────────────────
-    LocRemCtl: Local           Available: 10.5/13.6 kWh
-    Derived:   Local (aGate, Self-Consumption)
-```
-
-**Key observations:**
-- `Derived: Local` — aGate is controlling the battery natively
-- `Grid: ~0W (Grid Following)` — grid balanced, aGate managing load
-- Battery discharges just enough to cover home load (self-consumption)
-
----
-
-## 2. Charge at 3000W
-
+### 2. Force Charge for 1 Hour with Safety Timeout
 ```bash
-$CLI --charge 3000
+# Charges at 3000W, reverts to cloud control automatically after 3600s
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --charge 3000 --revert 3600 --loop
 ```
 
-**Pre-command state assessment:**
-```
-  CURRENT SYSTEM STATE
-  Battery:    SoC: 77.0% | Target: 100.0% | ETA: +36min
-  Activity:   DISCHARGING (600W, aGate native)
-  Home Load:  558W
-  Grid:       -2W (balanced)
-  WSetEna:    0
-  OnGridMode: Self-Consumption
-
-Result: SUCCESS - Command Sent: 3000.0W (-60.0% of 5000W)
-✅ Command will PERSIST until you run --stop
-```
-
-**Status during charge (30s later):**
-```
-  ⚡ FranklinWH aGate | SoC: 77% | Self-Consumption | Reserve: 12%
-  ──────────────────────────────────────────────────────
-    Solar:       0W idle          Battery: ↓ CHARGING 3000W
-    Home:      582W consuming     Grid:    ← 3587W importing
-  ──────────────────────────────────────────────────────
-    LocRemCtl: Local           Available: 10.5/13.6 kWh
-    Derived:   Remote (Modbus WSetPct=-60.0%)
-```
-
-**Key observations:**
-- `Derived: Remote (Modbus WSetPct=-60.0%)` — Modbus has taken control
-- Grid imports 3587W to charge battery (3000W) + serve home (582W)
-- `LocRemCtl: Local` — aGate SunSpec register still reports Local (LocRemCtl Paradox)
-
----
-
-## 3. Stop (Release Control)
-
+### 3. Switch Native Mode (Requires SPAN)
 ```bash
-$CLI --stop
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --mode backup
 ```
 
-```
-Resetting control state to idle...
-Before reset: WSetEna=1, WSetPct=-600, WSet=0
-✓ Reset successful: WSetEna=0, WSetPct=0
-✓ Control released
-```
-
-aGate immediately resumes native Self-Consumption mode.
-
----
-
-## 4. Discharge at 2000W
-
+### 4. Run Virtual Peak Shaving
 ```bash
-$CLI --discharge 2000
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --vmode peak_shave --threshold 1500
 ```
-
-```
-Result: SUCCESS - Command Sent: -2000.0W (40.0% of 5000W)
-✅ Command will PERSIST until you run --stop
-```
-
-**Status during discharge:**
-```
-  ⚡ FranklinWH aGate | SoC: 77% | Self-Consumption | Reserve: 12%
-  ──────────────────────────────────────────────────────
-    Solar:       0W idle          Battery: ↑ DISCHARGING 2000W
-    Home:      540W consuming     Grid:    → 1469W exporting
-  ──────────────────────────────────────────────────────
-    LocRemCtl: Local           Available: 10.5/13.6 kWh
-    Derived:   Remote (Modbus WSetPct=40.0%)
-```
-
-**Key observations:**
-- Battery discharges 2000W → 540W powers home, 1469W **exported to grid**
-- This is a Remote Control scenario — excess power feeds the grid
-
----
-
-## 5. Standby (Force Battery Idle)
-
-```bash
-$CLI --charge 0
-```
-
-Forces `WSetPct=0` — battery neither charges nor discharges. Grid must supply all home load.
-
-**Status during standby:**
-```
-  ⚡ FranklinWH aGate | SoC: 77% | Self-Consumption | Reserve: 12%
-  ──────────────────────────────────────────────────────
-    Solar:       0W idle          Battery: IDLE
-    Home:      551W consuming     Grid:    ← 575W importing
-  ──────────────────────────────────────────────────────
-    LocRemCtl: Local           Available: 10.5/13.6 kWh
-    Derived:   Remote (Modbus WSetPct=0.0%)
-```
-
-**Key observations:**
-- Battery is **IDLE** — neither charging nor discharging
-- Grid imports **575W** to power home loads entirely
-- `Derived: Remote (Modbus WSetPct=0.0%)` — Modbus still has control, commanding zero power
-- This is useful for TOU strategies: hold battery during off-peak, discharge during peak
-
----
-
-## 6. Healthcheck
-
-```bash
-$CLI --healthcheck
-```
-
-```
-  HEALTH CHECK: HEALTHY
-
-  DEVICE:
-    Manufacturer: FranklinWH Technologies Co., Ltd
-    Model:        aGate X
-    Serial:       10060006A02F********
-    Firmware:     V10R01B04D00
-
-  Checks:
-    ✓ connection: OK
-    ✓ model_704: OK
-    ✓ model_713: OK
-    ✓ model_701: OK
-    ✓ zombie_state: OK (not in zombie state)
-    soc: 77.0
-    ✓ soc_safe: OK
-    grid_voltage: 241.8
-    grid_frequency: 50.0
-    ac_type: Single-Phase (230V Nominal)
-    grid_connection: Connected
-    grid_mode: Grid Following
-    inverter_state: Standby
-    ongrid_mode_name: Self-Consumption
-    self_reserve_pct: 12
-    ℹ extension_readonly: Ongrid Mode, Self Reserve, Tou Reserve
-
-  Recommendations:
-    • ℹ Extension registers read-only (requires installer unlock)
-```
-
----
-
-## Command Lifecycle Summary
-
-```
-  ┌─────────┐    --charge N    ┌──────────┐    --stop    ┌─────────┐
-  │  IDLE   │ ───────────────→ │ CHARGING │ ──────────→  │  IDLE   │
-  │ (aGate) │    --discharge N │          │              │ (aGate) │
-  │ Local   │ ───────────────→ │DISCHARGING│──────────→  │ Local   │
-  │         │    --charge 0    │          │              │         │
-  │         │ ───────────────→ │ STANDBY  │ ──────────→  │         │
-  └─────────┘                  └──────────┘              └─────────┘
-   Derived:                     Derived:                  Derived:
-   Local (aGate,                Remote (Modbus            Local (aGate,
-   Self-Consumption)            WSetPct=X%)               Self-Consumption)
-```
-
-!!! warning
-    **Commands persist indefinitely.** The aGate has no hardware timeout (PICS Issue 4). Always use `--stop` to release control, or `--revert N` for automatic software timeout.
-
-!!! caution
-    **WiFi can cause orphaned control.** During this test, `--stop` timed out due to WiFi packet loss, leaving the aGate in Remote Control. The library detected this on next connect (`Active VPP state detected: WSetEna=1`). Use `--stop` again or the library will auto-release with `auto_release_orphan=True`.
-
----
-
-## 7. Max Charge / Max Discharge
-
-```bash
-$CLI --max-charge       # Uses WChaRteMaxRtg from M702 nameplate
-$CLI --max-discharge    # Uses WDisChaRteMaxRtg from M702 nameplate
-```
-
-**Max charge (5000W):**
-```
-Using max charge rate: 5000W (from M702 nameplate)
-Result: SUCCESS - Command Sent: 5000W (-100.0% of 5000W)
-
-  Battery: ↓ CHARGING 5000W     Grid: ← 5603W importing
-  Derived: Remote (Modbus WSetPct=-100.0%)
-```
-
-**Max discharge (5000W):**
-```
-Using max discharge rate: 5000W (from M702 nameplate)
-Result: SUCCESS - Command Sent: -5000W (100.0% of 5000W)
-
-  Battery: ↑ DISCHARGING 5000W  Grid: → 4443W exporting
-  Derived: Remote (Modbus WSetPct=100.0%)
-```
-
----
-
-## 8. Standby (Explicit Flag)
-
-```bash
-$CLI --standby    # Same as --charge 0, more explicit
-```
-
-```
-Result: SUCCESS - Command Sent: 0W (0% of 5000W)
-
-  Battery: IDLE                  Grid: ← 546W importing
-  Derived: Remote (Modbus WSetPct=0.0%)
-```
-
----
-
-## 9. Diagnostic Commands
-
-### Check Alarms
-```bash
-$CLI --check-alarms
-```
-```
-  System Alarms (Model 701): 0x00000000     ✓ None active
-  DC Port Alarms (Model 714): 0x00000000    ✓ None active
-  ✓ No blocking alarms - operation permitted
-```
-
-### Check SPAN Panel
-```bash
-$CLI --check-span
-```
-```
-  aGate IP: 192.168.0.110
-  Scanning: 192.168.0.0/24 for SPAN panels (port 80)...
-  — No SPAN panels found on 192.168.0.0/24
-  → Extension registers will be READ-ONLY
-```
-
-### Test Extension Write
-```bash
-$CLI --test-extension-write
-```
-```
-  ✗ Ongrid Mode  (15507): READ-ONLY (Write rejected (needs unlock?))
-  ✗ Self Reserve (15508): READ-ONLY (Write rejected (needs unlock?))
-  ✗ Tou Reserve  (15509): READ-ONLY (Write rejected (needs unlock?))
-  Summary: 0/3 registers writable
-```
-
-### Dry Run
-```bash
-$CLI --charge 3000 --dry-run
-```
-```
-Result: SUCCESS - Dry Run: WSetPct=600 (3000.0W)
-```
-No command sent to aGate — simulation only.
-
----
-
-## 10. Software Auto-Revert
-
-```bash
-$CLI --charge 2000 --revert 30    # Auto-release after 30s
-```
-```
-Software timeout set: 30s
-Result: SUCCESS - Command Sent: 2000.0W (-40.0% of 5000W) [timeout: 30s]
-⏱️  Auto-revert in 30s (software timer)
-```
-
-!!! warning
-    **`--revert` requires the CLI process to stay running.** In fire-and-forget mode (no `--loop`), the CLI exits immediately after sending the command and the timer is lost. Use `--revert N --loop` for reliable auto-revert.
-
----
-
-## Comprehensive Switch Test Matrix
-
-> **Tested:** 2026-03-22 19:45–19:49 AEDT | SoC: 76% | Device: aGate X (V10R01B04D00)
-
-| Switch | Result | Notes |
-|--------|:------:|-------|
-| `--status` | ✅ | Compact summary with LocRemCtl + Derived |
-| `--status --detail` | ✅ | Full verbose output with register sources, lifetime energy (M701/M714) |
-| `--status -v` | ✅ | Debug logging (SunSpec scan, model discovery) |
-| `--status -q` | ✅ | Quiet mode — suppresses debug, shows compact |
-| `--healthcheck` | ✅ | All checks passed: HEALTHY |
-| `--check-alarms` | ✅ | System + DC port alarms: none active |
-| `--check-span` | ✅ | Network scan: no SPAN panel found |
-| `--test-extension-write` | ✅ | 0/3 writable (expected without SPAN unlock) |
-| `--charge 3000` | ✅ | 3000W charge, grid imports 3587W |
-| `--discharge 2000` | ✅ | 2000W discharge, grid exports 1469W |
-| `--stop` | ✅ | WSetEna=0, control released |
-| `--max-charge` | ✅ | 5000W (from M702), grid imports 5603W |
-| `--max-discharge` | ✅ | 5000W (from M702), grid exports 4443W |
-| `--standby` | ✅ | Battery IDLE, grid imports 546W |
-| `--dry-run` | ✅ | Simulation only, no command sent |
-| `--revert 20` | ✅ | Countdown timer, auto-released after 20s (DEF-004 FIXED) |
-| `--target-soc-auto --loop` (charge) | ✅ | Charge 75→76%, auto-stopped at 125s (DEF-005 FIXED) |
-| `--target-soc-auto --loop` (discharge) | ✅ | Discharge 75→74%, auto-stopped at ~150s (DEF-005 FIXED) |
-| `--clear-alarms` | ✅ | Alarm reset via raw Modbus TCP FC06 (DEF-006 FIXED) |
-| `--show-schedule` | ⚠️ | Schedule requires `version` field (validation works correctly) |
-| `--validate-schedule` | ⚠️ | Same validation requirement (correct behavior) |
-
-### Not Tested (Special Conditions Required)
-
-| Switch | Reason |
-|--------|--------|
-| `--monitor` | Interactive TUI — test manually |
-| `--mode *` | Virtual modes — not properly implemented |
-| `--off-grid-permitted` | Requires off-grid condition |
-| `--force` | Safety override — test manually with caution |
-| `--reset-on-start` | Startup flag — tested implicitly via `--stop` |
-| `--soc-ramp-window` | Requires virtual mode loop |
-| `--duration` | Same mechanism as `--revert` |
-| `--power` | Legacy alias for `--charge`/`--discharge` |
-| `--theme` | TUI visual only |
-
----
-
-## Bugs Found and Fixed During Testing
-
-### DEF-004: `--revert N` Timer Lost Without `--loop` — ✅ FIXED
-
-**Root cause:** CLI exited immediately after sending command, timer was garbage collected.  
-**Fix:** `--revert N` now runs a visible countdown in the CLI process, then calls `reset_control_state()` on expiry. Ctrl+C during countdown releases control early.  
-**Re-test:** `--charge 2000 --revert 20` — command sent, 20s countdown displayed, auto-reverted.
-
-### DEF-005: `--target-soc-auto` Validation Uses Wrong Comparison — ✅ FIXED
-
-**Root cause:** 1% tolerance in SoC comparison (`current_soc <= target_soc + 1.0`) meant ±1% targets always failed.  
-**Fix:** Removed tolerance — exact comparison now: `current_soc <= target_soc` (discharge) and `current_soc >= target_soc` (charge).  
-**Re-test:** Charge 75→76% auto-stopped at 125s. Discharge 75→74% auto-stopped at ~150s. Both showed `🎯 TARGET REACHED!`.
-
-### DEF-006: `--clear-alarms` SunSpec API Error — ✅ FIXED
-
-**Root cause:** Used `self.dev.write_register()` which doesn't exist on `sunspec2` client.  
-**Fix:** Replaced with raw Modbus TCP FC06 single register write (same pattern as extension register probing).  
-**Re-test:** `--clear-alarms` → `✓ Alarm reset command sent`.
-
----
-
-## Virtual Modes (Not Included)
-
-!!! important
-    **Virtual modes (`--mode self_consumption`, `--mode peak_shave`, etc.) are not covered in this reference.**
-        These modes use software-calculated power targets within Remote Control (`WSetEna=1`). They are **experimental** and not properly implemented — the aGate's native modes (Self-Consumption, TOU, Emergency Backup) handle these scenarios better.
-        **Future:** Virtual modes may be removed entirely, pending FranklinWH enabling:
-    1. **LocRemCtl write access** — allowing proper Local/Remote handoff per SunSpec spec
-    2. **Extension register write access** — enabling direct mode/reserve control via Modbus
-        Until then, the recommended approach is direct power commands (`--charge`, `--discharge`, `--stop`) for Remote Control (mobile app: "VPP Mode"), and the FranklinWH mobile app for mode/reserve changes.
-
----
-
-*Raw test output: `/tmp/cli_lifecycle_output.txt`, `/tmp/cli_switch_test.txt`*  
-*Test scripts: `/tmp/cli_lifecycle_test.sh`, `/tmp/cli_switch_test.sh`*  
-*Last updated: 2026-03-22*
