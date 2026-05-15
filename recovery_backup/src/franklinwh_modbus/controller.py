@@ -36,16 +36,9 @@ class FranklinWHController:
     EXT_PV_TOTAL = 15502
     EXT_HOME_LOAD = 15506
     EXT_HOME_LOAD_HIRES = 16000       # Undocumented high-res mirror (~1W vs ~100W quantized)
-    EXT_ONGRID_MODE = 15507      # 1=Backup, 2=Self-Consumption, 3=TOU
+    EXT_ONGRID_MODE = 15507      # 1=Emergency Backup, 2=Self-Consumption, 3=Time-of-Use
     EXT_SELF_RESERVE = 15508     # Percentage
     EXT_TOU_RESERVE = 15509      # Percentage
-    
-    # Mapping for native operating modes (1-indexed per hardware spec)
-    NATIVE_MODES = {
-        1: 'Emergency Backup',
-        2: 'Self-Consumption',
-        3: 'TOU'
-    }
     
     def __init__(
         self,
@@ -207,7 +200,7 @@ class FranklinWHController:
                 if not sock:
                     return False
                 # Modbus TCP write request
-                req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, addr, value)
+                req = struct.pack('>HHHBBHHH', 0, 0, 6, self.unit_id, 6, addr, value)
                 sock.sendall(req)
                 resp = sock.recv(256)
                 return len(resp) >= 12
@@ -221,10 +214,12 @@ class FranklinWHController:
             original = regs[0] if regs else None
             if original is None:
                 self._extension_write_results['ongrid_mode']['error'] = 'Read failed'
-            elif original not in (0, 1, 2, 3):
+            elif original not in (1, 2, 3, 4):
                 self._extension_write_results['ongrid_mode']['error'] = f'Invalid value: {original}'
             else:
                 # Try to write Self-Consumption mode (2)
+                # CRITICAL: 1=Backup, 2=Self-Consumption, 3=TOU
+                # CRITICAL: 1=Backup, 2=Self-Consumption, 3=TOU
                 test_value = 2 if original != 2 else 1  # Use 2 or alternate with 1
                 if write_reg(self.EXT_ONGRID_MODE, test_value):
                     # Verify write
@@ -462,9 +457,9 @@ class FranklinWHController:
                     
                     # Derive battery state from DC power direction (±50W deadband)
                     # FranklinWH M713.Sta is always 0 (OFF) — cannot rely on it
-                    if dc_power < -50:
+                    if dc_power > 50:
                         result['battery_state'] = 'CHARGING'
-                    elif dc_power > 50:
+                    elif dc_power < -50:
                         result['battery_state'] = 'DISCHARGING'
                     else:
                         result['battery_state'] = 'IDLE'
@@ -586,8 +581,8 @@ class FranklinWHController:
             
             return {
                 'grid_power_w': m701.W.value * (10 ** sf_w) if m701.W.value is not None else 0,
-                'grid_va': m701.VA.value * (10 ** sf_w) if m701.VA.value is not None else 0,
-                'grid_var': m701.Var.value * (10 ** sf_w) if m701.Var.value is not None else 0,
+                'grid_va': m701.VA.value * (10 ** sf_w) if m701.W.value is not None else 0,
+                'grid_var': m701.Var.value * (10 ** sf_w) if m701.W.value is not None else 0,
                 'voltage_v': voltage,
                 'frequency_hz': freq,
                 'current_a': current,
@@ -819,6 +814,10 @@ class FranklinWHController:
     
     def read_native_mode(self) -> dict:
         """Read FranklinWH native operating mode via raw Modbus TCP."""
+        # CRITICAL: Fixed hardware indices. 1=Backup, 2=Self, 3=TOU, 4=Manual.
+        # DO NOT MODIFY OR REORDER.
+        FRANKLIN_MODES = {1: 'Emergency Backup', 2: 'Self-Consumption',
+                          3: 'Time-of-Use', 4: 'Manual'}
         try:
             client = self.dev.client
             client.connect()
@@ -832,85 +831,13 @@ class FranklinWHController:
                 vals = struct.unpack('>HHH', resp[9:15])
                 return {
                     'mode_raw': vals[0],
-                    'mode_name': self.NATIVE_MODES.get(vals[0], f'Unknown({vals[0]})'),
+                    'mode_name': FRANKLIN_MODES.get(vals[0], f'Unknown({vals[0]})'),
                     'self_reserve_pct': vals[1],
                     'tou_reserve_pct': vals[2],
                 }
         except Exception as e:
             logger.debug(f"Native mode read failed: {e}")
         return {}
-
-    def set_native_mode(self, mode: int, dry_run: bool = False) -> Tuple[bool, str]:
-        """
-        Set FranklinWH native operating mode via Modbus Register 15507.
-        
-        Args:
-            mode: Mode index (1: Backup, 2: Self-Consumption, 3: TOU, 4: Manual)
-            dry_run: If True, report what would happen without writing
-            
-        Returns:
-            Tuple of (success, message)
-            
-        NOTE: Requires "SPAN Modbus" option to be enabled by installer.
-        """
-        if mode not in self.NATIVE_MODES:
-            return False, f"Invalid mode index: {mode}. Must be 1-4."
-        
-        mode_name = self.NATIVE_MODES[mode]
-        
-        if dry_run:
-            return True, f"Dry Run: Would set native mode to {mode_name} (Reg 15507 = {mode})"
-            
-        try:
-            client = self.dev.client
-            client.connect()
-            sock = client.socket
-            if not sock:
-                return False, "No active Modbus TCP connection"
-            
-            # Modbus TCP write request (FC06)
-            # transaction_id(2), protocol(2), length(2), unit(1), function(1), addr(2), value(2)
-            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, self.EXT_ONGRID_MODE, mode)
-            sock.sendall(req)
-            resp = sock.recv(256)
-            
-            if len(resp) >= 9:
-                fc = resp[7]
-                if fc == 0x86:
-                    err_code = resp[8]
-                    errors = {1: "Illegal Function", 2: "Illegal Data Address", 3: "Illegal Data Value", 4: "Server Failure"}
-                    err_msg = errors.get(err_code, f"Unknown error {err_code}")
-                    return False, f"Modbus Exception: {err_msg} (0x86, {err_code})"
-                
-                if len(resp) >= 12 and fc == 6:
-                    # FC06 response is just an echo. 
-                    # We MUST perform a separate read to verify the write actually STUCK in hardware.
-                    # This catches cases where the device is read-only but echoes success.
-                    logger.debug("Write ACK received, verifying with read-back...")
-                    time.sleep(0.5) # Wait for firmware to apply
-                    
-                    # Perform read-back
-                    verify_req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, self.EXT_ONGRID_MODE, 1)
-                    sock.sendall(verify_req)
-                    verify_resp = sock.recv(256)
-                    
-                    if len(verify_resp) >= 11:
-                        actual_val = struct.unpack('>H', verify_resp[9:11])[0]
-                        if actual_val == mode:
-                            logger.info(f"Native mode verified: {mode_name} (index {mode})")
-                            return True, f"Native mode changed to {mode_name}"
-                        else:
-                            return False, (
-                                f"Write failed (Read-Only?): Hardware ignored write to {mode_name}. "
-                                f"Register stayed at {self.NATIVE_MODES.get(actual_val, f'Unknown({actual_val})')}. "
-                                "Ensure 'SPAN Modbus' is unlocked in installer settings."
-                            )
-            
-            return False, f"Invalid or short response from aGate (len={len(resp)})"
-                
-        except Exception as e:
-            logger.error(f"Failed to set native mode: {e}")
-            return False, str(e)
     
     # =========================================================================
     # RESERVE SOC VALIDATION (GAP-1, GAP-2 SAFETY FEATURES)

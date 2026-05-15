@@ -675,18 +675,16 @@ class CLIMonitor:
         home_icon = "←" if pf.home_w > 0 else " "
         table.add_row("Home", f"{pf.home_w:>6.0f}W", "Consuming", home_icon)
         
-        # Battery (Standard SunSpec: Negative=Charge, Positive=Discharge)
+        # Battery
         battery_state = pf.battery_state
         if self.config.theme in ("green", "amber", "white", "paper"):
             battery_style = self.theme.accent_color
         else:
             battery_style = "green" if battery_state == "CHARGING" else "yellow" if battery_state == "DISCHARGING" else "dim"
-        
-        # Icon mapping: ↓ for charging (negative), ↑ for discharging (positive)
         battery_icon = "↓" if battery_state == "CHARGING" else "↑" if battery_state == "DISCHARGING" else "○"
         table.add_row("Battery", f"{abs(pf.battery_w):>6.0f}W", f"[{battery_style}]{battery_state}[/{battery_style}]", battery_icon)
         
-        # Grid (FranklinWH Inverted: Negative=Import, Positive=Export)
+        # Grid
         grid_state = "IMPORTING" if pf.grid_w < 0 else "EXPORTING" if pf.grid_w > 0 else "IDLE"
         grid_icon = "←" if pf.grid_w < 0 else "→" if pf.grid_w > 0 else "○"
         table.add_row("Grid", f"{abs(pf.grid_w):>6.0f}W", grid_state, grid_icon)

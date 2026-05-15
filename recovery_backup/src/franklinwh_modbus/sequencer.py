@@ -5,7 +5,6 @@ Executes deterministic sequences of SunSpec register operations with verificatio
 
 import logging
 import time
-import struct
 from typing import Dict, List, Any, Optional, Tuple
 
 try:
@@ -31,21 +30,17 @@ class SunSpecSequencer:
         self.base_address = base_address
         self.verbose = False
 
-    def get_point(self, tag: str) -> Tuple[Optional[Any], Any]:
-        """Resolve 'Model.Point' or 'RawAddress' tag."""
-        if '.' not in tag:
-            # Assume raw address
-            try:
-                addr = int(tag)
-                return None, addr
-            except ValueError:
-                raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' or 'Address'")
+    def get_point(self, tag: str) -> Tuple[Any, Any]:
+        """Resolve 'Model.Point' tag to (model_obj, point_obj) or (None, addr) for raw."""
+        if '.' not in tag and tag.isdigit():
+            # Raw address mode
+            return None, int(tag)
 
         try:
             model_id_str, point_name = tag.split('.')
             model_id = int(model_id_str)
         except ValueError:
-            raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' (e.g. 704.WSetPct)")
+            raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' (e.g. 704.WSetPct) or raw address (e.g. 15507)")
 
         model = self.device.models.get(model_id)
         if model is None:
@@ -88,23 +83,16 @@ class SunSpecSequencer:
     def read_value(self, tag: str) -> Any:
         model, point = self.get_point(tag)
         if model is None:
-            # Raw address read (Uint16) - Uses raw socket to bypass sunspec2 remapping
-            addr = point
-            client_obj = getattr(self.device, 'client', None)
-            if client_obj and client_obj.socket:
-                try:
-                    unit_id = getattr(self.device, 'slave_id', 1)
-                    # Raw Modbus TCP: Transaction(2) Protocol(2) Length(2) Unit(1) Func(1) Addr(2) Count(2)
-                    req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 3, addr, 1)
-                    sock = client_obj.socket
-                    sock.sendall(req)
-                    resp = sock.recv(256)
-                    if len(resp) >= 11: # 9 header + 2 data
-                        return struct.unpack('>H', resp[9:11])[0]
-                except Exception as e:
-                    logger.debug(f"Raw socket read at {addr} failed: {e}")
+            # Raw Modbus read (FC3)
+            # Use raw address directly as PDU address (to match controller.py)
+            client_obj = self.device.client
+            vals = client_obj.read(point, 1)
+            # Returns bytes, need to unpack
+            if vals and len(vals) >= 2:
+                import struct
+                return struct.unpack('>H', vals[:2])[0]
             return None
-
+            
         model.read()
         return self.get_point_val(model, point)
 
@@ -113,17 +101,12 @@ class SunSpecSequencer:
         model, point = self.get_point(tag)
         
         if model is None:
-            # Raw address write
-            addr = point
-            client_obj = getattr(self.device, 'client', None)
-            if client_obj:
-                try:
-                    # sunspec2 client uses write_hregs (start, [values])
-                    client_obj.write_hregs(addr, [int(human_val)])
-                    return human_val
-                except Exception as e:
-                    logger.debug(f"Raw write at {addr} failed: {e}")
-            return None
+            # Raw Modbus write (FC6)
+            # Use raw address directly as PDU address (to match controller.py)
+            import struct
+            client_obj = self.device.client
+            client_obj.write(point, struct.pack('>H', int(human_val)))
+            return human_val
 
         raw_val = human_val
         pdef = point.pdef
@@ -146,19 +129,23 @@ class SunSpecSequencer:
         model.write()
         return raw_val
 
-    def run_sequence(self, sequence: List[Dict[str, Any]], dry_run: bool = False) -> bool:
-        """Execute a list of step dictionaries."""
-        total_steps = len(sequence)
-        logger.info(f"Starting sequence with {total_steps} steps...")
+    def run_sequence(self, sequence: List[Dict], dry_run: bool = False, verbose: bool = True) -> bool:
+        """Execute a list of sequence steps."""
+        if not sequence:
+            return True
+
+        if verbose:
+            logger.info(f"Starting sequence with {len(sequence)} steps...")
         
         for i, step in enumerate(sequence):
             step_name = step.get('name', step.get('step', f"Step {i+1}"))
-            logger.info(f"\n--- [{i+1}/{total_steps}] {step_name} ---")
+            if verbose:
+                logger.info(f"\n--- [{i+1}/{len(sequence)}] {step_name} ---")
             
             # 1. Handle Writes
             writes = step.get('writes', {})
             if writes:
-                if not self.execute_writes(writes, step, dry_run):
+                if not self.execute_writes(writes, step, dry_run, verbose=verbose):
                     if step.get('abort_on_failure', True):
                         logger.error(f"Aborting sequence due to write failure in '{step_name}'")
                         return False
@@ -186,10 +173,11 @@ class SunSpecSequencer:
             if logger.level > logging.INFO:
                 print(f"DONE: {step_name}")
 
-        logger.info("\nSequence complete.")
+        if verbose:
+            logger.info("\nSequence complete.")
         return True
 
-    def execute_writes(self, writes: Dict[str, Any], step: Dict[str, Any], dry_run: bool) -> bool:
+    def execute_writes(self, writes: Dict[str, Any], step: Dict[str, Any], dry_run: bool, verbose: bool = True) -> bool:
         verify = step.get('verify', True)
         timeout_ms = step.get('verify_timeout_ms', 2000)
         
@@ -199,94 +187,49 @@ class SunSpecSequencer:
             try:
                 before_vals[tag] = self.read_value(tag)
             except Exception as e:
-                logger.warning(f"  Could not read initial value for {tag}: {e}")
+                if verbose:
+                    logger.warning(f"  Could not read initial value for {tag}: {e}")
                 before_vals[tag] = "Unknown"
 
         if dry_run:
             for tag, val in writes.items():
-                logger.info(f"  [DRY RUN] Would write {tag}: {before_vals[tag]} -> {val}")
+                if verbose:
+                    logger.info(f"  [DRY RUN] Would write {tag}: {before_vals[tag]} -> {val}")
             return True
 
-        # Perform writes (grouped by model for efficiency)
-        models_to_write = {}
-        
-        def get_attr(obj, key):
-            if isinstance(obj, dict): return obj.get(key)
-            return getattr(obj, key, None)
-
+        # Perform writes
         for tag, val in writes.items():
             model, point = self.get_point(tag)
-            model_id = int(tag.split('.')[0])
-            if model not in models_to_write:
-                models_to_write[model] = []
-            
-            # Resolve raw value
-            raw_val = val
-            if model is not None:
-                pdef = point.pdef
-                sf_name = get_attr(pdef, 'sf')
-                if sf_name:
-                    sf_point = getattr(model, sf_name, None)
-                    if sf_point:
-                        model.read()
-                        sf_val = sf_point.value
-                        if sf_val is not None:
-                            raw_val = int(val / (10 ** sf_val))
-            
-            # Get address for logging
-            if model is not None:
-                pdef = point.pdef
-                offset = getattr(point, 'offset', get_attr(pdef, 'offset'))
-                
-                # Derive absolute address
-                addr = getattr(point, 'addr', None)
-                if addr is None:
-                    # Calculate: Device Base + Model Offset + Point Offset
-                    d_base = getattr(self.device, 'base_addr', 0)
-                    if d_base == 0:
-                        d_base = getattr(self, 'base_address', 0)
-                    
-                    m_off = getattr(model, 'model_addr', getattr(model, 'addr', 0))
-                    if offset is not None:
-                        addr = d_base + m_off + offset
-            else:
+            if model is None:
+                # Raw address
                 addr = point
-            
-            addr_str = f"{addr}" if addr is not None else "???"
-            logger.info(f"  Writing {tag} (Model {model_id}) = {val} [Raw: {raw_val}, Addr: {addr_str}]")
-            models_to_write[model].append((point, raw_val))
+                if verbose:
+                    logger.info(f"  Writing raw register {addr} = {val}")
+                self.write_value(tag, val)
+                continue
 
-        for model, points in models_to_write.items():
-            if model is not None:
-                for point, raw_val in points:
-                    point.value = raw_val
-                model.write()
-            else:
-                # Raw Modbus writes - Uses raw socket to bypass sunspec2 remapping
-                client_obj = getattr(self.device, 'client', None)
-                if client_obj and client_obj.socket:
-                    unit_id = getattr(self.device, 'slave_id', 1)
-                    sock = client_obj.socket
-                    for addr, raw_val in points:
-                        # Raw Modbus TCP Write Single Register: Func 6
-                        req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 6, addr, int(raw_val))
-                        sock.sendall(req)
-                        resp = sock.recv(256)
-                        # Check response for success (Func 6 echoed)
-                        if len(resp) < 12 or resp[7] != 6:
-                            logger.error(f"  ✗ Raw write to {addr} failed (Response: {resp.hex()})")
+            # Model-based writes
+            raw_val = val
+            pdef = point.pdef
+            
+            if verbose:
+                logger.info(f"  Writing {tag} = {val}")
+            self.write_value(tag, val)
 
         # Verification
         if not verify:
             for tag, val in writes.items():
-                logger.info(f"  Write {tag}: {before_vals.get(tag)} -> {val} [SENT]")
+                if verbose:
+                    logger.info(f"  Write {tag}: {before_vals.get(tag)} -> {val} [SENT]")
             return True
 
         start_time = time.time()
         deadline = start_time + (timeout_ms / 1000.0)
         pending = list(writes.keys())
         
-        logger.info("  Verifying writes...")
+        if verbose:
+            logger.info("  Verifying writes...")
+            
         while pending and time.time() < deadline:
             for tag in list(pending):
                 current = self.read_value(tag)
@@ -294,18 +237,19 @@ class SunSpecSequencer:
                 
                 if current == target:
                     elapsed = int((time.time() - start_time) * 1000)
-                    logger.info(f"  ✓ {tag}: {before_vals.get(tag)} -> {current} [VERIFIED in {elapsed}ms]")
+                    if verbose:
+                        logger.info(f"  ✓ {tag}: {before_vals.get(tag)} -> {current} [VERIFIED in {elapsed}ms]")
                     pending.remove(tag)
             
             if pending:
-                time.sleep(0.1)
+                time.sleep(0.2)
 
         if pending:
             for tag in pending:
                 current = self.read_value(tag)
                 logger.error(f"  ✗ {tag}: Update failure. Current: {current}, Expected: {writes[tag]}")
             return False
-        
+
         return True
 
     def execute_wait_for(self, config: Dict[str, Any], step_name: str) -> bool:

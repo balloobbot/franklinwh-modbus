@@ -9,14 +9,14 @@ Examples:
     # Show system status
     python franklinwh_cli.py -i 192.168.1.100 --status
     
-    # Self-consumption mode
-    python franklinwh_cli.py -i 192.168.1.100 --mode self_consumption --target-soc 90
+    # Switch NATIVE hardware mode (Register 15507)
+    python franklinwh_cli.py -i 192.168.1.100 --mode self-consumption
     
-    # Emergency backup mode
-    python franklinwh_cli.py -i 192.168.1.100 --mode emergency_backup --target-soc 95
+    # Run VIRTUAL software mode (emulated orchestration)
+    python franklinwh_cli.py -i 192.168.1.100 --vmode self_consumption --target-soc 90
     
-    # Manual control
-    python franklinwh_cli.py -i 192.168.1.100 --mode manual --power -3000
+    # Manual control (software-orchestrated)
+    python franklinwh_cli.py -i 192.168.1.100 --vmode manual --power -3000
 """
 
 import argparse
@@ -44,6 +44,70 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Native mode mapping for CLI arguments (maps to Register 15507 indices 1-4)
+NATIVE_MODE_MAP = {
+    'backup': 1,
+    'self-consumption': 2,
+    'tou': 3,
+}
+
+def native_mode_type(value):
+    """Normalize native mode input with aliases and case-insensitivity."""
+    val = value.lower().replace('_', '-').strip()
+    mapping = {
+        'backup': 'backup',
+        'emergency-backup': 'backup',
+        'emergency_backup': 'backup',
+        'self': 'self-consumption',
+        'sc': 'self-consumption',
+        'self-consumption': 'self-consumption',
+        'self_consumption': 'self-consumption',
+        'tou': 'tou',
+        'time-of-use': 'tou',
+        'time_of_use': 'tou',
+    }
+    
+    normalized = mapping.get(val, val)
+    if normalized not in NATIVE_MODE_MAP:
+        raise argparse.ArgumentTypeError(
+            f"Invalid native mode: '{value}'. Choices: {', '.join(NATIVE_MODE_MAP.keys())}"
+        )
+    return normalized
+
+def virtual_mode_type(value):
+    """Normalize virtual mode input with aliases and case-insensitivity."""
+    from franklinwh_modbus.types import VirtualMode
+    
+    val = value.lower().replace('-', '_').strip()
+    mapping = {
+        'self': 'self_consumption',
+        'sc': 'self_consumption',
+        'self_consumption': 'self_consumption',
+        'self-consumption': 'self_consumption',
+        'backup': 'emergency_backup',
+        'emergency-backup': 'emergency_backup',
+        'emergency_backup': 'emergency_backup',
+        'tou': 'time_of_use',
+        'time-of-use': 'time_of_use',
+        'time_of_use': 'time_of_use',
+        'grid_zero': 'grid_zero',
+        'grid-zero': 'grid_zero',
+        'peak_shave': 'peak_shave',
+        'peak-shave': 'peak_shave',
+        'manual': 'manual',
+    }
+    
+    normalized = mapping.get(val, val)
+    # Validate against enum
+    try:
+        VirtualMode(normalized)
+        return normalized
+    except ValueError:
+        valid = [m.value for m in VirtualMode]
+        raise argparse.ArgumentTypeError(
+            f"Invalid virtual mode: '{value}'. Choices: {', '.join(valid)}"
+        )
+
 
 def create_parser():
     """Create argument parser."""
@@ -53,9 +117,14 @@ def create_parser():
         epilog="""
 Examples:
   %(prog)s -i 192.168.1.100 --status
-  %(prog)s -i 192.168.1.100 --mode self_consumption --target-soc 90
   
-  # Explicit action flags (RECOMMENDED)
+  # Native hardware mode (Register 15507)
+  %(prog)s -i 192.168.1.100 --mode backup
+  
+  # Virtual software mode (Orchestrated control loop)
+  %(prog)s -i 192.168.1.100 --vmode self_consumption --target-soc 90
+  
+  # Explicit action flags (Direct register control)
   %(prog)s -i 192.168.1.100 --charge 3000 --duration 3600
   %(prog)s -i 192.168.1.100 --discharge 3000 --duration 3600
   %(prog)s -i 192.168.1.100 --standby
@@ -67,9 +136,9 @@ Examples:
   # Software timeout (auto-reverts to cloud control)
   %(prog)s -i 192.168.1.100 --charge 3000 --revert 3600
   
-  # Legacy --power with sign
-  %(prog)s -i 192.168.1.100 --mode manual --power 3000 --duration 3600   # Charge
-  %(prog)s -i 192.168.1.100 --mode manual --power -3000 --duration 3600  # Discharge
+  # Legacy --power with sign (Software orchestrated)
+  %(prog)s -i 192.168.1.100 --vmode manual --power 3000 --duration 3600   # Charge
+  %(prog)s -i 192.168.1.100 --vmode manual --power -3000 --duration 3600  # Discharge
         """
     )
     
@@ -81,8 +150,12 @@ Examples:
     parser.add_argument('-t', '--timeout', type=float, default=10.0, help='Connection timeout')
     
     # Control modes
-    parser.add_argument('--mode', choices=[m.value for m in VirtualMode],
-                       help='Virtual control mode')
+    parser.add_argument('--mode', type=native_mode_type,
+                       help='Switch NATIVE hardware operating mode (Register 15507). '
+                            'Aliases: backup, self, sc, tou, etc.')
+    parser.add_argument('--vmode', type=virtual_mode_type,
+                       help='Run VIRTUAL software operating mode (Emulated orchestration). '
+                            'Aliases: self, sc, backup, tou, etc.')
     
     # Power control (mutually exclusive)
     power_group = parser.add_mutually_exclusive_group()
@@ -185,19 +258,19 @@ def print_status_summary(ctrl: FranklinWHController):
     else:
         home_load = solar_power + battery_dc + grid_power
     
-    # Derive battery state from DC power (like FEM does)
-    if battery_dc < -50:
-        bat_state = f"↓ CHARGING {abs(battery_dc):.0f}W"
-    elif battery_dc > 50:
+    # Derive battery state from DC power (Standard SunSpec: Negative=Charge, Positive=Discharge)
+    if battery_dc > 50:
         bat_state = f"↑ DISCHARGING {abs(battery_dc):.0f}W"
+    elif battery_dc < -50:
+        bat_state = f"↓ CHARGING {abs(battery_dc):.0f}W"
     else:
         bat_state = "IDLE"
     
     # SunSpec LocRemCtl (M715) — raw register value
     loc_rem = ctl.get('loc_rem_ctl_name', 'N/A')
     
-    # Mode (must be before derived control which references it)
-    mode = native.get('mode_name', 'Unknown') if native else 'Unknown'
+    # Mode (Native hardware mode from Register 15507)
+    native_mode = native.get('mode_name', 'Unknown') if native else 'Unknown'
     reserve = native.get('self_reserve_pct', 0) if native else 0
     
     # Derived control — our interpretation: Local or Remote
@@ -206,7 +279,7 @@ def print_status_summary(ctrl: FranklinWHController):
     if wset_ena == 1:
         derived_ctl = f"Remote (Modbus WSetPct={wset_pct}%)"
     else:
-        derived_ctl = f"Local (aGate, {mode})"
+        derived_ctl = f"Local (aGate Native: {native_mode})"
     
     # Grid mode (Grid Following / Grid Forming)
     grid_mode = grid.get('grid_mode', '')
@@ -214,12 +287,12 @@ def print_status_summary(ctrl: FranklinWHController):
     if grid_mode == 'Grid Following (default)':
         grid_mode = 'Grid Following'
     
-    # Grid state with power and mode
+    # Grid state with power (Standard SunSpec: Positive=Import, Negative=Export)
     if is_off_grid:
         grid_state = "⚠ OFF-GRID (Grid Forming)"
-    elif grid_power > 50:
-        grid_state = f"← {abs(grid_power):.0f}W importing"
     elif grid_power < -50:
+        grid_state = f"← {abs(grid_power):.0f}W importing"
+    elif grid_power > 50:
         grid_state = f"→ {abs(grid_power):.0f}W exporting"
     else:
         grid_state = f"~0W ({grid_mode})" if grid_mode else "~0W"
@@ -228,13 +301,13 @@ def print_status_summary(ctrl: FranklinWHController):
     avail_kwh = bat.get('wh_available', 0) / 1000
     rated_kwh = bat.get('wh_rating', 0) / 1000
     
-    print(f"""\n  ⚡ FranklinWH aGate | SoC: {soc:.0f}% | {mode} | Reserve: {reserve}%
+    print(f"""\n  ⚡ FranklinWH aGate | SoC: {soc:.0f}% | {native_mode} | Reserve: {reserve}%
   ──────────────────────────────────────────────────────
     Solar:   {abs(solar_power):>5.0f}W {'producing' if solar_power > 50 else 'idle':12s}  Battery: {bat_state}
     Home:    {abs(home_load):>5.0f}W {'consuming' if abs(home_load) > 50 else 'idle':12s}  Grid:    {grid_state}
   ──────────────────────────────────────────────────────
     LocRemCtl: {loc_rem:14s}  Available: {avail_kwh:.1f}/{rated_kwh:.1f} kWh
-    Derived:   {derived_ctl}""")
+    Control:   {derived_ctl}""")
     print()
 
 
@@ -351,7 +424,7 @@ def print_status(ctrl: FranklinWHController):
         mode_name = native.get('mode_name', 'Unknown') if native else 'Unknown'
         print(f"    Control Source:   aGate ({mode_name})")
         print(f"    LocRemCtl:        {loc_rem}  (M715)")
-        print(f"    Derived Control:  Local (aGate, {mode_name})")
+        print(f"    Derived Control:  Local (aGate Native: {mode_name})")
     else:
         print(f"    Control Source:   Idle (no active control)")
         print(f"    LocRemCtl:        {loc_rem}  (M715)")
@@ -1000,8 +1073,8 @@ def main():
             print("")
             sys.exit(0)
         
-        # Virtual modes
-        if args.mode:
+        # Virtual modes (Software Orchestration)
+        if args.vmode:
             # Check for aGate native mode conflicts FIRST (before any control)
             if not args.assume_clean_state:
                 state = ctrl.check_state()
@@ -1010,7 +1083,7 @@ def main():
                 battery_activity = state.get('battery_activity', 'Unknown')
                 
                 # Print startup summary
-                print_startup_summary(state, args.mode, args)
+                print_startup_summary(state, args.vmode, args)
             else:
                 # Minimal state read for logging
                 state = ctrl.check_state()
@@ -1046,8 +1119,8 @@ def main():
             # Validate SoC limits before operation (GAP-1, GAP-2 safety)
             current_soc = state.get('soc', 0)
             requested_power = args.power or 0
-            is_charge_request = requested_power > 0 or args.mode in ['self_consumption', 'emergency_backup', 'time_of_use']
-            is_discharge_request = requested_power < 0 or args.mode == 'peak_shave'
+            is_charge_request = requested_power > 0 or args.vmode in ['self_consumption', 'emergency_backup', 'time_of_use']
+            is_discharge_request = requested_power < 0 or args.vmode == 'peak_shave'
             
             # Get effective reserve level for validation
             reserve_info = state.get('effective_reserve', {})
@@ -1114,9 +1187,20 @@ def main():
                     print(f"   Use --force to override (not recommended).")
                     sys.exit(1)
             
-            if args.reset_on_start:
-                ctrl.reset_control_state()
-            
+        if args.reset_on_start:
+            ctrl.reset_control_state()
+        
+        # --- NATIVE MODE SWITCHING (Register 15507) ---
+        if args.mode:
+            mode_index = NATIVE_MODE_MAP.get(args.mode)
+            if mode_index:
+                success, msg = ctrl.set_native_mode(mode_index, dry_run=args.dry_run)
+                print(f"Native Mode Switch: {'SUCCESS' if success else 'FAILED'}")
+                print(f"Message: {msg}")
+                sys.exit(0 if success else 1)
+        
+        # Virtual modes (Software Orchestration)
+        if args.vmode:
             # Create virtual mode controller
             from franklinwh_modbus import VirtualModeController, VirtualMode
             vmc = VirtualModeController(
@@ -1140,45 +1224,38 @@ def main():
             # Map args to mode parameters
             mode_kwargs = {'target_soc': args.target_soc}
             
-            if args.mode == 'self_consumption':
+            if args.vmode == 'self_consumption':
                 mode_kwargs['self_reserve_pct'] = args.reserve
-            elif args.mode == 'emergency_backup':
+            elif args.vmode == 'emergency_backup':
                 mode_kwargs['backup_target_soc'] = args.target_soc
-            elif args.mode == 'peak_shave':
+            elif args.vmode == 'peak_shave':
                 mode_kwargs['peak_shave_threshold'] = args.threshold
-            elif args.mode == 'manual':
+            elif args.vmode == 'manual':
                 mode_kwargs['manual_power_w'] = args.power or 0
-            elif args.mode == 'time_of_use' and vmc.tou.is_file_based():
+            elif args.vmode == 'time_of_use' and vmc.tou.is_file_based():
                 mode_kwargs['tou_schedule'] = vmc.tou
             
             # Set mode and run
             try:
-                vmc.set_mode(VirtualMode(args.mode), **mode_kwargs)
+                vmc.set_mode(VirtualMode(args.vmode), **mode_kwargs)
             except ValueError as e:
                 print(f"\n❌ CONFIGURATION ERROR: {e}")
-                print("\nOptions:")
-                print(f"  1. Lower --target-soc below current SoC")
-                print(f"  2. Wait for battery to discharge naturally")
-                print(f"  3. Use discharge mode to reduce SoC first")
                 sys.exit(1)
             
             # Handle dry-run for virtual modes
             if args.dry_run:
                 print(f"\n{'='*60}")
-                print(f"  DRY RUN: {args.mode} mode")
+                print(f"  DRY RUN: {args.vmode} (Virtual Mode)")
                 print(f"  Power: {args.power or 'mode-controlled'}W")
                 print(f"  Target SoC: {args.target_soc or 'N/A'}")
                 print(f"  Duration: {args.duration or 'unlimited'}s")
                 print(f"{'='*60}")
-                print(f"\n  Would run: vmc.run_continuous(")
-                print(f"      duration_seconds={args.duration},")
-                print(f"      enable_safety_checks=False")
-                print(f"  )")
+                print(f"\n  Would run orchestration loop...")
                 print(f"\n  ✓ Dry run complete - no commands sent")
                 sys.exit(0)
             
             print(f"\n{'='*60}")
-            print(f"  STARTING: {args.mode} mode")
+            print(f"  STARTING: {args.vmode} (Virtual Mode)")
             if args.duration:
                 print(f"  DURATION: {args.duration}s")
             print(f"  Press Ctrl+C to stop")

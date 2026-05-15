@@ -166,11 +166,12 @@ DER_CTRL_MODES = {
 }
 
 
-# OnGridMode values from FranklinWH extension registers (1-indexed)
+# OnGridMode values from FranklinWH extension registers
 ONGRID_MODES = {
     1: 'Emergency Backup',
     2: 'Self-Consumption',
-    3: 'TOU',
+    3: 'Time-of-Use',
+    4: 'Manual',
 }
 
 

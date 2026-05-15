@@ -61,8 +61,8 @@ section("1. Package & Version")
 
 try:
     import franklinwh_modbus
-    test("Package imports", True, f"v{franklinwh.__version__}")
-    test("Version is 0.9.0", franklinwh.__version__ == '0.9.0')
+    test("Package imports", True, f"v{franklinwh_modbus.__version__}")
+    test("Version is 0.9.0", franklinwh_modbus.__version__ == '0.9.0')
 except ImportError as e:
     test("Package imports", False, str(e))
     sys.exit(1)
@@ -291,7 +291,7 @@ test("SIGINT handler restored after wrapper", handler != signal.SIG_DFL or True,
 # ============================================================
 section("8. TUI Monitor")
 
-if franklinwh.HAS_MONITOR:
+if franklinwh_modbus.HAS_MONITOR:
     from franklinwh_modbus import CLIMonitor, MonitorConfig
     cfg = MonitorConfig(ip_address='127.0.0.1', theme='dark')
     test("MonitorConfig created", cfg is not None, f"theme={cfg.theme}")
@@ -332,7 +332,7 @@ print(f"""
   ❌ Fail:  {FAIL}
   ⏭️  Skip:  {SKIP} (hardware required)
 
-  Library:  franklinwh v{franklinwh.__version__}
+  Library:  franklinwh_modbus v{franklinwh_modbus.__version__}
   Python:   {sys.version.split()[0]}
   Platform: {sys.platform}
 """)
