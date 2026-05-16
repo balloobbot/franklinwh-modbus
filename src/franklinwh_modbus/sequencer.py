@@ -15,6 +15,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+class TransitionValidationError(Exception):
+    """Raised when a mandatory state transition is not observed."""
+    pass
+
 class SunSpecSequencer:
     """Orchestrates multi-step SunSpec operations."""
     
@@ -209,12 +213,28 @@ class SunSpecSequencer:
 
         # Perform writes (grouped by model for efficiency)
         models_to_write = {}
+        write_attempted = {} # Tracks which tags actually triggered a Modbus write
         
         def get_attr(obj, key):
             if isinstance(obj, dict): return obj.get(key)
             return getattr(obj, key, None)
 
+        require_transition = step.get('require_transition', False)
+
         for tag, val in writes.items():
+            initial = before_vals.get(tag)
+            
+            # Mandatory State Transition Validation
+            if require_transition and initial == val:
+                raise TransitionValidationError(f"Step '{step.get('name')}' failed transition requirement: "
+                                               f"{tag} already matches target {val}")
+
+            if initial == val:
+                logger.info(f"  Skipping {tag}: already matches target {val} [MATCHED - NO TRANSITION]")
+                write_attempted[tag] = False
+                continue
+
+            write_attempted[tag] = True
             model, point = self.get_point(tag)
             model_id = int(tag.split('.')[0])
             if model not in models_to_write:
@@ -286,7 +306,7 @@ class SunSpecSequencer:
         deadline = start_time + (timeout_ms / 1000.0)
         pending = list(writes.keys())
         
-        logger.info("  Verifying writes...")
+        logger.info("  Verifying transitions...")
         while pending and time.time() < deadline:
             for tag in list(pending):
                 current = self.read_value(tag)
@@ -294,7 +314,14 @@ class SunSpecSequencer:
                 
                 if current == target:
                     elapsed = int((time.time() - start_time) * 1000)
-                    logger.info(f"  ✓ {tag}: {before_vals.get(tag)} -> {current} [VERIFIED in {elapsed}ms]")
+                    
+                    # Differentiated Labeling based on write_attempted
+                    if write_attempted.get(tag, True):
+                        label = f"[VERIFIED in {elapsed}ms]"
+                    else:
+                        label = "[MATCHED - NO TRANSITION]"
+                        
+                    logger.info(f"  ✓ {tag}: {before_vals.get(tag)} -> {current} {label}")
                     pending.remove(tag)
             
             if pending:

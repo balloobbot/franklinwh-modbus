@@ -48,6 +48,8 @@
 |----|------|----------|-------|
 | FEAT-HW-M701-LIFETIME | M701 Grid Lifetime Energy Metrics — not yet exposed in CLI or library | S4 | Known gap. Registers exist but not wired to any output. |
 | DEF-HW-EXT-READONLY | Extension registers 15507–15509 (OnGridMode, SelfReserve, TOUReserve) are read-only via Modbus | S3 | Cannot control native mode via Modbus. Documented in quirks. No workaround possible without provisioning. |
+| FEAT-HW-MAC1-DISCOVERY | Hidden Register Scan for MAC-1 (Meter Adaptor Collar) | S3 | Search for grid metrics aliasing and new Unit ID (DA) profiles. |
+| FEAT-HW-APOWER-S-DC | Registry Discovery for aPower S DC Hybrid | S3 | Identify new SunSpec models or extensions for DC-coupled storage telemetry. |
 
 ---
 

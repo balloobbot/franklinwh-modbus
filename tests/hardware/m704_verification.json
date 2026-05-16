@@ -1,0 +1,31 @@
+[
+  {
+    "name": "Verify Baseline (Enable=0)",
+    "writes": {
+      "704.WSetEna": 0
+    },
+    "verify_timeout_ms": 5000
+  },
+  {
+    "name": "Initiate Charge (500W)",
+    "writes": {
+      "704.WSetPct": -500,
+      "704.WSetEna": 1
+    },
+    "verify_timeout_ms": 10000
+  },
+  {
+    "name": "Verify Transition to Discharge (500W)",
+    "writes": {
+      "704.WSetPct": 500
+    },
+    "verify_timeout_ms": 10000
+  },
+  {
+    "name": "Release Control (Enable=0)",
+    "writes": {
+      "704.WSetEna": 0
+    },
+    "verify_timeout_ms": 5000
+  }
+]

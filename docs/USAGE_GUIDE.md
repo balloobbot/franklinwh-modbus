@@ -51,7 +51,7 @@ These extension registers control the aGate operating mode and reserve levels. W
 
 **Already provisioned:** Owners with **SPAN Panels** or **Lumin Panels** connected via Modbus TCP — write access is already enabled.
 
-**Not provisioned?** Contact FranklinWH Support. Without provisioning, `send_command()` and mode changes will fail silently. Read-only features (`--status`, `--healthcheck`, TUI monitor) still work.
+**Not provisioned?** Contact your Installer or FranklinWH Support. Note there no obligation or support for use of Modbus TCP by end-customers for any purpose. Without provisioning, `send_command()` and mode changes will fail silently. Read-only features (`--status`, `--healthcheck`, TUI monitor) still work.
 
 ### Mobile App Conflicts
 
