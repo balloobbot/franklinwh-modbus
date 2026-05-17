@@ -21,7 +21,10 @@
   },
   {
     "step": "Safety Stop",
-    "writes": { "704.WSetEna": 0 },
+    "writes": {
+      "704.WSetPct": 0,
+      "704.WSetEna": 0
+    },
     "verify": true
   }
 ]

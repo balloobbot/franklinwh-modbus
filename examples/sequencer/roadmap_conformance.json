@@ -26,5 +26,14 @@
       "701.W"
     ],
     "note": "Capture Solar/Load/Grid context to verify intent-based detection"
+  },
+  {
+    "step": "Release VPP Mode",
+    "writes": {
+      "704.WSetPct": 0,
+      "704.WSetEna": 0
+    },
+    "verify": true,
+    "note": "Restore native control"
   }
 ]

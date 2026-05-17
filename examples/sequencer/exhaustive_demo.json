@@ -36,8 +36,12 @@
     "step": "Final Read & Log",
     "reads": [
       "704.WSetPct",
-      "103.W"
+      "701.W", "714.DCW", "713.SoC"
+
     ],
     "note": "Final telemetry snapshot"
+  },
+  { "name": "release VPP mode",
+    "writes": { "704.WSetPct": 0, "704.WSetEna": 0 }
   }
 ]
