@@ -713,6 +713,11 @@ python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"reads": ["714.DCW"
 
 # Execute a single-step write sequence via in-line JSON
 python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"704.WMaxLimPctEna": 1, "704.WMaxLimPct": 50}'
+
+# WARNING: Custom setpoints override standard cloud control. Always release when done!
+# Release remote control (stop VPP mode) and return to normal automatic cloud control:
+python tools/franklinwh_cli.py -i YOUR_AGATE_IP --stop
+python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"704.WSetEna": 0, "704.WSetPct": 0}'
 ```
 
 #### JSON Sequence Schema

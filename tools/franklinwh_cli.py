@@ -149,6 +149,11 @@ Examples:
 
   # Execute in-line direct write sequence (automatically wrapped as a single step):
   %(prog)s -i 192.168.1.100 --sequence '{"704.WSetEna": 1, "704.WSetPct": 30}'
+
+  # WARNING: Custom setpoints override standard cloud control. Always release when done!
+  # Release remote control (stop VPP mode) and return to normal automatic cloud control:
+  %(prog)s -i 192.168.1.100 --stop
+  %(prog)s -i 192.168.1.100 --sequence '{"704.WSetEna": 0, "704.WSetPct": 0}'
         """
     )
     

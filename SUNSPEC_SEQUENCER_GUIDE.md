@@ -132,8 +132,21 @@ For curtailing or forcing power, the **Remote Control** group in Model 704 is th
 1.  **`704.WSetEna = 1`**: Master switch to enable remote setpoints.
 2.  **`704.WSetPct = X`**: Set active power as a percentage of rated capacity.
 
-### Cleanup
-To release the gateway from a sequence and return it to its normal operating mode, use the `--stop` flag:
+### Cleanup & Releasing Control
+
+> [!WARNING]
+> **Safety Alert & Cleanup Obligation**: Writing setpoints (e.g. `704.WSetPct` or `704.WSetEna`) overrides standard aGate automatic cloud control. If you forget to reset them, the gateway will remain locked in VPP/Remote Control mode forever. Always release the gateway once your tests or sequences are complete!
+
+To release the Modbus client control (stop VPP mode) and return the gateway to standard automatic cloud control, you have two options:
+
+#### Option A: Use the `--stop` flag (Recommended)
+This helper command automatically writes `0` to both `704.WSetEna` and `704.WSetPct` and verifies the release:
 ```bash
 python3 tools/franklinwh_cli.py -i <IP> --stop
+```
+
+#### Option B: Execute an in-line release sequence
+You can reset the registers directly using an in-line sequence command:
+```bash
+python3 tools/franklinwh_cli.py -i <IP> --sequence '{"704.WSetEna": 0, "704.WSetPct": 0}'
 ```
