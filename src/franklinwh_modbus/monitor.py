@@ -172,7 +172,7 @@ class PowerFlowData:
     home_w: float = 0.0
     battery_w: float = 0.0
     grid_w: float = 0.0
-    battery_state: str = "IDLE"  # CHARGING, DISCHARGING, IDLE
+    battery_state: str = "Idle"  # Charging, Discharging, Idle
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -680,15 +680,15 @@ class CLIMonitor:
         if self.config.theme in ("green", "amber", "white", "paper"):
             battery_style = self.theme.accent_color
         else:
-            battery_style = "green" if battery_state == "CHARGING" else "yellow" if battery_state == "DISCHARGING" else "dim"
+            battery_style = "green" if battery_state == "Charging" else "yellow" if battery_state == "Discharging" else "dim"
         
         # Icon mapping: ↓ for charging (negative), ↑ for discharging (positive)
-        battery_icon = "↓" if battery_state == "CHARGING" else "↑" if battery_state == "DISCHARGING" else "○"
+        battery_icon = "↓" if battery_state == "Charging" else "↑" if battery_state == "Discharging" else "○"
         table.add_row("Battery", f"{abs(pf.battery_w):>6.0f}W", f"[{battery_style}]{battery_state}[/{battery_style}]", battery_icon)
         
-        # Grid (FranklinWH Inverted: Negative=Import, Positive=Export)
-        grid_state = "IMPORTING" if pf.grid_w < 0 else "EXPORTING" if pf.grid_w > 0 else "IDLE"
-        grid_icon = "←" if pf.grid_w < 0 else "→" if pf.grid_w > 0 else "○"
+        # Grid (Standard SunSpec: Positive=Import, Negative=Export)
+        grid_state = "Importing" if pf.grid_w > 0 else "Exporting" if pf.grid_w < 0 else "Idle"
+        grid_icon = "←" if pf.grid_w > 0 else "→" if pf.grid_w < 0 else "○"
         table.add_row("Grid", f"{abs(pf.grid_w):>6.0f}W", grid_state, grid_icon)
         
         # Inverter Utilization Bar (if controller available)

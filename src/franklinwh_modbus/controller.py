@@ -463,11 +463,11 @@ class FranklinWHController:
                     # Derive battery state from DC power direction (±50W deadband)
                     # FranklinWH M713.Sta is always 0 (OFF) — cannot rely on it
                     if dc_power < -50:
-                        result['battery_state'] = 'CHARGING'
+                        result['battery_state'] = 'Charging'
                     elif dc_power > 50:
-                        result['battery_state'] = 'DISCHARGING'
+                        result['battery_state'] = 'Discharging'
                     else:
-                        result['battery_state'] = 'IDLE'
+                        result['battery_state'] = 'Idle'
                     
                     # DC current (read or calculate from P/V)
                     dc_current = 0
@@ -1465,19 +1465,19 @@ class FranklinWHController:
             dc_power = bat.get('battery_power_w', 0) or 0
             if wset_ena == 1:
                 if actual_power < -50:
-                    result['battery_activity'] = f'CHARGING ({abs(actual_power):.0f}W)'
+                    result['battery_activity'] = f'Charging ({abs(actual_power):.0f}W)'
                 elif actual_power > 50:
-                    result['battery_activity'] = f'DISCHARGING ({actual_power:.0f}W)'
+                    result['battery_activity'] = f'Discharging ({actual_power:.0f}W)'
                 else:
-                    result['battery_activity'] = 'IDLE'
+                    result['battery_activity'] = 'Idle'
             else:
                 # No Modbus control — show actual DC power from native mode
                 if dc_power < -50:
-                    result['battery_activity'] = f'CHARGING ({abs(dc_power):.0f}W, aGate native)'
+                    result['battery_activity'] = f'Charging ({abs(dc_power):.0f}W, aGate native)'
                 elif dc_power > 50:
-                    result['battery_activity'] = f'DISCHARGING ({dc_power:.0f}W, aGate native)'
+                    result['battery_activity'] = f'Discharging ({dc_power:.0f}W, aGate native)'
                 else:
-                    result['battery_activity'] = 'IDLE (no Modbus control)'
+                    result['battery_activity'] = 'Idle (no Modbus control)'
             
             # Native mode and reserve levels
             native = self.read_native_mode()

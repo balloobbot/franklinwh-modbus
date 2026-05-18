@@ -260,11 +260,11 @@ def print_status_summary(ctrl: FranklinWHController):
     
     # Derive battery state from DC power (Standard SunSpec: Negative=Charge, Positive=Discharge)
     if battery_dc > 50:
-        bat_state = f"↑ DISCHARGING {abs(battery_dc):.0f}W"
+        bat_state = f"↑ Discharging {abs(battery_dc):.0f}W"
     elif battery_dc < -50:
-        bat_state = f"↓ CHARGING {abs(battery_dc):.0f}W"
+        bat_state = f"↓ Charging {abs(battery_dc):.0f}W"
     else:
-        bat_state = "IDLE"
+        bat_state = "Idle"
     
     # SunSpec LocRemCtl (M715) — raw register value
     loc_rem = ctl.get('loc_rem_ctl_name', 'N/A')
@@ -290,10 +290,10 @@ def print_status_summary(ctrl: FranklinWHController):
     # Grid state with power (Standard SunSpec: Positive=Import, Negative=Export)
     if is_off_grid:
         grid_state = "⚠ OFF-GRID (Grid Forming)"
-    elif grid_power < -50:
-        grid_state = f"← {abs(grid_power):.0f}W importing"
     elif grid_power > 50:
-        grid_state = f"→ {abs(grid_power):.0f}W exporting"
+        grid_state = f"← {abs(grid_power):.0f}W Importing"
+    elif grid_power < -50:
+        grid_state = f"→ {abs(grid_power):.0f}W Exporting"
     else:
         grid_state = f"~0W ({grid_mode})" if grid_mode else "~0W"
     
@@ -303,8 +303,8 @@ def print_status_summary(ctrl: FranklinWHController):
     
     print(f"""\n  ⚡ FranklinWH aGate | SoC: {soc:.0f}% | {native_mode} | Reserve: {reserve}%
   ──────────────────────────────────────────────────────
-    Solar:   {abs(solar_power):>5.0f}W {'producing' if solar_power > 50 else 'idle':12s}  Battery: {bat_state}
-    Home:    {abs(home_load):>5.0f}W {'consuming' if abs(home_load) > 50 else 'idle':12s}  Grid:    {grid_state}
+    Solar:   {abs(solar_power):>5.0f}W {'Producing' if solar_power > 50 else 'Idle':12s}  Battery: {bat_state}
+    Home:    {abs(home_load):>5.0f}W {'Consuming' if abs(home_load) > 50 else 'Idle':12s}  Grid:    {grid_state}
   ──────────────────────────────────────────────────────
     LocRemCtl: {loc_rem:14s}  Available: {avail_kwh:.1f}/{rated_kwh:.1f} kWh
     Control:   {derived_ctl}""")
@@ -383,18 +383,18 @@ def print_status(ctrl: FranklinWHController):
     print(f"       Home: ← {abs(home_load):>5.0f}W  {'Consuming' if home_active else 'Idle'}  ({home_load_source})")
     
     if battery_dc < 0:
-        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  CHARGING  (M714.DCW)")
+        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  Charging  (M714.DCW)")
     elif battery_dc > 0:
-        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  DISCHARGING  (M714.DCW)")
+        print(f"     Battery: {battery_arrow} {abs(battery_dc):>5.0f}W  Discharging  (M714.DCW)")
     else:
-        print(f"     Battery:     {abs(battery_dc):>5.0f}W  IDLE  (M714.DCW)")
+        print(f"     Battery:     {abs(battery_dc):>5.0f}W  Idle  (M714.DCW)")
     
     if is_off_grid:
         print(f"       Grid:   ✕     0W  OFF-GRID  (M701.ConnSt)")
     elif grid_power > 0:
-        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  IMPORTING  (M701.W)")
+        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  Importing  (M701.W)")
     elif grid_power < 0:
-        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  EXPORTING  (M701.W)")
+        print(f"       Grid: {grid_arrow} {abs(grid_power):>5.0f}W  Exporting  (M701.W)")
     else:
         grid_mode_label = grid.get('grid_mode', 'Unknown')
         if grid_mode_label == 'Grid Following (default)':
@@ -408,7 +408,7 @@ def print_status(ctrl: FranklinWHController):
     print("  " + "─" * 54)
     print(f"    State of Charge:  {soc:.1f}%  (M713.SoC)")
     print(f"    State of Health:  {soh:.1f}%  (M713.SoH)")
-    print(f"    DC Power:         {abs(battery_dc):.0f}W  {'CHARGING' if battery_dc < 0 else ('DISCHARGING' if battery_dc > 0 else 'IDLE')}  (M714.DCW)")
+    print(f"    DC Power:         {abs(battery_dc):.0f}W  {'Charging' if battery_dc < 0 else ('Discharging' if battery_dc > 0 else 'Idle')}  (M714.DCW)")
     print(f"    Available:        {bat.get('wh_available', 0)/1000:.1f} / {bat.get('wh_rating', 0)/1000:.1f} kWh  (M713.WHAvail/WHRtg)")
     
     # Show control source with LocRemCtl and derived
@@ -664,19 +664,19 @@ def print_startup_summary(state: dict, requested_mode: str = None, args=None):
         print(f"    Home Load:     {load:.0f}W")
         batt_str = f"{abs(battery):.0f}W"
         if battery > 50:
-            batt_str += " → discharging"
+            batt_str += " → Discharging"
         elif battery < -50:
-            batt_str += " ← charging"
+            batt_str += " ← Charging"
         else:
-            batt_str += " (idle)"
+            batt_str += " (Idle)"
         print(f"    Battery:       {batt_str}")
         grid_str = f"{abs(grid):.0f}W"
         if grid > 100:
-            grid_str += " ← importing"
+            grid_str += " ← Importing"
         elif grid < -100:
-            grid_str += " → exporting"
+            grid_str += " → Exporting"
         else:
-            grid_str += " (balanced)"
+            grid_str += " (Balanced)"
         print(f"    Grid:          {grid_str}")
     
     print(f"\n  Grid:")

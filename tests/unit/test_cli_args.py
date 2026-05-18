@@ -400,7 +400,7 @@ class TestConflictDetection:
         state = {
             'soc': 50.0, 'grid_connected': True, 'grid_power': 0,
             'grid_voltage': 240.0,
-            'battery_activity': 'DISCHARGING (600W, aGate native)',
+            'battery_activity': 'Discharging (600W, aGate native)',
             'actual_power': 0, 'wset_ena': 0, 'ongrid_mode': 'Self-Consumption',
             'conflicts': [
                 'INFO: aGate discharging 600W to serve home load (load 561W > solar 0W) - This is NORMAL Self-Consumption behavior'
@@ -426,7 +426,7 @@ class TestConflictDetection:
         state = {
             'soc': 50.0, 'grid_connected': True, 'grid_power': 0,
             'grid_voltage': 240.0,
-            'battery_activity': 'CHARGING (2000W, aGate native)',
+            'battery_activity': 'Charging (2000W, aGate native)',
             'actual_power': 0, 'wset_ena': 0, 'ongrid_mode': 'Time of Use',
             'conflicts': [
                 'aGate TOU mode active and battery is moving (2000W)'
@@ -450,7 +450,7 @@ class TestConflictDetection:
         state = {
             'soc': 50.0, 'grid_connected': True, 'grid_power': 0,
             'grid_voltage': 240.0,
-            'battery_activity': 'CHARGING',
+            'battery_activity': 'Charging',
             'actual_power': 0, 'wset_ena': 0, 'ongrid_mode': 'Time of Use',
             'conflicts': [
                 'INFO: some informational message',
@@ -603,5 +603,5 @@ class TestLogLevels:
             "Found models message should be DEBUG, not INFO"
         
         # They should be at DEBUG level
-        assert 'logger.debug("Scanning for SunSpec models...")' in source
+        assert 'logger.debug(f"Scanning for SunSpec models' in source
         assert 'logger.debug(f"Found models:' in source
