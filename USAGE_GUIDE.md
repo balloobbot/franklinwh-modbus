@@ -708,7 +708,10 @@ The Sequencer is a powerful tool for orchestrating complex, multi-step register 
 # Execute a sequence from a file
 python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence-file examples/curtailment_sequence.json
 
-# Execute a single-step sequence via in-line JSON
+# Execute in-line read sequence (Note: single quotes around the double-quoted JSON)
+python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"reads": ["714.DCW", "701.W"]}'
+
+# Execute a single-step write sequence via in-line JSON
 python tools/franklinwh_cli.py -i YOUR_AGATE_IP --sequence '{"704.WMaxLimPctEna": 1, "704.WMaxLimPct": 50}'
 ```
 

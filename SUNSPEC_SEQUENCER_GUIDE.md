@@ -21,7 +21,9 @@ While the SunSpec standard often defaults to `40000`, the FranklinWH native base
 
 ## Usage
 
-Sequences are executed via the `franklinwh_cli.py` tool:
+Sequences are executed via the `franklinwh_cli.py` tool. You can run them using a JSON file via `--sequence-file`, or directly as a JSON string via `--sequence`.
+
+### 1. JSON Sequence Files (`--sequence-file`)
 
 ```bash
 # Execute a sequence from a JSON file
@@ -29,6 +31,41 @@ python3 tools/franklinwh_cli.py -i <IP> --sequence-file examples/reversion_limit
 
 # Run with custom base address and Modbus unit
 python3 tools/franklinwh_cli.py -i <IP> -b 1000 -u 1 --sequence-file <PATH>
+```
+
+### 2. In-line JSON Sequences (`--sequence`)
+
+For quick, one-off commands or register scans, you can pass a JSON string directly using the `--sequence` flag.
+
+> [!IMPORTANT]
+> Since JSON requires keys and string values to be enclosed in **double quotes (`"`)**, the entire sequence string should be wrapped in **single quotes (`'`)** for the terminal shell to parse it correctly. Do **not** use backslashes to escape the double quotes inside single quotes, as doing so will pass the backslashes literally and cause a `JSONDecodeError`.
+
+#### A. Direct Writes (Quick Register Control)
+If you pass a flat key-value dictionary, the CLI automatically wraps it into a single write step:
+```bash
+# Enable Remote Control and set charge rate to 30%
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --sequence '{"704.WSetEna": 1, "704.WSetPct": 30}'
+```
+
+#### B. In-line Reads (Scan Specific SunSpec Points)
+You can read one or more SunSpec registers by providing a dictionary with a `"reads"` key:
+```bash
+# Read battery power (714.DCW) and grid power (701.W)
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --sequence '{"reads": ["714.DCW", "701.W"]}'
+```
+
+#### C. Full Single-Step Definition
+You can also pass a full single-step definition as a JSON dictionary:
+```bash
+# Disable Remote Control, wait 2 seconds, and verify
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --sequence '{"name": "Disable Remote", "writes": {"704.WSetEna": 0}, "sleep_ms": 2000}'
+```
+
+#### D. Full Multi-Step Sequence
+You can pass a full multi-step sequence as a JSON array of step dictionaries:
+```bash
+# Read battery power, enable remote control, set 30% charge, wait 10 seconds, then release remote control
+python3 tools/franklinwh_cli.py -i 192.168.0.110 --sequence '[{"reads": ["714.DCW"]}, {"writes": {"704.WSetEna": 1, "704.WSetPct": 30}}, {"sleep_ms": 10000}, {"writes": {"704.WSetEna": 0}}]'
 ```
 
 ---

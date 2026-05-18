@@ -139,6 +139,16 @@ Examples:
   # Legacy --power with sign (Software orchestrated)
   %(prog)s -i 192.168.1.100 --vmode manual --power 3000 --duration 3600   # Charge
   %(prog)s -i 192.168.1.100 --vmode manual --power -3000 --duration 3600  # Discharge
+
+  # Sequencing (Multi-step register control / Polling / Verification)
+  # Execute sequence steps from a JSON file:
+  %(prog)s -i 192.168.1.100 --sequence-file examples/sequencer/basic_charge_release.json
+
+  # Execute in-line read sequence (Note single quotes wrapping the double-quoted JSON):
+  %(prog)s -i 192.168.1.100 --sequence '{"reads": ["714.DCW", "701.W"]}'
+
+  # Execute in-line direct write sequence (automatically wrapped as a single step):
+  %(prog)s -i 192.168.1.100 --sequence '{"704.WSetEna": 1, "704.WSetPct": 30}'
         """
     )
     
