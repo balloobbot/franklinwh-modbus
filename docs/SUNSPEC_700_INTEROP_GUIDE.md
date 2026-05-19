@@ -20,27 +20,27 @@ The FranklinWH aGate implementation contains several deviations from the SunSpec
 
 ```mermaid
 graph TD
-    subgraph Standard_Interface_SunSpec_700 ["&nbsp;&nbsp;&nbsp; Standard Interface (SunSpec 700) &nbsp;&nbsp;&nbsp;"]
-        M701["&nbsp;&nbsp;&nbsp; 701: Grid AC Reality &nbsp;&nbsp;&nbsp;"]
-        M714["&nbsp;&nbsp;&nbsp; 714: Battery DC Flow &nbsp;&nbsp;&nbsp;"]
-        M704["&nbsp;&nbsp;&nbsp; 704: Charging Limits &nbsp;&nbsp;&nbsp;"]
-        M715["&nbsp;&nbsp;&nbsp; 715: System State Master &nbsp;&nbsp;&nbsp;"]
-        M502["&nbsp;&nbsp;&nbsp; M502 &nbsp;&nbsp;&nbsp;"]
+    subgraph Standard_Interface_SunSpec_700 ["&nbsp;&nbsp; SunSpec 700 Interface &nbsp;&nbsp;"]
+        M701["&nbsp;&nbsp; 701: Grid AC &nbsp;&nbsp;<br/>&nbsp;&nbsp; Reality &nbsp;&nbsp;"]
+        M714["&nbsp;&nbsp; 714: Battery &nbsp;&nbsp;<br/>&nbsp;&nbsp; DC Flow &nbsp;&nbsp;"]
+        M704["&nbsp;&nbsp; 704: Charging &nbsp;&nbsp;<br/>&nbsp;&nbsp; Limits &nbsp;&nbsp;"]
+        M715["&nbsp;&nbsp; 715: System State &nbsp;&nbsp;<br/>&nbsp;&nbsp; Master &nbsp;&nbsp;"]
+        M502["&nbsp;&nbsp; M502 &nbsp;&nbsp;"]
     end
 
-    subgraph Proprietary_Interface_15500_Extensions ["&nbsp;&nbsp;&nbsp; Proprietary Interface (15500 Extensions) &nbsp;&nbsp;&nbsp;"]
-        EXT_PV_AC["&nbsp;&nbsp;&nbsp; 15510: Built-in PV AC &nbsp;&nbsp;&nbsp;"]
-        EXT_PV_REM["&nbsp;&nbsp;&nbsp; 15512: Remote PV aPBox &nbsp;&nbsp;&nbsp;"]
-        EXT_MODE["&nbsp;&nbsp;&nbsp; 15507: Native Mode &nbsp;&nbsp;&nbsp;"]
-        EXT_LOAD["&nbsp;&nbsp;&nbsp; 16000: Home Load &nbsp;&nbsp;&nbsp;"]
+    subgraph Proprietary_Interface_15500_Extensions ["&nbsp;&nbsp; Proprietary 15500 Extensions &nbsp;&nbsp;"]
+        EXT_PV_AC["&nbsp;&nbsp; 15510: Built-in &nbsp;&nbsp;<br/>&nbsp;&nbsp; PV AC &nbsp;&nbsp;"]
+        EXT_PV_REM["&nbsp;&nbsp; 15512: Remote &nbsp;&nbsp;<br/>&nbsp;&nbsp; PV aPBox &nbsp;&nbsp;"]
+        EXT_MODE["&nbsp;&nbsp; 15507: Native &nbsp;&nbsp;<br/>&nbsp;&nbsp; Mode &nbsp;&nbsp;"]
+        EXT_LOAD["&nbsp;&nbsp; 16000: Home &nbsp;&nbsp;<br/>&nbsp;&nbsp; Load &nbsp;&nbsp;"]
     end
 
-    subgraph Physical_Hardware ["&nbsp;&nbsp;&nbsp; Physical Hardware &nbsp;&nbsp;&nbsp;"]
-        GRID(("&nbsp;&nbsp;&nbsp; Utility Grid &nbsp;&nbsp;&nbsp;"))
-        PV_INT["&nbsp;&nbsp;&nbsp; Built-in Solar &nbsp;&nbsp;&nbsp;"]
-        PV_EXT["&nbsp;&nbsp;&nbsp; Remote aPBox Solar &nbsp;&nbsp;&nbsp;"]
-        BAT["&nbsp;&nbsp;&nbsp; aPower Batteries &nbsp;&nbsp;&nbsp;"]
-        LOADS["&nbsp;&nbsp;&nbsp; Home Electrical Loads &nbsp;&nbsp;&nbsp;"]
+    subgraph Physical_Hardware ["&nbsp;&nbsp; Physical Hardware &nbsp;&nbsp;"]
+        GRID(("&nbsp;&nbsp; Utility Grid &nbsp;&nbsp;"))
+        PV_INT["&nbsp;&nbsp; Built-in &nbsp;&nbsp;<br/>&nbsp;&nbsp; Solar &nbsp;&nbsp;"]
+        PV_EXT["&nbsp;&nbsp; Remote aPBox &nbsp;&nbsp;<br/>&nbsp;&nbsp; Solar &nbsp;&nbsp;"]
+        BAT["&nbsp;&nbsp; aPower &nbsp;&nbsp;<br/>&nbsp;&nbsp; Batteries &nbsp;&nbsp;"]
+        LOADS["&nbsp;&nbsp; Home Electrical &nbsp;&nbsp;<br/>&nbsp;&nbsp; Loads &nbsp;&nbsp;"]
     end
 
     %% Standard Logic
@@ -54,7 +54,7 @@ graph TD
     %% Extension Logic (Filling the Gaps)
     EXT_PV_AC -->|"&nbsp;&nbsp; Granular Yield &nbsp;&nbsp;"| M502
     EXT_PV_REM -->|"&nbsp;&nbsp; Granular Yield &nbsp;&nbsp;"| M502
-    EXT_LOAD -.->|"&nbsp;&nbsp; GAP: No Standard Model &nbsp;&nbsp;"| LOADS
+    EXT_LOAD -.->|"&nbsp;&nbsp; GAP: No Model &nbsp;&nbsp;"| LOADS
     EXT_MODE -->|"&nbsp;&nbsp; Sync &nbsp;&nbsp;"| M715
     EXT_LOAD -->|"&nbsp;&nbsp; Demand &nbsp;&nbsp;"| M701
 
