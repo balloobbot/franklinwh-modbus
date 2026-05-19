@@ -20,42 +20,43 @@ The FranklinWH aGate implementation contains several deviations from the SunSpec
 
 ```mermaid
 graph TD
-    subgraph Standard_Interface_SunSpec_700
-        M701[701: Grid AC Reality]
-        M714[714: Battery DC Flow]
-        M704[704: Charging Limits]
-        M715[715: System State Master]
+    subgraph Standard_Interface_SunSpec_700 [" Standard Interface (SunSpec 700) "]
+        M701[" 701: Grid AC Reality "]
+        M714[" 714: Battery DC Flow "]
+        M704[" 704: Charging Limits "]
+        M715[" 715: System State Master "]
+        M502[" M502 "]
     end
 
-    subgraph Proprietary_Interface_15500_Extensions
-        EXT_PV_AC[15510: Built-in PV AC]
-        EXT_PV_REM[15512: Remote PV aPBox]
-        EXT_MODE[15507: Native Mode]
-        EXT_LOAD[16000: Home Load]
+    subgraph Proprietary_Interface_15500_Extensions [" Proprietary Interface (15500 Extensions) "]
+        EXT_PV_AC[" 15510: Built-in PV AC "]
+        EXT_PV_REM[" 15512: Remote PV aPBox "]
+        EXT_MODE[" 15507: Native Mode "]
+        EXT_LOAD[" 16000: Home Load "]
     end
 
-    subgraph Physical_Hardware
-        GRID((Utility Grid))
-        PV_INT[Built-in Solar]
-        PV_EXT[Remote aPBox Solar]
-        BAT[aPower Batteries]
-        LOADS[Home Electrical Loads]
+    subgraph Physical_Hardware [" Physical Hardware "]
+        GRID((" Utility Grid "))
+        PV_INT[" Built-in Solar "]
+        PV_EXT[" Remote aPBox Solar "]
+        BAT[" aPower Batteries "]
+        LOADS[" Home Electrical Loads "]
     end
 
     %% Standard Logic
-    M715 -->|Target State| M704
-    M704 -->|WSetPct| BAT
+    M715 -->|" Target State "| M704
+    M704 -->|" WSetPct "| BAT
     M714 --- BAT
     M701 --- GRID
     M502 --- PV_INT
     M502 --- PV_EXT
 
     %% Extension Logic (Filling the Gaps)
-    EXT_PV_AC -->|Granular Yield| M502
-    EXT_PV_REM -->|Granular Yield| M502
-    EXT_LOAD -.->|GAP: No Standard Model| LOADS
-    EXT_MODE -->|Sync| M715
-    EXT_LOAD -->|Demand| M701
+    EXT_PV_AC -->|" Granular Yield "| M502
+    EXT_PV_REM -->|" Granular Yield "| M502
+    EXT_LOAD -.->|" GAP: No Standard Model "| LOADS
+    EXT_MODE -->|" Sync "| M715
+    EXT_LOAD -->|" Demand "| M701
 
     classDef standard fill:#00e5ff26,stroke:#00e5ff,stroke-width:2px;
     classDef extension fill:#ffeb3b26,stroke:#fbc02d,stroke-dasharray:5 5,stroke-width:2px;
