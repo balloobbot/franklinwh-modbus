@@ -20,43 +20,43 @@ The FranklinWH aGate implementation contains several deviations from the SunSpec
 
 ```mermaid
 graph TD
-    subgraph Standard_Interface_SunSpec_700 [" Standard Interface (SunSpec 700) "]
-        M701[" 701: Grid AC Reality "]
-        M714[" 714: Battery DC Flow "]
-        M704[" 704: Charging Limits "]
-        M715[" 715: System State Master "]
-        M502[" M502 "]
+    subgraph Standard_Interface_SunSpec_700 ["&nbsp;&nbsp;&nbsp; Standard Interface (SunSpec 700) &nbsp;&nbsp;&nbsp;"]
+        M701["&nbsp;&nbsp;&nbsp; 701: Grid AC Reality &nbsp;&nbsp;&nbsp;"]
+        M714["&nbsp;&nbsp;&nbsp; 714: Battery DC Flow &nbsp;&nbsp;&nbsp;"]
+        M704["&nbsp;&nbsp;&nbsp; 704: Charging Limits &nbsp;&nbsp;&nbsp;"]
+        M715["&nbsp;&nbsp;&nbsp; 715: System State Master &nbsp;&nbsp;&nbsp;"]
+        M502["&nbsp;&nbsp;&nbsp; M502 &nbsp;&nbsp;&nbsp;"]
     end
 
-    subgraph Proprietary_Interface_15500_Extensions [" Proprietary Interface (15500 Extensions) "]
-        EXT_PV_AC[" 15510: Built-in PV AC "]
-        EXT_PV_REM[" 15512: Remote PV aPBox "]
-        EXT_MODE[" 15507: Native Mode "]
-        EXT_LOAD[" 16000: Home Load "]
+    subgraph Proprietary_Interface_15500_Extensions ["&nbsp;&nbsp;&nbsp; Proprietary Interface (15500 Extensions) &nbsp;&nbsp;&nbsp;"]
+        EXT_PV_AC["&nbsp;&nbsp;&nbsp; 15510: Built-in PV AC &nbsp;&nbsp;&nbsp;"]
+        EXT_PV_REM["&nbsp;&nbsp;&nbsp; 15512: Remote PV aPBox &nbsp;&nbsp;&nbsp;"]
+        EXT_MODE["&nbsp;&nbsp;&nbsp; 15507: Native Mode &nbsp;&nbsp;&nbsp;"]
+        EXT_LOAD["&nbsp;&nbsp;&nbsp; 16000: Home Load &nbsp;&nbsp;&nbsp;"]
     end
 
-    subgraph Physical_Hardware [" Physical Hardware "]
-        GRID((" Utility Grid "))
-        PV_INT[" Built-in Solar "]
-        PV_EXT[" Remote aPBox Solar "]
-        BAT[" aPower Batteries "]
-        LOADS[" Home Electrical Loads "]
+    subgraph Physical_Hardware ["&nbsp;&nbsp;&nbsp; Physical Hardware &nbsp;&nbsp;&nbsp;"]
+        GRID(("&nbsp;&nbsp;&nbsp; Utility Grid &nbsp;&nbsp;&nbsp;"))
+        PV_INT["&nbsp;&nbsp;&nbsp; Built-in Solar &nbsp;&nbsp;&nbsp;"]
+        PV_EXT["&nbsp;&nbsp;&nbsp; Remote aPBox Solar &nbsp;&nbsp;&nbsp;"]
+        BAT["&nbsp;&nbsp;&nbsp; aPower Batteries &nbsp;&nbsp;&nbsp;"]
+        LOADS["&nbsp;&nbsp;&nbsp; Home Electrical Loads &nbsp;&nbsp;&nbsp;"]
     end
 
     %% Standard Logic
-    M715 -->|" Target State "| M704
-    M704 -->|" WSetPct "| BAT
+    M715 -->|"&nbsp;&nbsp; Target State &nbsp;&nbsp;"| M704
+    M704 -->|"&nbsp;&nbsp; WSetPct &nbsp;&nbsp;"| BAT
     M714 --- BAT
     M701 --- GRID
     M502 --- PV_INT
     M502 --- PV_EXT
 
     %% Extension Logic (Filling the Gaps)
-    EXT_PV_AC -->|" Granular Yield "| M502
-    EXT_PV_REM -->|" Granular Yield "| M502
-    EXT_LOAD -.->|" GAP: No Standard Model "| LOADS
-    EXT_MODE -->|" Sync "| M715
-    EXT_LOAD -->|" Demand "| M701
+    EXT_PV_AC -->|"&nbsp;&nbsp; Granular Yield &nbsp;&nbsp;"| M502
+    EXT_PV_REM -->|"&nbsp;&nbsp; Granular Yield &nbsp;&nbsp;"| M502
+    EXT_LOAD -.->|"&nbsp;&nbsp; GAP: No Standard Model &nbsp;&nbsp;"| LOADS
+    EXT_MODE -->|"&nbsp;&nbsp; Sync &nbsp;&nbsp;"| M715
+    EXT_LOAD -->|"&nbsp;&nbsp; Demand &nbsp;&nbsp;"| M701
 
     classDef standard fill:#00e5ff26,stroke:#00e5ff,stroke-width:2px;
     classDef extension fill:#ffeb3b26,stroke:#fbc02d,stroke-dasharray:5 5,stroke-width:2px;
