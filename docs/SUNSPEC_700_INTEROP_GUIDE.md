@@ -16,6 +16,16 @@ The FranklinWH aGate implementation contains several deviations from the SunSpec
 | **M704.WSetRvrtTms**| **COSMETIC**. The hardware countdown runs but does NOT reset `WSetEna` or `WSetPct` at zero. | **Software Watchdog**: A continuous control loop must heartbeat or explicitly call `WSetEna=0`. |
 | **M704.WSetPct** | **SCALING**. Uses `WMaxRtg` (1000W AC) as denominator instead of `WChaRteMaxRtg` (5000W DC). | **Denominator Override**: Scaling math uses the direction-aware nameplate rating from `M702`. |
 
+<style>
+  /* Force centered text-anchor in Mermaid diagrams to override global MkDocs styling */
+  .mermaid text, 
+  .mermaid tspan, 
+  .mermaid .label, 
+  .mermaid .node text {
+    text-anchor: middle !important;
+  }
+</style>
+
 ## 2. End-to-End Orchestration Architecture
 
 ```mermaid
