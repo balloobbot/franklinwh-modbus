@@ -57,9 +57,9 @@ graph TD
     EXT_MODE -->|Sync| M715
     EXT_LOAD -->|Demand| M701
 
-    classDef standard fill:rgba(0, 229, 255, 0.15),stroke:#00e5ff,stroke-width:2px;
-    classDef extension fill:rgba(255, 235, 59, 0.15),stroke:#fbc02d,stroke-dasharray: 5 5,stroke-width:2px;
-    classDef physical fill:rgba(120, 120, 120, 0.05),stroke:#757575,stroke-width:1px;
+    classDef standard fill:#00e5ff26,stroke:#00e5ff,stroke-width:2px;
+    classDef extension fill:#ffeb3b26,stroke:#fbc02d,stroke-dasharray:5 5,stroke-width:2px;
+    classDef physical fill:#7878780d,stroke:#757575,stroke-width:1px;
 
     class M701,M714,M704,M715,M502 standard;
     class EXT_PV_AC,EXT_PV_REM,EXT_MODE,EXT_LOAD extension;
