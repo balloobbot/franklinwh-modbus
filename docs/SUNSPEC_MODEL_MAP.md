@@ -11,8 +11,6 @@ This document maps the complete SunSpec Information Model as implemented by the 
 | Model | Name | Key Data Points | Utility Interest | HA Interest |
 |:---|:---|:---|:---:|:---:|
 | **1** | Common | Manufacturer, Model, Serial No. | ✅ | ✅ |
-| **11** | Ethernet | IP Address, MAC Address | ⚠️ | ✅ |
-| **12** | IPv4 | Network Configuration | — | ✅ |
 | **701** | DER Info | Device Type, Nominal Ratings | ✅ | ⚠️ |
 
 ## 2. Solar & PV Infrastructure (Energy Generation)
