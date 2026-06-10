@@ -781,6 +781,7 @@ FranklinWHController(
 | `healthcheck()` | HealthStatus | System health check |
 | `check_blocking_alarms()` | (bool, list) | Check if alarms block operation |
 | `check_state()` | dict | Full system state with conflict detection |
+| `get_enum_desc(model_id, point_name, value)` | str | Resolve PICS enum value to string description |
 
 ### VirtualModeController
 

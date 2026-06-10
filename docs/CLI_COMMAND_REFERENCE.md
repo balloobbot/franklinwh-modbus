@@ -9,31 +9,53 @@ The `franklinwh_cli.py` tool is the primary interface for controlling and monito
 | Category | Option | Purpose / Function | Typical Use Case |
 |:---------|:-------|:-------------------|:-----------------|
 | **Connection** | `-i`, `--ip` | Target device network address. | **Mandatory** for all operations. |
-| | `-u`, `--unit` | Modbus Unit ID (Slave ID). | Use `2` for aGate, `1` for direct PDU access. |
-| | `-t`, `--timeout` | Connection wait time (seconds). | Increase if on a high-latency WiFi link. |
-| **Modes** | `--mode` | Change **Native Hardware** mode. | Switching between SC and TOU permanently. |
-| | `--vmode` | Run **Virtual Software** loop. | Orchestrating Peak Shaving or Emergency Backup. |
-| **Actions** | `--charge` | Import power from grid to battery. | Force charging before a storm or low-rate window. |
-| | `--discharge` | Export power from battery to home/grid. | Reducing grid usage during expensive Peak periods. |
-| | `--max-charge` | Force charge at full inverter rating. | Rapidly filling battery when time is limited. |
-| | `--standby` | Idle the battery (0W flow). | Disabling battery usage without turning off system. |
-| | `--stop` | Release Modbus control (WSetEna=0). | Returning system to cloud control after manual test. |
-| **Limits** | `--target-soc` | Goal SoC for current action. | Charging battery to exactly 80% to preserve life. |
-| | `--reserve` | Minimum SoC for SC/TOU modes. | Ensuring 30% is kept for outages in SC mode. |
-| | `--threshold` | Power trigger for Peak Shaving. | Starting discharge only when home load exceeds 2kW. |
-| | `--max-charge-soc`| Safety ceiling for charging. | Auto-stopping a charge at 95% to avoid cell stress. |
+| | `-p`, `--port` | Modbus network port (default: `502`). | Adjusting when connecting via a custom port forwarding setup. |
+| | `-u`, `--unit` | Modbus Unit ID (Slave ID, default: `2`). | Use `2` for aGate, `1` for direct PDU access. |
+| | `-b`, `--base-address` | Base Modbus address (default: `40000`). | Adjusting address offset if the registers are shifted. |
+| | `-t`, `--timeout` | Connection wait time (seconds, default: `10.0`). | Increase if on a high-latency WiFi or cellular link. |
+| **Modes** | `--mode` | Change **Native Hardware** operating mode. | Switching between Backup, SC, and TOU permanently. |
+| | `--vmode` | Run **Virtual Software** orchestration loop. | Orchestrating Peak Shaving, Manual, or Grid-Zero modes. |
+| **Actions** | `--power` | Manual power in watts (+charge, -discharge). | Legacy/compatibility option for orchestrated power control. |
+| | `--charge` | Import power from grid to battery at specified watts. | Force charging before an outage or a low-rate window. |
+| | `--discharge` | Export power from battery at specified watts. | Reducing grid usage during expensive Peak periods. |
+| | `--max-charge` | Force charge at full inverter nameplate rating. | Rapidly filling battery when charge window is short. |
+| | `--max-discharge` | Force discharge at full inverter nameplate rating. | Maximizing export/offset during peak event hours. |
+| | `--standby` | Idle the battery (0W power flow). | Disabling battery charging/discharging temporarily. |
+| | `--stop` | Release Modbus remote control (WSetEna=0). | Returning control to native cloud automation. |
+| **Limits** | `--target-soc` | Target SoC goal for virtual actions (default: `100`). | Charging battery to exactly 80% to preserve lifetime. |
+| | `--reserve` | Minimum backup SoC floor for virtual modes (default: `20`).| Ensuring a reserve is kept for power outages. |
+| | `--self-reserve` | Set native Self-Consumption reserve SOC percentage. | Permanently setting the hardware self-consumption floor. |
+| | `--tou-reserve` | Set native TOU reserve SOC percentage. | Permanently setting the hardware Time-of-Use floor. |
+| | `--threshold` | Power trigger limit for Peak Shaving (default: `2000`). | Starting discharge only when home load exceeds 2kW. |
+| | `--max-charge-soc`| Safety ceiling for charging (default: `100`). | Auto-stopping a charge at 95% to avoid cell stress. |
+| | `--min-discharge-soc`| Safety floor for discharging (auto-read if not set).| Auto-stopping discharge to protect battery from deep drain. |
+| | `--soc-ramp-window`| SoC ramping range percentage (default: `10`). | Smoothly scaling power flow when approaching SoC limits. |
+| | `--target-soc-auto`| Target SoC percentage for auto-stop. | Automatically stopping command execution at target. |
 | **Safety** | `--revert` | Software watchdog timer (seconds). | **Critical Safety**: Auto-stop if your PC/script crashes. |
-| | `--duration` | Total run time for a command. | Charging for exactly 30 minutes then exiting. |
-| | `--force` | Bypass safety SoC checks. | Discharging below 10% during a testing emergency. |
-| **Automation** | `--sequence` | Execute an in-line JSON sequence. | Enabling remote control and charging in one line. |
-| | `--sequence-file`| Execute a multi-step JSON file. | Running a 10-step hardware verification test. |
-| | `--schedule-file`| Load a 24h TOU JSON schedule. | Fully automating battery logic for a specific utility. |
+| | `--duration` | Total run time limit in seconds. | Charging for exactly 30 minutes (1800s) then exiting. |
+| | `--force` | Bypass safety SoC limits. | Forcing discharge below 10% during emergency validation. |
+| | `--off-grid-permitted`| Allow battery commands in off-grid state. | Permitting charge/discharge during backup mode. |
+| | `--assume-clean-state`| Skip startup register conflict checks. | Bypassing initial verification checks to speed up startup. |
+| **Automation** | `--sequence` | Execute an in-line JSON sequence string. | Enabling remote control and setting charge rate in one line. |
+| | `--sequence-file`| Execute a multi-step JSON sequence file. | Running a complex automated multi-step hardware test. |
+| | `--schedule-file`| Load a 24-hour TOU JSON schedule. | Fully automating battery logic based on utility tariffs. |
+| | `--show-schedule`| Display a loaded schedule file. | Inspecting and printing schedule details in the terminal. |
+| | `--validate-schedule`| Validate a schedule file schema. | Checking custom schedules for errors before running them. |
+| | `--brief` | Enable minimal sequencer output. | Reducing logs for automated logging and monitoring systems. |
 | **Diagnostics** | `--status` | Snapshot of current metrics. | Checking SoC and current power flow via terminal. |
-| | `--monitor` | Real-time TUI dashboard. | Monitoring system behavior during a manual test. |
-| | `--healthcheck` | Comprehensive system scan. | Troubleshooting "Zombie States" or connection issues. |
-| | `--check-alarms` | Decode hardware error bitfields. | Diagnosing battery internal faults or grid errors. |
-| **UI** | `--theme` | Change dashboard color palette. | Using 'Paper' theme for high-contrast visibility. |
-| | `--detail` | Enable verbose status output. | Seeing raw register values in the status summary. |
+| | `--monitor` | Launch interactive terminal dashboard (TUI). | Real-time visual monitoring of system parameters. |
+| | `--healthcheck` | Comprehensive hardware diagnostic scan. | Troubleshooting "Zombie States" or Modbus connection issues. |
+| | `--check-alarms` | Decode hardware error and alarm bitfields. | Diagnosing battery internal faults or grid error codes. |
+| | `--clear-alarms` | Clear/reset persistent alarms. | Writing to AlarmReset to clear transient alarm codes. |
+| | `--test-extension-write`| Test extension register writability. | Attempting write tests on 15507-15509 to verify locks. |
+| | `--check-span` | Scan network for SPAN panel integrations. | Locating and checking compatible smart panels on the LAN. |
+| **UI & Output** | `-v`, `--verbose` | Enable verbose debug logging. | Troubleshooting detailed Modbus transaction sequences. |
+| | `-q`, `--quiet` | Suppress non-error output. | Useful for scripting or when launching the monitor. |
+| | `--detail` | Enable detailed status output. | Seeing raw register values in the status summary. |
+| | `--theme` | Change dashboard color palette. | Using 'Paper' theme for high-contrast visibility. |
+
+> [!IMPORTANT]
+> **Writability Disclaimer:** Proprietary FranklinWH Modbus extensions (such as `--mode`, `--self-reserve`, and `--tou-reserve`) are **not writeable by default** and will not function unless FranklinWH Support unlocks them (typically done for owners of SPAN or Lumin smart panels). For the vast majority of standard users, these options will remain read-only/non-functional. The CLI/TUI will perform active read-back verification to warn you if your Gateway ignores these writes.
 
 ---
 

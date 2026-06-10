@@ -54,9 +54,16 @@ else:
 - `DCWhAbs` - DC Energy Absorbed (Wh) ✅ **Working** — lifetime charged
 
 **Workaround:** Calculate current from Power/Voltage:
-```python
-dc_current = dc_power / dc_voltage  # Ohm's Law: I = P/V
-```
+- **Single-Battery System (`NPrt = 1`)**:
+  ```python
+  dc_current = dc_power / dc_voltage  # Ohm's Law: I = P/V
+  ```
+- **Multi-Battery System (`NPrt > 1`)**:
+  For systems with multiple batteries connected in parallel, the library sums the DC Power (`DCW`) and averages the DC Voltage (`DCV`) across all active repeating blocks (ports) first, then divides to get total system DC current:
+  ```python
+  avg_voltage = sum(voltages) / len(voltages)
+  total_current = total_dc_power / avg_voltage
+  ```
 
 **Code Location:** `src/franklinwh_modbus/controller.py:read_battery_status()` (M714 section)
 

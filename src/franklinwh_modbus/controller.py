@@ -12,6 +12,7 @@ import threading
 from typing import Dict, Any, Optional, Tuple, List
 
 from .types import BatteryCommand, HealthStatus, ONGRID_MODES
+from .constants import get_pics_enum_desc
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,8 @@ class FranklinWHController:
     NATIVE_MODES = {
         1: 'Emergency Backup',
         2: 'Self-Consumption',
-        3: 'TOU'
+        3: 'TOU',
+        4: 'Manual'
     }
     
     def __init__(
@@ -55,6 +57,8 @@ class FranklinWHController:
         timeout: float = 10.0,
         base_address: int = 0,  # sunspec2 uses 0 for auto/scan
         auto_release_orphan: bool = False,  # Release orphaned VPP on connect
+        max_charge_w: Optional[float] = None,
+        max_discharge_w: Optional[float] = None,
     ):
         if not SUNSPEC_AVAILABLE:
             raise ImportError("sunspec2 package is required. Install with: pip install sunspec2")
@@ -65,6 +69,8 @@ class FranklinWHController:
         self.timeout = timeout
         self.base_address = base_address
         self.auto_release_orphan = auto_release_orphan
+        self._override_max_charge_w = max_charge_w
+        self._override_max_discharge_w = max_discharge_w
         self.dev: Optional[SunSpecModbusClientDeviceTCP] = None
         self.models: dict = {}
         self._span_writable: Optional[bool] = None
@@ -401,6 +407,20 @@ class FranklinWHController:
             return model[0] if model else None
         return model
     
+    def get_enum_desc(self, model_id: int, point_name: str, value: int) -> str:
+        """Resolve a PICS-certified integer enum value to its string representation.
+        
+        Args:
+            model_id: SunSpec model ID (e.g. 701, 703, 704, 715)
+            point_name: The SunSpec point/register name (e.g. 'InvSt', 'ES')
+            value: The raw integer value read from the register
+            
+        Returns:
+            The string description of the enum value.
+        """
+        return get_pics_enum_desc(model_id, point_name, value)
+
+    
     def _get_scale_factor(self, model, sf_name: str) -> int:
         """Get scale factor value, default to 0.
 
@@ -447,8 +467,8 @@ class FranklinWHController:
             
             # Model 714 - Battery DC power
             # FranklinWH aGate M714.DCW sign convention (confirmed empirically):
-            #   positive = power INTO battery (Charging)
-            #   negative = power OUT of battery (Discharging)
+            #   positive = power OUT of battery (Discharging)
+            #   negative = power INTO battery (Charging)
             m714 = self.get_model(714)
             if m714:
                 try:
@@ -456,35 +476,70 @@ class FranklinWHController:
                     sf_w = self._get_scale_factor(m714, 'DCW_SF')
                     sf_a = self._get_scale_factor(m714, 'DCA_SF')
                     sf_v = self._get_scale_factor(m714, 'DCV_SF')
+                    sf_tmp = self._get_scale_factor(m714, 'Tmp_SF')
                     
-                    dc_power = m714.DCW.value * (10 ** sf_w) if m714.DCW.value is not None else 0
-                    result['battery_power_w'] = dc_power
+                    blocks = m714.blocks[1:] if hasattr(m714, 'blocks') and len(m714.blocks) > 1 else [m714]
                     
-                    # Derive battery state from DC power direction (±50W deadband)
+                    # Aggregate values across repeating blocks (ports/batteries)
+                    total_dc_power = sum(
+                        block.DCW.value * (10 ** sf_w)
+                        for block in blocks
+                        if hasattr(block, 'DCW') and block.DCW.value is not None
+                    )
+                    result['battery_power_w'] = total_dc_power
+                    
+                    # Derive battery state from total DC power direction (±50W deadband)
                     # FranklinWH M713.Sta is always 0 (OFF) — cannot rely on it
-                    if dc_power < -50:
+                    if total_dc_power < -50:
                         result['battery_state'] = 'Charging'
-                    elif dc_power > 50:
+                    elif total_dc_power > 50:
                         result['battery_state'] = 'Discharging'
                     else:
                         result['battery_state'] = 'Idle'
                     
                     # DC current (read or calculate from P/V)
-                    dc_current = 0
-                    if hasattr(m714, 'DCA') and m714.DCA.value is not None and m714.DCA.value != 0:
-                        dc_current = m714.DCA.value * (10 ** sf_a)
-                    elif hasattr(m714, 'DCV') and m714.DCV.value is not None and m714.DCV.value != 0:
-                        dc_voltage = m714.DCV.value * (10 ** sf_v)
-                        if dc_voltage > 0:
-                            dc_current = round(dc_power / dc_voltage, 2)
-                    result['battery_current_a'] = dc_current
+                    has_dca = any(
+                        hasattr(block, 'DCA') and block.DCA.value is not None and block.DCA.value != 0
+                        for block in blocks
+                    )
                     
-                    # Battery temperature from M714
-                    sf_tmp = self._get_scale_factor(m714, 'Tmp_SF')
-                    if hasattr(m714, 'Tmp') and m714.Tmp.value is not None:
-                        result['battery_temp_c'] = round(m714.Tmp.value * (10 ** sf_tmp), 1)
+                    if has_dca:
+                        total_current = sum(
+                            block.DCA.value * (10 ** sf_a)
+                            for block in blocks
+                            if hasattr(block, 'DCA') and block.DCA.value is not None
+                        )
                     else:
-                        result['battery_temp_c'] = 0
+                        # Workaround: average DCV across active blocks and divide total power by it
+                        voltages = [
+                            block.DCV.value * (10 ** sf_v)
+                            for block in blocks
+                            if hasattr(block, 'DCV') and block.DCV.value is not None and block.DCV.value > 0
+                        ]
+                        avg_voltage = sum(voltages) / len(voltages) if voltages else 0
+                        total_current = round(total_dc_power / avg_voltage, 2) if avg_voltage > 0 else 0
+                        
+                    result['battery_current_a'] = total_current
+                    
+                    # Battery temperature from M714 (take peak temperature across all ports)
+                    temps = [
+                        block.Tmp.value * (10 ** sf_tmp)
+                        for block in blocks
+                        if hasattr(block, 'Tmp') and block.Tmp.value is not None
+                    ]
+                    result['battery_temp_c'] = round(max(temps), 1) if temps else 0
+                    
+                    # Expose granular per-battery telemetry
+                    result['individual_batteries'] = [
+                        {
+                            'port': idx + 1,
+                            'power_w': block.DCW.value * (10 ** sf_w) if hasattr(block, 'DCW') and block.DCW.value is not None else 0,
+                            'voltage_v': block.DCV.value * (10 ** sf_v) if hasattr(block, 'DCV') and block.DCV.value is not None else 0,
+                            'current_a': block.DCA.value * (10 ** sf_a) if hasattr(block, 'DCA') and block.DCA.value is not None else 0,
+                            'temp_c': round(block.Tmp.value * (10 ** sf_tmp), 1) if hasattr(block, 'Tmp') and block.Tmp.value is not None else 0
+                        }
+                        for idx, block in enumerate(blocks)
+                    ]
                 except Exception as e:
                     logger.debug(f"Could not read Model 714: {e}")
             
@@ -631,7 +686,12 @@ class FranklinWHController:
                 try:
                     m714.read()
                     sf_w = self._get_scale_factor(m714, 'DCW_SF')
-                    battery_dc_power = m714.DCW.value * (10 ** sf_w)
+                    blocks = m714.blocks[1:] if hasattr(m714, 'blocks') and len(m714.blocks) > 1 else [m714]
+                    battery_dc_power = sum(
+                        block.DCW.value * (10 ** sf_w)
+                        for block in blocks
+                        if hasattr(block, 'DCW') and block.DCW.value is not None
+                    )
                 except Exception as e:
                     logger.debug(f"Could not read Model 714: {e}")
             
@@ -911,6 +971,134 @@ class FranklinWHController:
         except Exception as e:
             logger.error(f"Failed to set native mode: {e}")
             return False, str(e)
+
+    def set_self_consumption_reserve(self, pct: int, dry_run: bool = False) -> Tuple[bool, str]:
+        """
+        Set FranklinWH native Self-Consumption reserve SOC percentage via Modbus Register 15508.
+        
+        Args:
+            pct: Reserve SOC percentage (0-100)
+            dry_run: If True, report what would happen without writing
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        if not (0 <= pct <= 100):
+            return False, f"Invalid reserve percentage: {pct}. Must be 0-100."
+            
+        if dry_run:
+            return True, f"Dry Run: Would set Self-Consumption reserve to {pct}% (Reg 15508 = {pct})"
+            
+        try:
+            client = self.dev.client
+            client.connect()
+            sock = client.socket
+            if not sock:
+                return False, "No active Modbus TCP connection"
+                
+            # Modbus TCP write request (FC06)
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, self.EXT_SELF_RESERVE, pct)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            
+            if len(resp) >= 9:
+                fc = resp[7]
+                if fc == 0x86:
+                    err_code = resp[8]
+                    errors = {1: "Illegal Function", 2: "Illegal Data Address", 3: "Illegal Data Value", 4: "Server Failure"}
+                    err_msg = errors.get(err_code, f"Unknown error {err_code}")
+                    return False, f"Modbus Exception: {err_msg} (0x86, {err_code})"
+                    
+                if len(resp) >= 12 and fc == 6:
+                    logger.debug("Write ACK received, verifying with read-back...")
+                    time.sleep(0.5) # Wait for firmware to apply
+                    
+                    # Perform read-back
+                    verify_req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, self.EXT_SELF_RESERVE, 1)
+                    sock.sendall(verify_req)
+                    verify_resp = sock.recv(256)
+                    
+                    if len(verify_resp) >= 11:
+                        actual_val = struct.unpack('>H', verify_resp[9:11])[0]
+                        if actual_val == pct:
+                            logger.info(f"Self-Consumption reserve verified: {pct}%")
+                            return True, f"Self-Consumption reserve changed to {pct}%"
+                        else:
+                            return False, (
+                                f"Write failed (Read-Only?): Hardware ignored write to Self-Consumption reserve {pct}%. "
+                                f"Register stayed at {actual_val}%. "
+                                "Ensure 'SPAN Modbus' is unlocked in installer settings."
+                            )
+                            
+            return False, f"Invalid or short response from aGate (len={len(resp)})"
+            
+        except Exception as e:
+            logger.error(f"Failed to set Self-Consumption reserve: {e}")
+            return False, str(e)
+
+    def set_tou_reserve(self, pct: int, dry_run: bool = False) -> Tuple[bool, str]:
+        """
+        Set FranklinWH native TOU reserve SOC percentage via Modbus Register 15509.
+        
+        Args:
+            pct: Reserve SOC percentage (0-100)
+            dry_run: If True, report what would happen without writing
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        if not (0 <= pct <= 100):
+            return False, f"Invalid reserve percentage: {pct}. Must be 0-100."
+            
+        if dry_run:
+            return True, f"Dry Run: Would set TOU reserve to {pct}% (Reg 15509 = {pct})"
+            
+        try:
+            client = self.dev.client
+            client.connect()
+            sock = client.socket
+            if not sock:
+                return False, "No active Modbus TCP connection"
+                
+            # Modbus TCP write request (FC06)
+            req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 6, self.EXT_TOU_RESERVE, pct)
+            sock.sendall(req)
+            resp = sock.recv(256)
+            
+            if len(resp) >= 9:
+                fc = resp[7]
+                if fc == 0x86:
+                    err_code = resp[8]
+                    errors = {1: "Illegal Function", 2: "Illegal Data Address", 3: "Illegal Data Value", 4: "Server Failure"}
+                    err_msg = errors.get(err_code, f"Unknown error {err_code}")
+                    return False, f"Modbus Exception: {err_msg} (0x86, {err_code})"
+                    
+                if len(resp) >= 12 and fc == 6:
+                    logger.debug("Write ACK received, verifying with read-back...")
+                    time.sleep(0.5) # Wait for firmware to apply
+                    
+                    # Perform read-back
+                    verify_req = struct.pack('>HHHBBHH', 0, 0, 6, self.unit_id, 3, self.EXT_TOU_RESERVE, 1)
+                    sock.sendall(verify_req)
+                    verify_resp = sock.recv(256)
+                    
+                    if len(verify_resp) >= 11:
+                        actual_val = struct.unpack('>H', verify_resp[9:11])[0]
+                        if actual_val == pct:
+                            logger.info(f"TOU reserve verified: {pct}%")
+                            return True, f"TOU reserve changed to {pct}%"
+                        else:
+                            return False, (
+                                f"Write failed (Read-Only?): Hardware ignored write to TOU reserve {pct}%. "
+                                f"Register stayed at {actual_val}%. "
+                                "Ensure 'SPAN Modbus' is unlocked in installer settings."
+                            )
+                            
+            return False, f"Invalid or short response from aGate (len={len(resp)})"
+            
+        except Exception as e:
+            logger.error(f"Failed to set TOU reserve: {e}")
+            return False, str(e)
     
     # =========================================================================
     # RESERVE SOC VALIDATION (GAP-1, GAP-2 SAFETY FEATURES)
@@ -933,18 +1121,18 @@ class FranklinWHController:
         
         mode_raw = native.get('mode_raw', -1)
         
-        # Mode mapping: 0=Backup, 1=TOU, 2=Self-Consumption, 3=Manual
+        # 1-indexed Mode mapping: 1=Emergency Backup, 2=Self-Consumption, 3=TOU, 4=Manual
         if mode_raw == 2:  # Self-Consumption
             reserve = native.get('self_reserve_pct', 20)
             return reserve, 'self'
-        elif mode_raw == 1:  # Time of Use
+        elif mode_raw == 3:  # TOU
             reserve = native.get('tou_reserve_pct', 20)
             return reserve, 'tou'
-        elif mode_raw == 0:  # Emergency Backup
+        elif mode_raw == 1:  # Emergency Backup
             # Emergency backup typically uses self_reserve
             reserve = native.get('self_reserve_pct', 20)
             return reserve, 'self'
-        elif mode_raw == 3:  # Manual
+        elif mode_raw == 4:  # Manual
             # Manual mode may not enforce reserve, but we still check
             return None, 'none'
         else:
@@ -1112,7 +1300,21 @@ class FranklinWHController:
     RATED_MAX_DISCHARGE_W = 5000
     
     def discover_ratings(self):
-        """Read M702 nameplate ratings to replace hardcoded limits."""
+        """Read M702 nameplate ratings to replace hardcoded limits, applying user overrides if specified."""
+        # 1. Apply user-specified overrides first if available
+        if self._override_max_charge_w is not None:
+            self.RATED_MAX_CHARGE_W = self._override_max_charge_w
+            logger.info(f"Using custom charge rate override: {self.RATED_MAX_CHARGE_W}W")
+        
+        if self._override_max_discharge_w is not None:
+            self.RATED_MAX_DISCHARGE_W = self._override_max_discharge_w
+            logger.info(f"Using custom discharge rate override: {self.RATED_MAX_DISCHARGE_W}W")
+            
+        # If both are overridden, we can set RATED_MAX_W and return early
+        if self._override_max_charge_w is not None and self._override_max_discharge_w is not None:
+            self.RATED_MAX_W = max(self.RATED_MAX_CHARGE_W, self.RATED_MAX_DISCHARGE_W)
+            return
+
         m702 = self.get_model(702)
         if not m702:
             logger.warning("Model 702 not found; using default 5000W ratings")
@@ -1131,13 +1333,28 @@ class FranklinWHController:
             w_cha = read_rating('WChaRteMaxRtg', w_max)
             w_dis = read_rating('WDisChaRteMaxRtg', w_max)
             
-            self.RATED_MAX_W = w_max
-            self.RATED_MAX_CHARGE_W = w_cha
-            self.RATED_MAX_DISCHARGE_W = w_dis
+            if self._override_max_charge_w is None:
+                self.RATED_MAX_CHARGE_W = w_cha
+            if self._override_max_discharge_w is None:
+                self.RATED_MAX_DISCHARGE_W = w_dis
+                
+            self.RATED_MAX_W = max(self.RATED_MAX_CHARGE_W, self.RATED_MAX_DISCHARGE_W)
             
-            logger.debug(f"Device ratings: Max={w_max}W, Charge={w_cha}W, Discharge={w_dis}W")
+            logger.debug(f"Device ratings: Max={self.RATED_MAX_W}W, Charge={self.RATED_MAX_CHARGE_W}W, Discharge={self.RATED_MAX_DISCHARGE_W}W")
         except Exception as e:
             logger.warning(f"Failed to read M702 ratings: {e}; using defaults")
+
+    def load_capability_schema(self) -> dict:
+        """Load the modbus capability schema JSON."""
+        import json
+        import os
+        schema_path = os.path.join(os.path.dirname(__file__), 'modbus_capability.json')
+        try:
+            with open(schema_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load modbus_capability.json: {e}")
+            return {}
     
     def _validate_power(self, power_watts: float) -> float:
         """Safety clamp: ensure requested power doesn't exceed device ratings.
@@ -1277,7 +1494,204 @@ class FranklinWHController:
             return self._with_retry(_do_send, max_retries=2)
         except Exception as e:
             return False, str(e)
-    
+            
+    def dispatch(
+        self,
+        action: str,
+        power: Optional[Union[int, float, str]] = None,
+        duration: Optional[Union[int, str]] = None,
+        target_soc: Optional[float] = None,
+        blocking: bool = False,
+        dry_run: bool = False
+    ) -> Tuple[bool, str]:
+        """High-level dispatch function emulating dashboard control options.
+        
+        This consolidates charge, discharge, standby, and stop actions, with 
+        dynamic duration parsing (seconds, 'HH:MM:SS', '1h', etc.) and power 
+        specifications (watts, percentages '40%', or 'max'), plus target SOC monitoring.
+        
+        Args:
+            action: Action to perform: 'charge', 'discharge', 'standby', 'stop'
+            power: Power rate. Can be numeric Watts, a string representing 
+                   percentage rate (e.g. '40%'), or 'max'. Required for charge/discharge.
+            duration: Optional running time. Can be numeric seconds or string 
+                      duration (e.g. 'HH:MM:SS', '1h', '30m').
+            target_soc: Optional target SoC percentage. The command will automatically
+                        stop and release control when this SoC is reached.
+            blocking: If True, blocks execution and runs an active status monitoring 
+                      loop that verifies SoC and timer progress. If False, runs one-shot 
+                      with asynchronous software timer reversion.
+            dry_run: If True, simulates the action without sending commands.
+            
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
+        from .types import BatteryCommand, ControlMode
+        
+        action = action.strip().lower()
+        if action not in ('charge', 'discharge', 'standby', 'stop'):
+            raise ValueError(f"Invalid dispatch action: {action}. Choose from: charge, discharge, standby, stop")
+            
+        # 1. Handle Stop Action
+        if action == 'stop':
+            if dry_run:
+                return True, "Dry Run: Would release control and reset control state"
+            success = self.reset_control_state()
+            return success, "Control released" if success else "Failed to release control"
+            
+        # 2. Parse Duration
+        duration_s = None
+        if duration is not None:
+            try:
+                duration_s = self._parse_duration(duration)
+            except Exception as e:
+                return False, f"Failed to parse duration: {e}"
+                
+        # 3. Resolve Power Level
+        resolved_power = 0.0
+        if action in ('charge', 'discharge'):
+            if power is None:
+                raise ValueError(f"Power parameter is required for action '{action}'")
+                
+            try:
+                if isinstance(power, str):
+                    power_str = power.strip().lower()
+                    if power_str in ('max', 'max-charge', 'max-discharge'):
+                        if action == 'charge':
+                            resolved_power = self.RATED_MAX_CHARGE_W
+                        else:
+                            resolved_power = self.RATED_MAX_DISCHARGE_W
+                    elif power_str.endswith('%'):
+                        pct = float(power_str[:-1]) / 100.0
+                        if pct < 0 or pct > 1.0:
+                            raise ValueError("Power percentage must be between 0% and 100%")
+                        if action == 'charge':
+                            resolved_power = pct * self.RATED_MAX_CHARGE_W
+                        else:
+                            resolved_power = pct * self.RATED_MAX_DISCHARGE_W
+                    else:
+                        resolved_power = float(power_str)
+                else:
+                    resolved_power = float(power)
+            except Exception as e:
+                return False, f"Failed to parse/resolve power: {e}"
+                
+            # Normalize direction: charge is positive, discharge is negative
+            resolved_power = abs(resolved_power)
+            if action == 'discharge':
+                resolved_power = -resolved_power
+                
+        # 4. Construct Command
+        cmd = BatteryCommand(power_watts=resolved_power, mode=ControlMode.LIMIT_ABS)
+        
+        # 5. Handle Target SOC Check and Loops (if Blocking is requested)
+        if blocking:
+            if dry_run:
+                msg = f"Dry Run: Would start blocking loop for {action} at {abs(resolved_power)}W"
+                if target_soc is not None:
+                    msg += f" targeting {target_soc}%"
+                if duration_s is not None:
+                    msg += f" for {duration_s}s"
+                return True, msg
+                
+            # Perform initial SoC validation
+            status = self.read_battery_status()
+            current_soc = status.get('soc', 0.0)
+            
+            if target_soc is not None:
+                is_charge = resolved_power > 0
+                operation = 'charge' if is_charge else 'discharge'
+                
+                # Run safety validation (reserve limits, margins)
+                is_valid, val_msg, _ = self.validate_soc_safety(
+                    target_soc=target_soc,
+                    current_soc=current_soc,
+                    operation=operation
+                )
+                if not is_valid:
+                    return False, f"SoC Safety Validation Failed: {val_msg}"
+                    
+                # Check if already at target
+                if is_charge and current_soc >= target_soc:
+                    return True, f"Already at target SoC ({current_soc:.1f}% >= {target_soc:.1f}%)"
+                elif not is_charge and current_soc <= target_soc:
+                    return True, f"Already at target SoC ({current_soc:.1f}% <= {target_soc:.1f}%)"
+                    
+            # Send initial control command (without a software timer as we actively loop)
+            success, msg = self.send_command(cmd, duration_s=None, dry_run=False)
+            if not success:
+                return False, f"Failed to send dispatch command: {msg}"
+                
+            # Blocking loop execution
+            start_time = time.time()
+            check_interval = 5.0
+            try:
+                while True:
+                    # Check duration
+                    if duration_s is not None and (time.time() - start_time) >= duration_s:
+                        logger.info(f"Dispatch duration of {duration_s}s elapsed")
+                        break
+                        
+                    # Check SoC
+                    status = self.read_battery_status()
+                    current_soc = status.get('soc', 0.0)
+                    
+                    if target_soc is not None:
+                        is_charge = resolved_power > 0
+                        if is_charge and current_soc >= target_soc:
+                            logger.info(f"Target SoC ({target_soc}%) reached at {current_soc:.1f}%")
+                            break
+                        elif not is_charge and current_soc <= target_soc:
+                            logger.info(f"Target SoC ({target_soc}%) reached at {current_soc:.1f}%")
+                            break
+                            
+                    time.sleep(check_interval)
+            except KeyboardInterrupt:
+                logger.info("Dispatch loop interrupted by user")
+            finally:
+                self.reset_control_state()
+                
+            return True, f"Completed dispatch of {action} to target"
+            
+        else:
+            # 6. One-shot Asynchronous Dispatch (relying on software watchdog timer)
+            return self.send_command(cmd, duration_s=duration_s, dry_run=dry_run)
+            
+    def _parse_duration(self, duration: Union[int, float, str]) -> int:
+        """Parse HH:MM:SS, time suffixes ('1h', '30m'), or raw seconds into integer seconds."""
+        if isinstance(duration, (int, float)):
+            return int(duration)
+            
+        if isinstance(duration, str):
+            val_str = duration.strip().lower()
+            if not val_str:
+                return 0
+                
+            # Format: HH:MM:SS or MM:SS
+            if ":" in val_str:
+                parts = val_str.split(":")
+                if len(parts) == 3:
+                    return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                elif len(parts) == 2:
+                    return int(parts[0]) * 60 + int(parts[1])
+                else:
+                    raise ValueError(f"Invalid HH:MM:SS format: {duration}")
+                    
+            # Suffix formats: e.g. "1.5h", "90m", "45s"
+            import re
+            match = re.match(r"^^([\d.]+)\s*(h|m|s|hr|min|sec)?$", val_str)
+            if match:
+                value = float(match.group(1))
+                unit = match.group(2)
+                if unit in ('h', 'hr'):
+                    return int(value * 3600)
+                elif unit in ('m', 'min'):
+                    return int(value * 60)
+                else:
+                    return int(value)
+                    
+        raise ValueError(f"Invalid duration value/format: {duration}")
+
     def reset_control_state(self) -> bool:
         """Reset aGate to known clean state (idle)."""
         def _do_reset():

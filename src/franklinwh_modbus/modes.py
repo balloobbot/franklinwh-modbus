@@ -36,7 +36,11 @@ class VirtualModeController:
         max_charge_soc: int = 100,
         min_discharge_soc: Optional[int] = None,
         soc_ramp_window: int = 10,
-        force_soc_limits: bool = False
+        force_soc_limits: bool = False,
+        grid_import_limit_w: Optional[float] = None,
+        grid_export_limit_w: Optional[float] = None,
+        battery_charge_limit_w: Optional[float] = None,
+        battery_discharge_limit_w: Optional[float] = None,
     ):
         """Initialize virtual mode controller.
         
@@ -64,6 +68,12 @@ class VirtualModeController:
         self.soc_ramp_window = soc_ramp_window
         self.force_soc_limits = force_soc_limits
         
+        # PCS limits
+        self.grid_import_limit_w = grid_import_limit_w
+        self.grid_export_limit_w = grid_export_limit_w
+        self.battery_charge_limit_w = battery_charge_limit_w
+        self.battery_discharge_limit_w = battery_discharge_limit_w
+        
         # Track last commanded power to avoid feedback loops
         # (hardware DC power reading is always 0, so we track our own commands)
         self._last_commanded_power = 0.0
@@ -79,9 +89,9 @@ class VirtualModeController:
             native = self.ctrl.read_native_mode()
             if native:
                 ongrid_mode = native.get('mode_raw', -1)
-                if ongrid_mode == 1:
+                if ongrid_mode in (1, 2):  # Backup or Self-Consumption
                     return native.get('self_reserve_pct', 20)
-                elif ongrid_mode == 2:
+                elif ongrid_mode == 3:  # TOU
                     return native.get('tou_reserve_pct', 20)
         except Exception as e:
             logger.debug(f"Could not read aGate reserve: {e}")
@@ -228,6 +238,7 @@ class VirtualModeController:
         power = calculator(solar, home, grid, soc)
         
         power = self._apply_safety_limits(power, soc)
+        power = self._apply_software_pcs_limits(power, status)
         
         # Inverter safety check only applies when off-grid
         # On-grid: the aGate handles inverter protection natively
@@ -402,6 +413,43 @@ class VirtualModeController:
                 power = ramped_power
         
         return power
+        
+    def _apply_software_pcs_limits(self, power: float, status: Dict[str, Any]) -> float:
+        """Apply software-based PCS (Power Control System) limits on grid and battery flow."""
+        # 1. Battery Limits (always positive values, clamp absolute rate)
+        if power > 0 and self.battery_charge_limit_w is not None:
+            if power > self.battery_charge_limit_w:
+                logger.debug(f"PCS: Clamping battery charge {power:.0f}W -> {self.battery_charge_limit_w:.0f}W")
+                power = self.battery_charge_limit_w
+                
+        if power < 0 and self.battery_discharge_limit_w is not None:
+            if abs(power) > self.battery_discharge_limit_w:
+                logger.debug(f"PCS: Clamping battery discharge {abs(power):.0f}W -> {self.battery_discharge_limit_w:.0f}W")
+                power = -self.battery_discharge_limit_w
+                
+        # 2. Grid Limits (grid power: positive = import, negative = export)
+        grid_w = status['grid'].get('grid_power_w', 0.0)
+        
+        # Grid Import limit: if grid_w > grid_import_limit_w and we are charging,
+        # we can reduce charging power to reduce grid import.
+        if self.grid_import_limit_w is not None and grid_w > self.grid_import_limit_w:
+            excess_import = grid_w - self.grid_import_limit_w
+            if power > 0: # battery is charging
+                new_power = max(0.0, power - excess_import)
+                logger.debug(f"PCS: Grid import {grid_w:.0f}W exceeds limit {self.grid_import_limit_w:.0f}W. Reducing charge {power:.0f}W -> {new_power:.0f}W")
+                power = new_power
+                
+        # Grid Export limit: if grid_w < -grid_export_limit_w (exporting) and we are discharging (power < 0),
+        # we can reduce discharging power to reduce grid export.
+        if self.grid_export_limit_w is not None and grid_w < -self.grid_export_limit_w:
+            export_w = -grid_w
+            excess_export = export_w - self.grid_export_limit_w
+            if power < 0: # battery is discharging
+                new_power = min(0.0, power + excess_export) # make it less negative
+                logger.debug(f"PCS: Grid export {export_w:.0f}W exceeds limit {self.grid_export_limit_w:.0f}W. Reducing discharge {abs(power):.0f}W -> {abs(new_power):.0f}W")
+                power = new_power
+                
+        return power
     
     def _check_inverter_safety(self, status: Dict, proposed_power: float) -> Tuple[bool, str, float]:
         """Check if operation is safe for inverter.
@@ -464,8 +512,13 @@ class VirtualModeController:
                 return True, commanded, 0, 0  # Can't verify without Model 714
             
             m714.read()
-            sf_w = self._get_scale_factor(m714, 'DCW_SF')
-            actual = m714.DCW.value * (10 ** sf_w) if m714.DCW.value else 0
+            sf_w = self.ctrl._get_scale_factor(m714, 'DCW_SF')
+            blocks = m714.blocks[1:] if hasattr(m714, 'blocks') and len(m714.blocks) > 1 else [m714]
+            actual = sum(
+                block.DCW.value * (10 ** sf_w)
+                for block in blocks
+                if hasattr(block, 'DCW') and block.DCW.value is not None
+            )
             
             # Calculate difference percentage
             if commanded == 0:

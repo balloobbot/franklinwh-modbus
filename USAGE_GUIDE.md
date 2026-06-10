@@ -49,6 +49,9 @@ All standard SunSpec registers are readable by any Modbus TCP client. This inclu
 
 These extension registers control the aGate operating mode and reserve levels. Write access must be **provisioned by FranklinWH Support**.
 
+> [!IMPORTANT]
+> **FranklinWH Modbus extensions are not writeable by default** and will not function unless FranklinWH Support unlocks them or a future firmware release allows them. Even though these setters are implemented in software/the library, they will be **non-functional for the vast majority of users** (excluding those with SPAN or Lumin smart panels who have obtained installer unlock).
+
 **Already provisioned:** Owners with **SPAN Panels** or **Lumin Panels** connected via Modbus TCP — write access is already enabled.
 
 **Not provisioned?** Contact FranklinWH Support. Without provisioning, `send_command()` and mode changes will fail silently. Read-only features (`--status`, `--healthcheck`, TUI monitor) still work.
@@ -218,6 +221,12 @@ python franklinwh_cli.py -i YOUR_AGATE_IP --max-discharge --duration 3600
 
 # Standby (0W)
 python franklinwh_cli.py -i YOUR_AGATE_IP --standby
+
+# Set native Self-Consumption reserve SOC percentage (requires SPAN/Lumin unlock)
+python franklinwh_cli.py -i YOUR_AGATE_IP --self-reserve 35
+
+# Set native TOU reserve SOC percentage (requires SPAN/Lumin unlock)
+python franklinwh_cli.py -i YOUR_AGATE_IP --tou-reserve 40
 
 # Release control to cloud
 python franklinwh_cli.py -i YOUR_AGATE_IP --stop
@@ -470,6 +479,52 @@ ctrl.disconnect()
 ---
 
 ## Common Operations
+
+### Premium Unified Battery Dispatch API
+
+The controller provides a single, unified `dispatch()` method that emulates all dashboard control actions. It encapsulates charge, discharge, standby, and stop actions, handles multiple duration formats (`HH:MM:SS`, suffix strings like `1h`/`30m`, or numeric seconds), resolves multiple power configurations (numeric watts, percentage rates like `40%`, or `'max'` inverter rate), and supports active target SoC monitoring:
+
+```python
+from franklinwh_modbus import FranklinWHController
+
+ctrl = FranklinWHController('YOUR_AGATE_IP')
+ctrl.connect()
+
+# 1. Asynchronous One-shot Dispatch (uses software-based timer watchdog)
+# Charge at 40% of inverter rating (2kW) for 1 hour (reverts to cloud control on expiry)
+success, msg = ctrl.dispatch(
+    action='charge',
+    power='40%',          # Resolves to 40% of 5000W maximum rate (2000W)
+    duration='1h',        # Resolves to 3600 seconds
+    blocking=False        # Returns immediately, software watchdog handles reversion
+)
+print(f"One-shot dispatch: {msg}")
+
+# 2. Standby Mode
+# Force standby (0W power flow) for 30 minutes
+success, msg = ctrl.dispatch(
+    action='standby',
+    duration='30m',       # Resolves to 1800 seconds
+    blocking=False
+)
+
+# 3. Blocking Dispatch with Target SoC & Active Monitoring
+# Discharge at max rating (5kW) until SoC reaches 20.0%, actively polling progress
+success, msg = ctrl.dispatch(
+    action='discharge',
+    power='max',          # Resolves to 5000W (full nameplate rating)
+    duration='02:00:00',  # HH:MM:SS format (2 hours max duration limit)
+    target_soc=20.0,      # Automatically stops and releases control when SoC hits 20%
+    blocking=True         # Blocks and runs active monitoring loop every 5s
+)
+print(f"Blocking dispatch complete: {msg}")
+
+# 4. Immediate Takeover Release (Stop Modbus Control)
+# Release control instantly and return the system to normal automatic cloud orchestration
+ctrl.dispatch(action='stop')
+
+ctrl.disconnect()
+```
 
 ### Operation: Charge Until Target SoC
 

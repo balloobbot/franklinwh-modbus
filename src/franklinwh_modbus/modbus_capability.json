@@ -1,0 +1,134 @@
+{
+  "device": {
+    "manufacturer": "FranklinWH",
+    "model": "aGate X",
+    "standard": "SunSpec DER (700-series)",
+    "firmware_tested": "V10R01B04D00"
+  },
+  "models": {
+    "1": {
+      "name": "Common Model",
+      "status": "implemented",
+      "description": "Standard manufacturer identification data",
+      "points": {
+        "Mn": { "status": "implemented" },
+        "Md": { "status": "implemented" },
+        "SN": { "status": "implemented" }
+      }
+    },
+    "502": {
+      "name": "PV AC Measurement",
+      "status": "implemented",
+      "description": "PV generation measurements",
+      "points": {
+        "OutPw": { 
+          "status": "implemented", 
+          "quirk": "Coarse resolution (~100W steps), small nocturnal parasitic loads round up to 500-600W generation" 
+        }
+      }
+    },
+    "701": {
+      "name": "DER Measurement",
+      "status": "implemented",
+      "description": "AC measurements and ambient conditions",
+      "points": {
+        "TmpAmb": { "status": "implemented" },
+        "TmpCab": { "status": "implemented" },
+        "TotWhInj": { "status": "implemented", "description": "Cumulative grid export" },
+        "TotWhAbs": { "status": "implemented", "description": "Cumulative grid import" },
+        "DERMode": { 
+          "status": "implemented", 
+          "quirk": "Includes FranklinWH-specific PV_CLIPPED state (bit 2) used during daytime off-grid PV curtailment" 
+        }
+      }
+    },
+    "702": {
+      "name": "DER Capacity",
+      "status": "partially_implemented",
+      "description": "Device nameplate ratings and capacity constraints",
+      "points": {
+        "WMaxRtg": { "status": "broken", "observed": "Always returns 0 or 1000 in Modbus but allows writes that read back exactly as written" },
+        "WChaRteMaxRtg": { "status": "implemented", "observed": "Hardcoded baseline of 5000W; does not scale dynamically with added battery units" },
+        "WDisChaRteMaxRtg": { "status": "implemented", "observed": "Hardcoded baseline of 5000W; does not scale dynamically with added battery units" },
+        "WChaRteMax": { "status": "unimplemented", "observed": "Always 0xFFFF. Write transactions are accepted at protocol level (returning success echoes) but silently discarded internally without error." },
+        "WDisChaRteMax": { "status": "unimplemented", "observed": "Always 0xFFFF. Write transactions are accepted at protocol level (returning success echoes) but silently discarded internally without error." },
+        "VAChaRteMax": { "status": "unimplemented", "observed": "Always 0xFFFF. Write transactions are accepted at protocol level (returning success echoes) but silently discarded internally without error." },
+        "VADisChaRteMax": { "status": "unimplemented", "observed": "Always 0xFFFF. Write transactions are accepted at protocol level (returning success echoes) but silently discarded internally without error." }
+      }
+    },
+    "704": {
+      "name": "DER AC Controls",
+      "status": "partially_implemented",
+      "description": "Active/reactive power control and dead-man safety configs",
+      "points": {
+        "WSetEna": { "status": "implemented", "description": "Activates VPP/Remote Control mode when set to 1" },
+        "WSetPct": { "status": "implemented", "quirk": "Inverted sign convention: negative is charge, positive is discharge" },
+        "WSetRvrtTms": { "status": "broken", "quirk": "Countdown timer counts down but does NOT revert active power settings at expiry" },
+        "WMaxLimPct": { "status": "unimplemented", "observed": "Writable at protocol level (success echoes returned) but enable/limit never sticks and is silently discarded internally" },
+        "VarSetEna": { "status": "unimplemented", "observed": "Silently discards writes (success echoes returned but no internal state change, readback remains 0)" }
+      }
+    },
+    "710": {
+      "name": "DER Heartbeat",
+      "status": "unimplemented",
+      "description": "Safety watchdog heartbeat mechanism",
+      "points": {
+        "ControllerHb": { "status": "unimplemented", "observed": "Writes accepted at protocol level (success echoes returned) but readback is always 0; silently discarded internally" },
+        "DERHb": { "status": "unimplemented", "observed": "Always 0" }
+      }
+    },
+    "713": {
+      "name": "DER Storage Capacity",
+      "status": "partially_implemented",
+      "description": "Energy ratings and SOC measurements",
+      "points": {
+        "WHRtg": { "status": "implemented", "description": "Total battery energy capacity in Wh" },
+        "SoC": { "status": "implemented", "description": "State of Charge percentage" },
+        "Sta": { "status": "broken", "observed": "Always returns 0 (OFF) regardless of whether charging or discharging" }
+      }
+    },
+    "714": {
+      "name": "DER Storage AC Measurement",
+      "status": "partially_implemented",
+      "description": "AC power measurements",
+      "points": {
+        "DCW": { "status": "implemented", "quirk": "Sign convention: positive is power absorbed (charging), negative is power injected (discharging)" },
+        "DCA": { "status": "unimplemented", "observed": "Always returns 0; DC current must be calculated mathematically via I = P / V" }
+      }
+    },
+    "715": {
+      "name": "DER Lifecycle",
+      "status": "partially_implemented",
+      "points": {
+        "LocRemCtl": { "status": "partially_implemented", "quirk": "Reports Local (1) and is read-only, yet permits M704 power writes" }
+      }
+    }
+  },
+  "extensions": {
+    "15506": {
+      "name": "Home Load",
+      "status": "implemented",
+      "description": "Coarse active home load in Watts (snaps to ~100W steps)"
+    },
+    "15507": {
+      "name": "Operating Mode",
+      "status": "provisioned",
+      "description": "Native mode control: 1=Backup, 2=Self-Consumption, 3=TOU, 4=Manual. Requires installer SPAN Modbus unlock to write. If locked, write transactions are silently accepted at protocol level but discarded internally without error."
+    },
+    "15508": {
+      "name": "Self-Consumption Reserve",
+      "status": "provisioned",
+      "description": "Self-consumption floor reserve percentage. Requires installer SPAN Modbus unlock to write. If locked, write transactions are silently accepted at protocol level but discarded internally without error."
+    },
+    "15509": {
+      "name": "TOU Reserve",
+      "status": "broken",
+      "description": "Time-of-Use floor reserve percentage. Firmware defect: register always mirrors 15508 and cannot be configured independently via Modbus. If locked, write transactions are silently accepted at protocol level but discarded internally without error."
+    },
+    "16000": {
+      "name": "High-Resolution Home Load",
+      "status": "implemented",
+      "description": "Undocumented high-precision home load mirror in Watts (~1W resolution vs ~100W). Used preferentially by the library."
+    }
+  }
+}

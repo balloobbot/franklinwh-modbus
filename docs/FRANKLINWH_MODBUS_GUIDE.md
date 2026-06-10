@@ -166,6 +166,9 @@ Writing to `WSet` (absolute watts) alongside `WSetPct` causes **mode flickering*
 
 Write access to these registers requires the **SPAN Modbus** unlock — enabled by FranklinWH support for owners of SPAN Smart Panels. The aGate's Ethernet port passes through the SPAN Panel, which controls Modbus access.
 
+> [!IMPORTANT]
+> **FranklinWH Modbus extensions are not writeable by default** and will not function unless FranklinWH Support unlocks them or a future firmware release allows them. Even though these setters are implemented in software/the library, they will be **non-functional for the vast majority of users** (excluding those with SPAN or Lumin smart panels who have obtained installer unlock).
+
 #### Detecting SPAN Configuration
 
 **1. Network Scanner** — detect SPAN Panel on the local network:

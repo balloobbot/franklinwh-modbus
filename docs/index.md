@@ -125,6 +125,10 @@ ctrl.disconnect()
 Explore the sidebar for detailed guides on:
 
 - **[Modbus Guide](FRANKLINWH_MODBUS_GUIDE.md)** — Start here: definitive implementation guide
+- **[Model 704 Control Examples](MODEL_704_CONTROL_EXAMPLES.md)** — Handbook and JSON sequence examples for power control
+- **[SunSpec 700 Series Guide 2](SUNSPEC2_700_SERIES_GUIDE_2.md)** — Core reference for 700 series Modbus standard rules
+- **[SunSpec 700 Series Verification Plan](SUNSPEC_700_SERIES_VERIFICATION_PLAN.md)** — Non-destructive verification strategy
+- **[Conformance & Telemetry Report](SUNSPEC_700_SERIES_TEST_REPORT.md)** — Telemetry and findings from the live aGate hardware tests
 - **[CLI Command Reference](CLI_COMMAND_REFERENCE.md)** — All switches tested with live output
 - **[SunSpec Quirks](FRANKLINWH_SUNSPEC_QUIRKS.md)** — Hardware-specific quirks and workarounds
 - **[DER Control Reference](DER_CONTROL_REFERENCE.md)** — Complete M704/M715 register map

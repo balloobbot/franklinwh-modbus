@@ -225,3 +225,114 @@ DEVICE_ARCHITECTURE = {
         "battery_coupling": "DC",
     }
 }
+
+
+# Certified FranklinWH PICS Enum Mappings (Sourced from PICS documentation SM-000028)
+PICS_ENUMS = {
+    701: {
+        "ACType": {
+            1: "SINGLE_PHASE",
+            2: "SPLIT_PHASE",
+            3: "THREE_PHASE"
+        },
+        "St": {
+            1: "OFF",
+            2: "ON"
+        },
+        "InvSt": {
+            1: "OFF",
+            2: "SLEEPING",
+            3: "STARTING",
+            4: "RUNNING",
+            5: "THROTTLED",
+            6: "SHUTTING_DOWN",
+            7: "FAULT",
+            8: "STANDBY"
+        },
+        "ConnSt": {
+            1: "DISCONNECTED",
+            2: "CONNECTED"
+        },
+        "DERMode": {
+            1: "GRID_FOLLOWING",
+            2: "GRID_FORMING",
+            3: "PV_CLIPPED"
+        }
+    },
+    703: {
+        "ES": {
+            1: "DISABLED",
+            2: "ENABLED"
+        },
+        "NorOpCatRtg": {
+            1: "CAT_A",
+            2: "CAT_B"
+        },
+        "AbnOpCatRtg": {
+            1: "CAT_1",
+            2: "CAT_2",
+            3: "CAT_3"
+        },
+        "IntIslandCatRtg": {
+            1: "UNCATEGORIZED",
+            2: "INT_ISL_CAPABLE",
+            3: "BLACK_START_CAPABLE",
+            4: "ISOCH_CAPABLE"
+        },
+        "IntIslandCat": {
+            1: "UNCATEGORIZED",
+            2: "INT_ISL_CAPABLE",
+            3: "BLACK_START_CAPABLE",
+            4: "ISOCH_CAPABLE"
+        }
+    },
+    704: {
+        "PFWInjEna": {1: "DISABLED", 2: "ENABLED"},
+        "PFWInjEnaRvrt": {1: "DISABLED", 2: "ENABLED"},
+        "PFWAbsEna": {1: "DISABLED", 2: "ENABLED"},
+        "PFWAbsEnaRvrt": {1: "DISABLED", 2: "ENABLED"},
+        "WMaxLimPctEna": {1: "DISABLED", 2: "ENABLED"},
+        "WMaxLimPctEnaRvrt": {1: "DISABLED", 2: "ENABLED"},
+        "WSetEna": {1: "DISABLED", 2: "ENABLED"},
+        "WSetMod": {0: "W_MAX_PCT", 1: "WATTS"},
+        "WSetEnaRvrt": {1: "DISABLED", 2: "ENABLED"},
+        "VarSetEna": {1: "DISABLED", 2: "ENABLED"},
+        "VarSetMod": {
+            0: "W_MAX_PCT",
+            1: "VAR_MAX_PCT",
+            2: "VAR_AVAIL_PCT",
+            3: "VA_MAX_PCT",
+            4: "VARS"
+        },
+        "VarSetPri": {0: "ACTIVE", 1: "REACTIVE", 2: "VENDOR"},
+        "VarSetEnaRvrt": {1: "DISABLED", 2: "ENABLED"},
+        "WRmpRef": {0: "A_MAX", 1: "W_MAX"},
+        "AntiIslEna": {1: "DISABLED", 2: "ENABLED"},
+        "PFWInj.Ext": {0: "OVER_EXCITED", 1: "UNDER_EXCITED"},
+        "PFWInjRvrt.Ext": {0: "OVER_EXCITED", 1: "UNDER_EXCITED"},
+        "PFWAbs.Ext": {0: "OVER_EXCITED", 1: "UNDER_EXCITED"},
+        "PFWAbsRvrt.Ext": {0: "OVER_EXCITED", 1: "UNDER_EXCITED"},
+        "AdptCrvRslt": {0: "IN_PROGRESS", 1: "COMPLETED", 2: "FAILED"}
+    },
+    715: {
+        "LocRemCtl": {0: "REMOTE", 1: "LOCAL"},
+        "OpCtl": {0: "STOP", 1: "START", 2: "ENTER_STANDBY", 3: "EXIT_STANDBY"}
+    }
+}
+
+
+def get_pics_enum_desc(model_id: int, point_name: str, value: int) -> str:
+    """Resolve a PICS-certified integer enum value to its string representation.
+    
+    Args:
+        model_id: SunSpec model ID (e.g. 701, 703, 704, 715)
+        point_name: The SunSpec point/register name (e.g. 'InvSt', 'ES', 'WSetMod')
+        value: The raw integer value read from the register
+        
+    Returns:
+        The string description of the enum value, or "UNKNOWN (value)" if not found.
+    """
+    model_maps = PICS_ENUMS.get(model_id, {})
+    point_map = model_maps.get(point_name, {})
+    return point_map.get(value, f"UNKNOWN ({value})")
+

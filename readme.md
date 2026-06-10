@@ -40,6 +40,9 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 **Write access to extension registers (15507–15509: OnGridMode, SelfReserve, TOUReserve) requires "SPAN Modbus" unlock in FranklinWH installer settings.**
 
+> [!IMPORTANT]
+> **FranklinWH Modbus extensions are not writeable by default** and will not function unless FranklinWH Support unlocks them or a future firmware release allows them. Even though these setters are implemented in software/the library, they will be **non-functional for the vast majority of users** (excluding those with SPAN or Lumin smart panels who have obtained installer unlock).
+
 **Already qualified:** Owners with **SPAN Panels** or **Lumin Panels** connected to the aGate via Modbus TCP — these systems already have full write access enabled.
 
 **Not yet provisioned?** Contact FranklinWH Support to request Modbus write access for your aGate. Without provisioning, extension registers are read-only (writes fail silently). **Note:** Standard SunSpec M704 power commands (charge/discharge) work regardless of SPAN unlock status.

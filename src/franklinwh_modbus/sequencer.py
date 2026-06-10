@@ -61,7 +61,24 @@ class SunSpecSequencer:
         if isinstance(model, list):
             model = model[0]
             
-        point = getattr(model, point_name, None)
+        # Parse potential block index suffix (e.g. "DCW_2")
+        block_idx = 1
+        base_point_name = point_name
+        has_suffix = False
+        if '_' in point_name:
+            parts = point_name.rsplit('_', 1)
+            if parts[1].isdigit():
+                block_idx = int(parts[1])
+                base_point_name = parts[0]
+                has_suffix = True
+                
+        # Resolve the point object
+        point = None
+        if has_suffix and hasattr(model, 'blocks') and block_idx < len(model.blocks):
+            point = getattr(model.blocks[block_idx], base_point_name, None)
+        else:
+            point = getattr(model, point_name, None)
+            
         if point is None:
             raise ValueError(f"Point '{point_name}' not found in Model {model_id}")
             

@@ -79,7 +79,7 @@ def parse_model_spec(spec: str) -> Set[int]:
 def get_model_points(model, device_base_address=0, verbose=False) -> List[Dict]:
     """
     Extract all points from a model with comprehensive metadata including
-    register addresses.
+    register addresses. Supports repeating blocks.
     
     Args:
         model: SunSpec model instance
@@ -92,57 +92,68 @@ def get_model_points(model, device_base_address=0, verbose=False) -> List[Dict]:
     """
     points = []
     
-    # Get model base address if available
-    model_base_addr = getattr(model, 'addr', None)
-    if model_base_addr is None:
-        model_base_addr = getattr(model, 'base_addr', None)
-    if model_base_addr is None:
-        model_base_addr = getattr(model, 'model_addr', None)
+    blocks = getattr(model, "blocks", [model])
     
-    # Calculate absolute base address
-    absolute_base_addr = model_base_addr
-    if absolute_base_addr is not None and device_base_address > 0:
-        if absolute_base_addr < device_base_address:
-            # Assume it's an offset if significantly smaller than base
-            absolute_base_addr += device_base_address
-    
-    if hasattr(model, "points"):
-        for point_name in model.points:
-            point = getattr(model, point_name, None)
+    # Track scale factor values to resolve them correctly across blocks
+    sf_cache = {}
+    for block in blocks:
+        if hasattr(block, "points"):
+            for p_name in block.points:
+                p_obj = getattr(block, p_name, None)
+                if p_obj is not None and getattr(p_obj, "value", None) is not None:
+                    pdef = getattr(p_obj, "pdef", getattr(p_obj, "point_type", None))
+                    if pdef:
+                        def get_val_temp(key):
+                            if isinstance(pdef, dict): return pdef.get(key)
+                            return getattr(pdef, key, None)
+                        if p_name.endswith("_SF") or get_val_temp("type") == "sunssf":
+                            sf_cache[p_name] = p_obj.value
+
+    for block_idx, block in enumerate(blocks):
+        if not hasattr(block, "points"):
+            continue
+            
+        # Get block base address if available
+        block_base_addr = getattr(block, 'addr', None)
+        if block_base_addr is None:
+            block_base_addr = getattr(block, 'base_addr', None)
+        if block_base_addr is None:
+            block_base_addr = getattr(block, 'model_addr', None)
+        
+        # Calculate absolute block base address
+        absolute_block_base_addr = block_base_addr
+        if absolute_block_base_addr is not None and device_base_address > 0:
+            if absolute_block_base_addr < device_base_address:
+                # Assume it's an offset if significantly smaller than base
+                absolute_block_base_addr += device_base_address
+                
+        for point_name in block.points:
+            point = getattr(block, point_name, None)
             if point is None:
                 continue
                 
+            # Format repeating block point names (e.g. DCW_2 for block 2)
+            suffix = ""
+            if len(blocks) > 1 and block_idx > 1:
+                suffix = f"_{block_idx}"
+            display_name = f"{point_name}{suffix}"
+            
             point_info = {
-                "name": point_name,
+                "name": display_name,
                 "value": getattr(point, "value", None),
             }
             
             # Add register address information
-            if hasattr(point, "addr"):
-                 # Some implementations normally provide absolute addr here,
-                 # but if it matches offset logic we might need adjustment.
-                 # Usually point.addr is absolute if model was read correctly?
-                 # Let's trust point.addr if present, otherwise calculate.
-                if point.addr is not None:
-                     # Check if point.addr is relative or absolute
-                     # If it's small (like < 1000) and we expect 40000+, it's relative?
-                     # But point.addr usually IS the address.
-                     # Let's assume if it is < device_base_address it might be offset?
-                     # Actually, pysunspec2 usually puts absolute address in point.addr if scanned?
-                     # In my debug output, I didn't see point.addr being used?
-                     # "DEBUG point ID has addr None" (implied by fallback)
-                     point_info["address"] = point.addr
-                else: 
-                     point_info["address"] = None
+            if hasattr(point, "addr") and point.addr is not None:
+                 point_info["address"] = point.addr
+            else: 
+                 point_info["address"] = None
 
             if point_info.get("address") is None and hasattr(point, "offset"):
-                # Calculate absolute address from model base + offset
-                if absolute_base_addr is not None:
-                    point_info["address"] = absolute_base_addr + point.offset
+                # Calculate absolute address from block base + offset
+                if absolute_block_base_addr is not None:
+                    point_info["address"] = absolute_block_base_addr + point.offset
                 point_info["offset"] = point.offset
-            
-            # If we still have a low address that looks like an offset, and we have a base, apply it?
-            # But we already did that with absolute_base_addr.
             
             # Try to resolve metadata definition (pdef or point_type)
             pdef = getattr(point, "pdef", None)
@@ -156,12 +167,12 @@ def get_model_points(model, device_base_address=0, verbose=False) -> List[Dict]:
                     if isinstance(pdef, dict): return pdef.get(key)
                     return getattr(pdef, key, None)
 
-                # Offset within model
+                # Offset within block
                 offset = get_val("offset")
                 if offset is not None:
                     point_info["offset"] = offset
-                    if model_base_addr is not None and "address" not in point_info:
-                        point_info["address"] = model_base_addr + offset
+                    if absolute_block_base_addr is not None and "address" not in point_info:
+                        point_info["address"] = absolute_block_base_addr + offset
                 
                 # Basic attributes
                 for key in ["type", "units", "label", "desc", "access", "mandatory", "min", "max", "default"]:
@@ -208,26 +219,22 @@ def get_model_points(model, device_base_address=0, verbose=False) -> List[Dict]:
             # Calculate scaled value if scale factor is available
             if "scale_factor" in point_info and point_info["scale_factor"]:
                 sf_name = point_info["scale_factor"]
-                sf_point = getattr(model, sf_name, None)
-                if sf_point is not None:
-                    sf_value = getattr(sf_point, "value", None)
-                    # if verbose:
-                        # print(f"DEBUG: {point_name} has SF={sf_name}, SF value={sf_value}, raw value={point_info['value']}")
-                    if sf_value is not None and point_info["value"] is not None:
-                        try:
-                            # Scaled value = value * 10^(scale_factor)
-                            point_info["scaled_value"] = (
-                                point_info["value"] * (10 ** sf_value)
-                            )
-                            # if verbose:
-                                # print(f"DEBUG: {point_name} scaled to {point_info['scaled_value']}")
-                        except (TypeError, ValueError) as e:
-                            pass
-                            # if verbose:
-                                # print(f"DEBUG: Failed to scale {point_name}: {e}")
+                sf_value = sf_cache.get(sf_name)
+                if sf_value is None:
+                    sf_point = getattr(model, sf_name, None)
+                    if sf_point is not None:
+                        sf_value = getattr(sf_point, "value", None)
+                if sf_value is not None and point_info["value"] is not None:
+                    try:
+                        # Scaled value = value * 10^(scale_factor)
+                        point_info["scaled_value"] = (
+                            point_info["value"] * (10 ** sf_value)
+                        )
+                    except (TypeError, ValueError) as e:
+                        pass
             
             points.append(point_info)
-    
+            
     return points
 
 def read_sunspec_device(

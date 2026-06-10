@@ -189,6 +189,10 @@ Examples:
     
     parser.add_argument('--target-soc', type=float, default=100, help='Target SoC (default: 100)')
     parser.add_argument('--reserve', type=int, default=20, help='Reserve percentage (default: 20)')
+    parser.add_argument('--self-reserve', type=int,
+                        help='Set native Self-Consumption reserve SOC percentage (Register 15508). Requires SPAN Modbus unlock.')
+    parser.add_argument('--tou-reserve', type=int,
+                        help='Set native TOU reserve SOC percentage (Register 15509). Requires SPAN Modbus unlock.')
     parser.add_argument('--threshold', type=int, default=2000, help='Peak shave threshold (default: 2000)')
     parser.add_argument('--schedule-file', help='TOU schedule JSON file')
     
@@ -1213,6 +1217,20 @@ def main():
                 print(f"Native Mode Switch: {'SUCCESS' if success else 'FAILED'}")
                 print(f"Message: {msg}")
                 sys.exit(0 if success else 1)
+        
+        # --- NATIVE SELF-CONSUMPTION RESERVE SWITCHING (Register 15508) ---
+        if args.self_reserve is not None:
+            success, msg = ctrl.set_self_consumption_reserve(args.self_reserve, dry_run=args.dry_run)
+            print(f"Self-Consumption Reserve Change: {'SUCCESS' if success else 'FAILED'}")
+            print(f"Message: {msg}")
+            sys.exit(0 if success else 1)
+
+        # --- NATIVE TOU RESERVE SWITCHING (Register 15509) ---
+        if args.tou_reserve is not None:
+            success, msg = ctrl.set_tou_reserve(args.tou_reserve, dry_run=args.dry_run)
+            print(f"TOU Reserve Change: {'SUCCESS' if success else 'FAILED'}")
+            print(f"Message: {msg}")
+            sys.exit(0 if success else 1)
         
         # Virtual modes (Software Orchestration)
         if args.vmode:

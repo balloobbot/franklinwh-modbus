@@ -123,6 +123,14 @@ While the CLI provides a dedicated `--stop` flag, you can also include a "Stop" 
 
 ---
 
+## 📖 Model 704 Battery Control Examples
+
+For a detailed suite of real-world active power, export limiting, power factor control, and arbitrage sequences, refer to the **[Model 704 Control Examples Handbook](MODEL_704_CONTROL_EXAMPLES.md)**. 
+
+All 12 sequence examples are fully mapped to production JSON files under `examples/sequencer/` and utilize safety standby and automatic release steps.
+
+---
+
 ## Hardware-Specific Learnings (aGate X)
 
 *Last Updated: 2026-05-15*

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Multi-battery parallel stack support in SunSpec Model 714 (`DER Storage DC Measurement`), including summing power/energy, voltage averaging, and peak temperature tracking across parallel battery stacks.
+- Per-battery telemetry array (`individual_batteries`) in `read_battery_status()` for granular battery stack diagnostics.
+- Repeating block suffix tag notation (e.g., `714.DCW_1`, `714.DCW_2`) in `SunSpecSequencer` to target specific repeating block registers.
+- Support for scanning and displaying repeating blocks with cache-aware scale factor resolution and suffix formatting in the diagnostic reader tool (`modbus_sunspec2_reader.py`).
+- Certified PICS-compliant enum resolution utility (`get_pics_enum_desc`) and `FranklinWHController.get_enum_desc` for client applications (FEAT-PICS-ENUM-RESOLVER)
+- Prominent TUI Control status header (`Control: Remote (r=release)` or `Control: Local`) and active VPP setpoint warning alerts (`WSetEna` and `WSetPct`) on the interactive dashboard (FEAT-MONITOR-VPP-WARNINGS)
 - SunSpec InfoPoint Sequencer for automated register control sequences
 - Diagnostic conformance suite for hardware register verification
 - Comprehensive SunSpec Model Reference documentation (`SUNSPEC_MODEL_REFERENCE.md`)
@@ -17,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grid lifetime energy metrics (`M701.TotWhInj`, `M701.TotWhAbs`) in `read_grid_status()`, monitor TUI, and `--status --detail` (FEAT-MONITOR-GRID-LIFETIME)
 
 ### Fixed
-- **CRITICAL:** Synchronized Grid and Battery telemetry signs with confirmed hardware behavior (Negative = Charge/Import). Resolves directional labeling conflict in CLI and Monitor (Batch 4 / Issue #6).
+- **CRITICAL:** Fixed bug in `verify_command_execution()` where scale factor lookup failed due to using `self` instead of `self.ctrl`.
+- Synchronized Grid and Battery telemetry signs with confirmed hardware behavior (Negative = Charge/Import). Resolves directional labeling conflict in CLI and Monitor (Batch 4 / Issue #6).
 - Corrected `battery_state` derivation in `controller.py` to match physical power flow.
 
 ### Changed

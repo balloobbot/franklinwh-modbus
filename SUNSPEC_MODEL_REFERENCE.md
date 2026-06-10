@@ -114,6 +114,28 @@ sequenceDiagram
 
 ---
 
+## M714 — DC Measurement
+**Purpose:** Battery DC stack power, voltage, temperature, and lifetime energy accumulators.
+
+*   **Structure**: Consists of a fixed block containing scale factors and configuration, followed by repeating port blocks (one per parallel battery stack).
+*   **Multi-Port Scaling**: On multi-battery systems (`NPrt > 1`), the library sums DC power and energy values, extracts peak temperature for thermal safety, and averages DC voltage.
+*   **DCA Current Workaround**: `DCA` (DC Current) is unimplemented (reads `0`). The library calculates total current by dividing total summed `DCW` power by the average of active `DCV` voltages.
+
+| Addr | Point | Description | Compliance |
+| :---: | :--- | :--- | :---: |
+| 1044 | PrtAlrms | DC Port Alarms Bitfield | ✅ |
+| 1046 | NPrt | Number of Ports (Parallel batteries) | ✅ |
+| 1064 | ID_Str | Manufacturer ID String (Static `"ID_String"`) | ✅ |
+| *Blocks* | *Port Points* | *Repeating battery measurements (offsets 1072+)* | |
+| — | DCA | DC Current (A) | ❌ Unimplemented (0). Calculated via `DCW / DCV`. |
+| — | DCV | DC Voltage (V) | ✅ |
+| — | DCW | DC Power (W) (Positive = Discharge, Negative = Charge) | ✅ |
+| — | Tmp | Battery Temperature (°C) | ✅ |
+| — | DCWhInj | Lifetime DC Energy Discharged (Wh) | ✅ |
+| — | DCWhAbs | Lifetime DC Energy Charged (Wh) | ✅ |
+
+---
+
 ## M715 — DER Lifecycle
 **Purpose:** Safety heartbeats and control mode lifecycle.
 

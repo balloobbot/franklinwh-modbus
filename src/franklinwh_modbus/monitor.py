@@ -253,6 +253,8 @@ class SystemData:
     soc: float = 0.0
     soh: float = 0.0
     reserve_soc: float = 20.0
+    self_reserve_soc: float = 20.0
+    tou_reserve_soc: float = 20.0
     target_soc: float = 100.0
     dc_power: float = 0.0
     dc_current: float = 0.0
@@ -293,6 +295,7 @@ class SystemData:
     grid_mode: str = "Unknown"  # Grid Following, Grid Forming
     operating_mode: str = "Self-Consumption"
     wset_ena: int = 0
+    wset_pct: float = 0.0
     control_source: str = "aGate"  # aGate native or Modbus remote
     loc_rem_ctl: str = "N/A"  # SunSpec LocRemCtl (Local/Remote)
     derived_control: str = "Local"  # Our interpretation: Local or Remote
@@ -393,49 +396,6 @@ class CLIMonitor:
                 pass
             self.controller = None
             
-    def _read_extension_registers(self) -> dict:
-        """Read FranklinWH extension registers for additional data."""
-        if not self.controller or not hasattr(self.controller, 'dev') or not self.controller.dev:
-            return {}
-            
-        try:
-            client = self.controller.dev.client
-            unit = self.controller.unit_id
-            
-            # Solar breakdown (15502-15505)
-            solar_regs = client.read_holding_registers(15502, 4, slave=unit)
-            # Grid power (15506), Home load (15507)
-            extra_regs = client.read_holding_registers(15506, 2, slave=unit)
-            # Cabinet temp (15516), Ambient temp (15517)
-            temp_regs = client.read_holding_registers(15516, 2, slave=unit)
-            
-            result = {}
-            if solar_regs and not solar_regs.isError():
-                result['pv_total'] = self._uint16_to_int(solar_regs.registers[0])
-                result['pv_proximal'] = self._uint16_to_int(solar_regs.registers[1])
-                result['pv_remote1'] = self._uint16_to_int(solar_regs.registers[2])
-                result['pv_remote2'] = self._uint16_to_int(solar_regs.registers[3])
-                
-            if extra_regs and not extra_regs.isError():
-                result['grid_import_export'] = self._uint16_to_int(extra_regs.registers[0])
-                result['home_load'] = self._uint16_to_int(extra_regs.registers[1])
-                
-            if temp_regs and not temp_regs.isError():
-                result['cabinet_temp'] = temp_regs.registers[0] / 10.0 if temp_regs.registers[0] != 0xFFFF else 0
-                result['ambient_temp'] = temp_regs.registers[1] / 10.0 if temp_regs.registers[1] != 0xFFFF else 0
-                
-            return result
-        except Exception as e:
-            return {}
-            
-    def _uint16_to_int(self, value: int) -> int:
-        """Convert unsigned 16-bit to signed."""
-        if value >= 32768:
-            return value - 65536
-        return value
-        
-
-            
     def _read_lifetime_energy(self) -> dict:
         """Read lifetime energy accumulators from Model 715 (if available)."""
         try:
@@ -480,7 +440,6 @@ class CLIMonitor:
             solar = self.controller.read_solar_status()
             control = self.controller.read_control_status()
             native = self.controller.read_native_mode()
-            ext = self._read_extension_registers()
             nameplate = self.controller.read_nameplate()  # Now returns strings
             
             # Get extension solar data if available
@@ -497,12 +456,18 @@ class CLIMonitor:
             self.data.power_flow.solar_w = solar_total
             self.data.power_flow.battery_w = battery_dc
             self.data.power_flow.grid_w = grid_raw
-            self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
+            
+            # Sourced home load from high-res ext register 16000 or fallback to balance calculation
+            home_load_ext = ext_solar.get('home_load_ext', 0)
+            if home_load_ext > 0:
+                self.data.power_flow.home_w = home_load_ext
+            else:
+                self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
             
             # Battery state from enriched read_battery_status()
             # (derived from M714 DCW — M713.Sta is always 0 on FranklinWH)
             self.data.power_flow.battery_state = battery.get('battery_state', 'IDLE')
-                
+                 
             # Update Battery DC — all from enriched read_battery_status()
             self.data.soc = battery.get('soc', self.data.soc)
             self.data.soh = battery.get('soh', self.data.soh)
@@ -511,7 +476,14 @@ class CLIMonitor:
             self.data.battery_temp = battery.get('battery_temp_c', 0)
             self.data.available_wh = battery.get('wh_available', 0)
             self.data.rated_wh = battery.get('wh_rating', 0)
-            self.data.reserve_soc = native.get('self_reserve_pct', 20.0)
+            
+            # Store native reserve settings
+            self.data.self_reserve_soc = native.get('self_reserve_pct', 20.0)
+            self.data.tou_reserve_soc = native.get('tou_reserve_pct', 20.0)
+            
+            # Active effective reserve SoC based on current native operating mode
+            active_reserve, _ = self.controller.get_effective_reserve_level()
+            self.data.reserve_soc = active_reserve if active_reserve is not None else self.data.self_reserve_soc
             
             # Update AC Power — enriched grid status now includes current, PF, temps
             self.data.ac_voltage = grid.get('voltage_v', 0)
@@ -543,11 +515,15 @@ class CLIMonitor:
             self.data.control_source = 'Modbus' if control.get('wset_enabled') else 'aGate'
             self.data.loc_rem_ctl = control.get('loc_rem_ctl_name', 'N/A')
             wset_pct = control.get('wset_pct', 0)
+            self.data.wset_pct = wset_pct
             if control.get('wset_enabled'):
                 self.data.derived_control = f"Remote (Modbus WSetPct={wset_pct}%)"
             else:
                 self.data.derived_control = f"Local (aGate, {self.data.operating_mode})"
-            self.data.extension_writable = False
+                
+            # Set extension writable from connection writability check
+            write_status = self.controller.get_extension_write_status()
+            self.data.extension_writable = write_status.get('ongrid_mode', {}).get('writable', False)
             
             # Update Lifetime Energy (from M502 solar and M714 battery)
             m502 = self.controller.get_model(502)
@@ -556,11 +532,30 @@ class CLIMonitor:
             if m502 and hasattr(m502, 'OutWh') and m502.OutWh.value is not None:
                 self.data.lifetime_generated = m502.OutWh.value
             
-            if m714_energy and hasattr(m714_energy, 'DCWhInj') and m714_energy.DCWhInj.value is not None:
-                self.data.lifetime_discharged = m714_energy.DCWhInj.value
-            
-            if m714_energy and hasattr(m714_energy, 'DCWhAbs') and m714_energy.DCWhAbs.value is not None:
-                self.data.lifetime_charged = m714_energy.DCWhAbs.value
+            if m714_energy:
+                try:
+                    m714_energy.read()
+                    sf_wh = self.controller._get_scale_factor(m714_energy, 'DCWH_SF')
+                    if sf_wh is None:
+                        sf_wh = self.controller._get_scale_factor(m714_energy, 'DCWh_SF')
+                    if sf_wh is None:
+                        sf_wh = 0
+                    
+                    blocks = m714_energy.blocks[1:] if hasattr(m714_energy, 'blocks') and len(m714_energy.blocks) > 1 else [m714_energy]
+                    
+                    self.data.lifetime_discharged = sum(
+                        block.DCWhInj.value * (10 ** sf_wh)
+                        for block in blocks
+                        if hasattr(block, 'DCWhInj') and block.DCWhInj.value is not None
+                    )
+                    
+                    self.data.lifetime_charged = sum(
+                        block.DCWhAbs.value * (10 ** sf_wh)
+                        for block in blocks
+                        if hasattr(block, 'DCWhAbs') and block.DCWhAbs.value is not None
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not read Model 714 lifetime energy in monitor: {e}")
             
             # Grid lifetime energy (from M701 already read above)
             grid_export_wh = grid.get('grid_export_wh', 0)
@@ -577,7 +572,6 @@ class CLIMonitor:
                 'solar_w': self.data.power_flow.solar_w,
                 'grid_w': self.data.power_flow.grid_w
             })
-            
             return True
         except Exception as e:
             return False
@@ -643,17 +637,29 @@ class CLIMonitor:
                 key_display = 'BKSP'
             key_feedback = f" [Key: {key_display}]"
         
-        content = Text()
-        content.append(timestamp, style="dim")
-        content.append(" | ", style="dim")
-        content.append(title, style=self.theme.header_style)
-        content.append(f" | {refresh}", style="dim")
+        left_content = Text()
+        left_content.append(timestamp, style="dim")
+        left_content.append(" | ", style="dim")
+        left_content.append(title, style=self.theme.header_style)
+        left_content.append(f" | {refresh}", style="dim")
         status_color = self.theme.success_color if not self.paused else self.theme.warning_color
-        content.append(f" | [{status}]", style=status_color)
+        left_content.append(f" | [{status}]", style=status_color)
         if key_feedback:
-            content.append(key_feedback, style=f"bold {self.theme.warning_color}")
+            left_content.append(key_feedback, style=f"bold {self.theme.warning_color}")
+            
+        right_content = Text()
+        right_content.append("Control: ", style="dim")
+        if self.data.wset_ena == 1:
+            right_content.append("Remote (r=release)", style="bold red")
+        else:
+            right_content.append("Local", style="bold green")
+            
+        table = Table(show_header=False, box=None, padding=0, expand=True)
+        table.add_column("Left", justify="left")
+        table.add_column("Right", justify="right")
+        table.add_row(left_content, right_content)
         
-        return Panel(content, box=box.SIMPLE, padding=(0, 1))
+        return Panel(table, box=box.SIMPLE, padding=(0, 1))
         
     def render_power_flow(self) -> Panel:
         """Render Power Flow Summary panel."""
@@ -746,8 +752,17 @@ class CLIMonitor:
         mode_color = self.theme.accent_color if is_mono else "yellow"
         info.append(f" | Mode: {self.data.operating_mode}", style=mode_color)
         
-        content = Text.assemble(bar_text, "\n", info)
-        
+        if self.data.wset_ena == 1:
+            vpp_info = Text()
+            vpp_info.append("\n⚠️ REMOTE VPP CONTROL ACTIVE | ", style="bold red")
+            vpp_info.append("WSetEna: ", style="dim")
+            vpp_info.append("1", style="bold green")
+            vpp_info.append(" | WSetPct: ", style="dim")
+            vpp_info.append(f"{self.data.wset_pct:.1f}%", style="bold yellow")
+            content = Text.assemble(bar_text, "\n", info, vpp_info)
+        else:
+            content = Text.assemble(bar_text, "\n", info)
+            
         return Panel(content, title="[bold]Battery State of Charge[/bold]", border_style=self._get_border_style("green"), box=box.ROUNDED)
         
     def render_dc_power(self) -> Panel:
@@ -889,8 +904,15 @@ class CLIMonitor:
     def render_footer(self) -> Panel:
         """Render footer with keyboard shortcuts or prompt."""
         if self.show_prompt and self.prompt_mode:
-            # Show input prompt
-            prompt_text = f"{self.prompt_mode.capitalize()} watts: {self.prompt_buffer}_"
+            # Show input prompt with context
+            if self.prompt_mode == 'mode':
+                prompt_text = f"Set native mode (1=Backup, 2=Self, 3=TOU, 4=Manual): {self.prompt_buffer}_"
+            elif self.prompt_mode == 'self_reserve':
+                prompt_text = f"Set Self-Consumption Reserve % (0-100): {self.prompt_buffer}_"
+            elif self.prompt_mode == 'tou_reserve':
+                prompt_text = f"Set TOU Reserve % (0-100): {self.prompt_buffer}_"
+            else:
+                prompt_text = f"{self.prompt_mode.capitalize()} watts: {self.prompt_buffer}_"
             content = Text(prompt_text, style="bold yellow")
             content.append(" [Enter=send Esc=cancel]", style="dim")
             return Panel(content, box=box.SIMPLE, padding=(0, 1), border_style=self._get_border_style("yellow"))
@@ -907,6 +929,14 @@ class CLIMonitor:
             line1.append("=release ", style="dim")
             line1.append("[q]", style="bold cyan")
             line1.append("=quit", style="dim")
+            
+            if self.data.extension_writable:
+                line1.append(" [o]", style="bold cyan")
+                line1.append("=mode", style="dim")
+                line1.append(" [v]", style="bold cyan")
+                line1.append("=self_res", style="dim")
+                line1.append(" [t]", style="bold cyan")
+                line1.append("=tou_res", style="dim")
             
             line2 = Text()
             line2.append("[m]", style="bold cyan")
@@ -946,6 +976,9 @@ class CLIMonitor:
 [q] Quit             - Exit monitor
         """.strip()
         
+        if self.data.extension_writable:
+            help_text += "\n[o] Native Mode      - Set native mode (1=Backup, 2=Self, 3=TOU, 4=Manual)\n[v] Self Reserve     - Set Self-Consumption Reserve %\n[t] TOU Reserve      - Set TOU Reserve %"
+            
         content = Text(help_text)
         return Panel(content, title="[bold]Keyboard Help[/bold] (press h to close)", 
                     border_style=self._get_border_style("cyan"), box=box.DOUBLE)
@@ -1078,6 +1111,30 @@ class CLIMonitor:
             self.prompt_buffer = ""
             return True
             
+        # Native Mode - enter prompt mode if extension writable
+        if key == 'o':
+            if self.data.extension_writable:
+                self.show_prompt = True
+                self.prompt_mode = 'mode'
+                self.prompt_buffer = ""
+            return True
+
+        # Self-Consumption Reserve - enter prompt mode if extension writable
+        if key == 'v':
+            if self.data.extension_writable:
+                self.show_prompt = True
+                self.prompt_mode = 'self_reserve'
+                self.prompt_buffer = ""
+            return True
+
+        # TOU Reserve - enter prompt mode if extension writable
+        if key == 't':
+            if self.data.extension_writable:
+                self.show_prompt = True
+                self.prompt_mode = 'tou_reserve'
+                self.prompt_buffer = ""
+            return True
+            
         return True
         
     def _handle_prompt_key(self, key: str) -> bool:
@@ -1085,11 +1142,23 @@ class CLIMonitor:
         # Enter - submit command (\r=13 or \n=10)
         if ord(key) in (10, 13):
             try:
-                watts = int(self.prompt_buffer) if self.prompt_buffer else 0
+                val = int(self.prompt_buffer) if self.prompt_buffer else 0
                 if self.prompt_mode == 'charge':
-                    self._send_command(abs(watts))  # Positive = charge
+                    self._send_command(abs(val))  # Positive = charge
                 elif self.prompt_mode == 'discharge':
-                    self._send_command(-abs(watts))  # Negative = discharge
+                    self._send_command(-abs(val))  # Negative = discharge
+                elif self.prompt_mode == 'mode':
+                    if self.controller:
+                        success, msg = self.controller.set_native_mode(val)
+                        self._log_command(f"Mode set {val}: {'Success' if success else 'Error: ' + msg}")
+                elif self.prompt_mode == 'self_reserve':
+                    if self.controller:
+                        success, msg = self.controller.set_self_consumption_reserve(val)
+                        self._log_command(f"Self reserve set {val}%: {'Success' if success else 'Error: ' + msg}")
+                elif self.prompt_mode == 'tou_reserve':
+                    if self.controller:
+                        success, msg = self.controller.set_tou_reserve(val)
+                        self._log_command(f"TOU reserve set {val}%: {'Success' if success else 'Error: ' + msg}")
             except ValueError:
                 self._log_command("Error: Invalid number")
             # Exit prompt mode
