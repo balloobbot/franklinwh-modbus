@@ -180,7 +180,7 @@ class MockController:
         return True
     def reconnect(self):
         return True
-    def reset_control_state(self):
+    def reset_control_state(self, handshake_wait_s: float = 1.0):
         return True
     def read_control_status(self):
         return {'WSetEna': 0, 'WSet': 0, 'WSetMod': 0}

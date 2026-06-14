@@ -1692,7 +1692,7 @@ class FranklinWHController:
                     
         raise ValueError(f"Invalid duration value/format: {duration}")
 
-    def reset_control_state(self) -> bool:
+    def reset_control_state(self, handshake_wait_s: float = 1.0) -> bool:
         """Reset aGate to known clean state (idle)."""
         def _do_reset():
             logger.info("Resetting control state to idle...")
@@ -1704,6 +1704,14 @@ class FranklinWHController:
             m704.read()
             logger.info(f"Before reset: WSetEna={m704.WSetEna.value}, WSetPct={m704.WSetPct.value}, WSet={m704.WSet.value}")
             
+            # Standby Handshake: If remote control is active, force 0W and wait for handoff
+            if m704.WSetEna.value == 1 and handshake_wait_s > 0:
+                logger.info(f"Performing standby handshake: forcing 0W and waiting {handshake_wait_s}s...")
+                m704.WSetPct.value = 0
+                m704.WSet.value = 0
+                m704.write()
+                time.sleep(handshake_wait_s)
+                
             m704.WSetEna.value = 0
             m704.WSetPct.value = 0
             m704.WSet.value = 0
