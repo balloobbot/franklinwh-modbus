@@ -7,6 +7,7 @@ import logging
 import time
 import struct
 from typing import Dict, List, Any, Optional, Tuple
+from .constants import EXTENSION_REGISTRY
 
 try:
     import sunspec2.modbus.client as client
@@ -35,21 +36,25 @@ class SunSpecSequencer:
         self.base_address = base_address
         self.verbose = False
 
-    def get_point(self, tag: str) -> Tuple[Optional[Any], Any]:
-        """Resolve 'Model.Point' or 'RawAddress' tag."""
-        if '.' not in tag:
+    def get_point(self, tag: Any) -> Tuple[Optional[Any], Any]:
+        """Resolve 'Model.Point', 'RawAddress' tag, or a config dict."""
+        tag_str = tag
+        if isinstance(tag, dict):
+            tag_str = str(tag.get('point', tag.get('addr', '')))
+
+        if '.' not in tag_str:
             # Assume raw address
             try:
-                addr = int(tag)
+                addr = int(tag_str)
                 return None, addr
             except ValueError:
                 raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' or 'Address'")
 
         try:
-            model_id_str, point_name = tag.split('.')
+            model_id_str, point_name = tag_str.split('.')
             model_id = int(model_id_str)
         except ValueError:
-            raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' (e.g. 704.WSetPct)")
+            raise ValueError(f"Invalid tag format '{tag_str}'. Use 'ModelID.PointName' (e.g. 704.WSetPct)")
 
         model = self.device.models.get(model_id)
         if model is None:
@@ -106,22 +111,44 @@ class SunSpecSequencer:
                     return val * (10 ** sf_val)
         return val
 
-    def read_value(self, tag: str) -> Any:
+    def read_value(self, tag: Any) -> Any:
         model, point = self.get_point(tag)
         if model is None:
-            # Raw address read (Uint16) - Uses raw socket to bypass sunspec2 remapping
+            # Raw address read - Uses raw socket to bypass sunspec2 remapping
             addr = point
+            
+            # Determine properties: check inline dict, then registry defaults
+            reg_config = {}
+            if isinstance(tag, dict):
+                reg_config = tag
+            else:
+                reg_config = EXTENSION_REGISTRY.get(addr, {})
+                
+            reg_type = reg_config.get('type', 'uint16')
+            sf = reg_config.get('sf', 0)
+            count = 2 if reg_type in ('uint32', 'int32') else 1
+            
             client_obj = getattr(self.device, 'client', None)
             if client_obj and client_obj.socket:
                 try:
                     unit_id = getattr(self.device, 'slave_id', 1)
                     # Raw Modbus TCP: Transaction(2) Protocol(2) Length(2) Unit(1) Func(1) Addr(2) Count(2)
-                    req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 3, addr, 1)
+                    req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 3, addr, count)
                     sock = client_obj.socket
                     sock.sendall(req)
                     resp = sock.recv(256)
-                    if len(resp) >= 11: # 9 header + 2 data
-                        return struct.unpack('>H', resp[9:11])[0]
+                    if len(resp) >= 9 + count * 2: # 9 header + data
+                        data_bytes = resp[9:9+count*2]
+                        if reg_type == 'uint32':
+                            raw_val = struct.unpack('>I', data_bytes)[0]
+                        elif reg_type == 'int32':
+                            raw_val = struct.unpack('>i', data_bytes)[0]
+                        elif reg_type == 'int16':
+                            raw_val = struct.unpack('>h', data_bytes)[0]
+                        else: # uint16
+                            raw_val = struct.unpack('>H', data_bytes)[0]
+                        
+                        return raw_val * (10 ** sf) if sf else raw_val
                 except Exception as e:
                     logger.debug(f"Raw socket read at {addr} failed: {e}")
             return None
@@ -129,19 +156,46 @@ class SunSpecSequencer:
         model.read()
         return self.get_point_val(model, point)
 
-    def write_value(self, tag: str, human_val: Any) -> Any:
+    def write_value(self, tag: Any, human_val: Any) -> Any:
         """Write a value, applying scale factor conversion if needed."""
         model, point = self.get_point(tag)
         
         if model is None:
             # Raw address write
             addr = point
+            
+            # Determine properties
+            reg_config = {}
+            actual_val = human_val
+            if isinstance(tag, dict):
+                reg_config = tag
+            elif isinstance(human_val, dict):
+                reg_config = human_val
+                actual_val = human_val.get('value')
+                
+            if not reg_config:
+                reg_config = EXTENSION_REGISTRY.get(addr, {})
+                
+            reg_type = reg_config.get('type', 'uint16')
+            sf = reg_config.get('sf', 0)
+            
+            raw_val = actual_val
+            if sf:
+                raw_val = int(actual_val / (10 ** sf))
+            else:
+                raw_val = int(actual_val)
+                
             client_obj = getattr(self.device, 'client', None)
             if client_obj:
                 try:
-                    # sunspec2 client uses write_hregs (start, [values])
-                    client_obj.write_hregs(addr, [int(human_val)])
-                    return human_val
+                    if reg_type in ('uint32', 'int32'):
+                        fmt = '>I' if reg_type == 'uint32' else '>i'
+                        packed = struct.pack(fmt, raw_val)
+                        words = list(struct.unpack('>2H', packed))
+                        client_obj.write_hregs(addr, words)
+                    else:
+                        client_obj.write_hregs(addr, [raw_val])
+                    return actual_val
                 except Exception as e:
                     logger.debug(f"Raw write at {addr} failed: {e}")
             return None
@@ -225,7 +279,8 @@ class SunSpecSequencer:
 
         if dry_run:
             for tag, val in writes.items():
-                logger.info(f"  [DRY RUN] Would write {tag}: {before_vals[tag]} -> {val}")
+                compare_val = val.get('value') if isinstance(val, dict) else val
+                logger.info(f"  [DRY RUN] Would write {tag}: {before_vals[tag]} -> {compare_val}")
             return True
 
         # Perform writes (grouped by model for efficiency)
@@ -239,26 +294,32 @@ class SunSpecSequencer:
         require_transition = step.get('require_transition', False)
 
         for tag, val in writes.items():
+            compare_val = val.get('value') if isinstance(val, dict) else val
             initial = before_vals.get(tag)
             
             # Mandatory State Transition Validation
-            if require_transition and initial == val:
+            if require_transition and initial == compare_val:
                 raise TransitionValidationError(f"Step '{step.get('name')}' failed transition requirement: "
-                                               f"{tag} already matches target {val}")
+                                               f"{tag} already matches target {compare_val}")
 
-            if initial == val:
-                logger.info(f"  Skipping {tag}: already matches target {val} [MATCHED - NO TRANSITION]")
+            if initial == compare_val:
+                logger.info(f"  Skipping {tag}: already matches target {compare_val} [MATCHED - NO TRANSITION]")
                 write_attempted[tag] = False
                 continue
 
             write_attempted[tag] = True
             model, point = self.get_point(tag)
-            model_id = int(tag.split('.')[0])
+            if model is None:
+                model_id = 0
+            else:
+                tag_str = tag.get('point', tag.get('addr', '')) if isinstance(tag, dict) else tag
+                model_id = int(tag_str.split('.')[0])
+                
             if model not in models_to_write:
                 models_to_write[model] = []
             
             # Resolve raw value
-            raw_val = val
+            raw_val = compare_val
             if model is not None:
                 pdef = point.pdef
                 sf_name = get_attr(pdef, 'sf')
@@ -268,7 +329,14 @@ class SunSpecSequencer:
                         model.read()
                         sf_val = sf_point.value
                         if sf_val is not None:
-                            raw_val = int(val / (10 ** sf_val))
+                            raw_val = int(compare_val / (10 ** sf_val))
+            else:
+                reg_config = val if isinstance(val, dict) else EXTENSION_REGISTRY.get(point, {})
+                sf = reg_config.get('sf', 0)
+                if sf:
+                    raw_val = int(compare_val / (10 ** sf))
+                else:
+                    raw_val = int(compare_val)
             
             # Get address for logging
             if model is not None:
@@ -290,12 +358,12 @@ class SunSpecSequencer:
                 addr = point
             
             addr_str = f"{addr}" if addr is not None else "???"
-            logger.info(f"  Writing {tag} (Model {model_id}) = {val} [Raw: {raw_val}, Addr: {addr_str}]")
-            models_to_write[model].append((point, raw_val))
+            logger.info(f"  Writing {tag} = {compare_val} [Raw: {raw_val}, Addr: {addr_str}]")
+            models_to_write[model].append((point, raw_val, val))
 
         for model, points in models_to_write.items():
             if model is not None:
-                for point, raw_val in points:
+                for point, raw_val, _ in points:
                     point.value = raw_val
                 model.write()
             else:
@@ -304,19 +372,31 @@ class SunSpecSequencer:
                 if client_obj and client_obj.socket:
                     unit_id = getattr(self.device, 'slave_id', 1)
                     sock = client_obj.socket
-                    for addr, raw_val in points:
-                        # Raw Modbus TCP Write Single Register: Func 6
-                        req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 6, addr, int(raw_val))
-                        sock.sendall(req)
-                        resp = sock.recv(256)
-                        # Check response for success (Func 6 echoed)
-                        if len(resp) < 12 or resp[7] != 6:
-                            logger.error(f"  ✗ Raw write to {addr} failed (Response: {resp.hex()})")
+                    for addr, raw_val, val_obj in points:
+                        reg_config = val_obj if isinstance(val_obj, dict) else EXTENSION_REGISTRY.get(addr, {})
+                        reg_type = reg_config.get('type', 'uint16')
+                        
+                        if reg_type in ('uint32', 'int32'):
+                            fmt = '>I' if reg_type == 'uint32' else '>i'
+                            packed_val = struct.pack(fmt, raw_val)
+                            header = struct.pack('>HHHBBHHB', 0, 0, 11, unit_id, 16, addr, 2, 4)
+                            req = header + packed_val
+                            sock.sendall(req)
+                            resp = sock.recv(256)
+                            if len(resp) < 12 or resp[7] != 16:
+                                logger.error(f"  ✗ Raw 32-bit write to {addr} failed (Response: {resp.hex()})")
+                        else:
+                            req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 6, addr, int(raw_val))
+                            sock.sendall(req)
+                            resp = sock.recv(256)
+                            if len(resp) < 12 or resp[7] != 6:
+                                logger.error(f"  ✗ Raw write to {addr} failed (Response: {resp.hex()})")
 
         # Verification
         if not verify:
             for tag, val in writes.items():
-                logger.info(f"  Write {tag}: {before_vals.get(tag)} -> {val} [SENT]")
+                compare_val = val.get('value') if isinstance(val, dict) else val
+                logger.info(f"  Write {tag}: {before_vals.get(tag)} -> {compare_val} [SENT]")
             return True
 
         start_time = time.time()
@@ -327,7 +407,8 @@ class SunSpecSequencer:
         while pending and time.time() < deadline:
             for tag in list(pending):
                 current = self.read_value(tag)
-                target = writes[tag]
+                val = writes[tag]
+                target = val.get('value') if isinstance(val, dict) else val
                 
                 if current == target:
                     elapsed = int((time.time() - start_time) * 1000)
@@ -347,7 +428,9 @@ class SunSpecSequencer:
         if pending:
             for tag in pending:
                 current = self.read_value(tag)
-                logger.error(f"  ✗ {tag}: Update failure. Current: {current}, Expected: {writes[tag]}")
+                val = writes[tag]
+                target = val.get('value') if isinstance(val, dict) else val
+                logger.error(f"  ✗ {tag}: Update failure. Current: {current}, Expected: {target}")
             return False
         
         return True
@@ -403,14 +486,21 @@ class SunSpecSequencer:
         logger.error(f"  ✗ Timeout waiting for {tag} {op} {target}")
         return False
 
-    def execute_reads(self, tags: List[str]):
+    def execute_reads(self, tags: List[Any]):
         for tag in tags:
             try:
                 val = self.read_value(tag)
                 model, point = self.get_point(tag)
                 meaning = ""
-                if hasattr(point, 'pdef') and hasattr(point.pdef, 'symbols'):
-                    meaning = f" ({point.pdef.symbols.get(val, 'Unknown')})"
+                if model is not None:
+                    if hasattr(point, 'pdef') and hasattr(point.pdef, 'symbols'):
+                        meaning = f" ({point.pdef.symbols.get(val, 'Unknown')})"
+                else:
+                    addr = point
+                    reg_config = tag if isinstance(tag, dict) else EXTENSION_REGISTRY.get(addr, {})
+                    symbols = reg_config.get('symbols')
+                    if symbols and val in symbols:
+                        meaning = f" ({symbols[val]})"
                 logger.info(f"  Read {tag}: {val}{meaning}")
             except Exception as e:
                 logger.error(f"  Read {tag} failed: {e}")

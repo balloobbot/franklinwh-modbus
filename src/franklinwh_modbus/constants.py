@@ -321,6 +321,28 @@ PICS_ENUMS = {
 }
 
 
+# FranklinWH Proprietary / Extension Modbus Register Definitions
+EXTENSION_REGISTRY = {
+    15506: {"name": "LoadActiveP", "type": "uint16", "sf": 0},
+    15507: {
+        "name": "OnGridMode",
+        "type": "uint16",
+        "sf": 0,
+        "symbols": {
+            1: "Emergency Backup",
+            2: "Self-Consumption",
+            3: "TOU",
+            4: "Manual"
+        }
+    },
+    15508: {"name": "SelfReserve", "type": "uint16", "sf": 0},
+    15509: {"name": "TouReserve", "type": "uint16", "sf": 0},
+    15510: {"name": "PVOutputWh", "type": "uint32", "sf": 0},
+    15512: {"name": "proxOutputWh", "type": "uint32", "sf": 0},
+    16000: {"name": "HomeLoadHighRes", "type": "uint16", "sf": 0},
+}
+
+
 def get_pics_enum_desc(model_id: int, point_name: str, value: int) -> str:
     """Resolve a PICS-certified integer enum value to its string representation.
     
