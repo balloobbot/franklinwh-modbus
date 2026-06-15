@@ -80,6 +80,27 @@ class TestSequencerExtensions:
         val = seq.read_value(config)
         assert val == -15.0  # -150 * 10^-1
 
+    def test_raw_read_address_key_inline(self, mock_device):
+        """Verify that dictionary overrides can use "address" instead of "point" or "addr"."""
+        seq = SunSpecSequencer(mock_device)
+        
+        mock_response = struct.pack('>HHHBBB', 0, 0, 5, 2, 3, 2) + struct.pack('>H', 500)
+        mock_device.client.socket.recv.return_value = mock_response
+        
+        # Query using "address" instead of "point" or "addr"
+        config = {
+            "address": "15508",
+            "type": "uint16",
+            "sf": 0
+        }
+        val = seq.read_value(config)
+        assert val == 500
+        
+        # Verify socket sent correct Modbus packet
+        sent_packet = mock_device.client.socket.sendall.call_args[0][0]
+        _, _, _, unit_id, func, addr, count = struct.unpack('>HHHBBHH', sent_packet)
+        assert addr == 15508
+
     def test_raw_write_uint16_default(self, mock_device):
         """Verify raw uint16 write uses single-register write (Function 6)."""
         seq = SunSpecSequencer(mock_device)

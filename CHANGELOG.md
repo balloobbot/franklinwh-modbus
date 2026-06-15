@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standby Handshake during release of remote control (`reset_control_state`) to force `0W` power output and wait for the inverter to ramp down/stabilize before setting `WSetEna=0`. Prevents abrupt transients on physical hardware.
 - Unit test coverage for Standby Handshake (`tests/unit/test_standby_handshake.py`) testing active VPP delays, inactive control bypasses, and 0-second overrides.
 - Automated `uint32` data width support, scale factor resolution, and enum symbol mapping in the `SunSpecSequencer` for proprietary extension registers.
-- Step-level inline overrides for sequencing reads and writes, allowing custom type/scaling configurations dynamically.
+- Step-level inline overrides for sequencing reads and writes, allowing custom type/scaling configurations dynamically, supporting `"addr"`, `"point"`, and `"address"` configuration keys.
 
 ### Fixed
 - **CRITICAL:** Fixed bug in `verify_command_execution()` where scale factor lookup failed due to using `self` instead of `self.ctrl`.

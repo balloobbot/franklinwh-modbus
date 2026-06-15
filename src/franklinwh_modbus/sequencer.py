@@ -40,7 +40,7 @@ class SunSpecSequencer:
         """Resolve 'Model.Point', 'RawAddress' tag, or a config dict."""
         tag_str = tag
         if isinstance(tag, dict):
-            tag_str = str(tag.get('point', tag.get('addr', '')))
+            tag_str = str(tag.get('point', tag.get('addr', tag.get('address', ''))))
 
         if '.' not in tag_str:
             # Assume raw address
@@ -312,7 +312,7 @@ class SunSpecSequencer:
             if model is None:
                 model_id = 0
             else:
-                tag_str = tag.get('point', tag.get('addr', '')) if isinstance(tag, dict) else tag
+                tag_str = tag.get('point', tag.get('addr', tag.get('address', ''))) if isinstance(tag, dict) else tag
                 model_id = int(tag_str.split('.')[0])
                 
             if model not in models_to_write:
