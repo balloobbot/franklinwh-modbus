@@ -16,7 +16,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 >
 >>  For the non-Modbus TCP FranklinWH richo franklinwh-python Cloud API, see [franklinwh-python](https://pypi.org/project/franklinwh-python/). 
 
-> **Status:** Core library under active development, targeting PyPi publication.
+> **Status:** Published on PyPI (`pip install franklinwh-modbus`) and actively maintained.
 
 ## Quick Links
 
@@ -166,15 +166,16 @@ franklinwh-modbus/
 | Model | Description | Read | Write | Notes |
 |-------|-------------|------|-------|-------|
 | 1 | Common | ✅ | ❌ | |
-| 701 | DER AC Measurements | ✅ | ❌ | |
-| 702 | DER DC Measurements | ✅ | ❌ | |
-| 703 | DER Capacity | ✅ | ❌ | |
-| 704 | DER AC Battery Control | ✅ | ✅ | WSetPct/WSetEna confirmed working |
-| 705 | DER AC Controls | ✅ | ⚠️ | Untested |
-| 706 | DER Volt/Var/Watt | ✅ | ⚠️ | Untested |
+| 502 | Solar Module | ✅ | ❌ | PV production (proximal + remote) |
+| 701 | DER AC Measurement | ✅ | ❌ | |
+| 702 | DER Capacity | ✅ | ❌ | Nameplate ratings |
+| 703 | Enter Service | ✅ | ❌ | |
+| 704 | DER AC Controls | ✅ | ✅ | WSetPct/WSetEna confirmed working |
+| 705 | DER Volt-Var | ✅ | ⚠️ | Untested |
+| 706 | DER Volt-Watt | ✅ | ⚠️ | Untested |
 | 713 | DER Storage Capacity | ✅ | ❌ | ⚠️ Sta always 0 (unreliable) |
-| 714 | DER Storage Status | ✅ | ❌ | DCW used for battery state derivation |
-| 715 | DER Storage Controls | ✅ | ❌ | LocRemCtl read-only, heartbeat non-functional |
+| 714 | DER DC Measurement | ✅ | ❌ | DCW used for battery-state derivation; multi-stack aware |
+| 715 | DERCtl | ✅ | ❌ | LocRemCtl read-only, heartbeat non-functional |
 
 ## FranklinWH Extension Registers
 

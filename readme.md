@@ -16,7 +16,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 >
 >>  For the non-Modbus TCP FranklinWH richo franklinwh-python Cloud API, see [franklinwh-python](https://pypi.org/project/franklinwh-python/). 
 
-> **Status:** Core library under active development, targeting PyPi publication.
+> **Status:** Published on PyPI (`pip install franklinwh-modbus`) and actively maintained.
 
 ## Quick Links
 
@@ -69,6 +69,13 @@ ctrl.disconnect()
     If control is not released, the aGate **persists the last command indefinitely**. Hardware heartbeat (`ControllerHb`) and reversion timer (`WSetRvrtTms`) do not work on FranklinWH — use `--revert N` or `send_command(cmd, duration_s=N)` for software-side auto-revert.
 
 ## Installation
+
+```bash
+# From PyPI (recommended)
+pip install franklinwh-modbus
+```
+
+For development (editable, with test deps):
 
 ```bash
 git clone git@github.com:david2069/franklinwh-modbus.git
@@ -129,13 +136,16 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 | Feature | Description |
 |---------|-------------|
 | **Modbus TCP** | Direct register read/write via pymodbus |
-| **SunSpec Models** | Models 1, 701-706, 713-715 |
-| **FranklinWH Extensions** | Registers 15507-15509 (OnGridMode, reserves) |
-| **Virtual Modes** | Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual |
+| **SunSpec Models** | Models 1, 502, 701–715 |
+| **FranklinWH Extensions** | Registers 15506–15512, 16000 (OnGridMode, reserves, PV energy, hi-res load) |
+| **InfoPoint Sequencer** | Scripted read/write sequences with auto scale-factor, `uint32` widths, enum-symbol resolution, and inline `{type, sf}` / `addr`·`point`·`address` overrides |
+| **Native + Virtual Modes** | `--mode` switches the native aGate mode via 15507; `--vmode` runs Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual orchestration |
+| **Multi-battery** | M714 parallel-stack summing + repeating-block suffix (`714.DCW_1`) |
+| **Enum Resolution** | PICS-certified enum descriptions (`get_pics_enum_desc` / `get_enum_desc`) |
 | **Conflict Detection** | Detects aGate Cloud API activity before taking control |
 | **SoC Safety** | Reserve validation, target checking, safety margins |
 | **Alarm Monitoring** | System, DC port, battery, solar alarms |
-| **Auto-Revert** | Software timeout (hardware reversion non-functional on FranklinWH) |
+| **Safe Release** | Standby handshake (ramps to 0 W before `WSetEna=0`) + software auto-revert (hardware reversion non-functional on FranklinWH) |
 
 ## Project Structure
 
@@ -169,21 +179,23 @@ franklinwh-modbus/
 | Model | Description | Read | Write | Notes |
 |-------|-------------|------|-------|-------|
 | 1 | Common | ✅ | ❌ | |
-| 701 | DER AC Measurements | ✅ | ❌ | |
-| 702 | DER DC Measurements | ✅ | ❌ | |
-| 703 | DER Capacity | ✅ | ❌ | |
-| 704 | DER AC Battery Control | ✅ | ✅ | WSetPct/WSetEna confirmed working |
-| 705 | DER AC Controls | ✅ | ⚠️ | Untested |
-| 706 | DER Volt/Var/Watt | ✅ | ⚠️ | Untested |
+| 502 | Solar Module | ✅ | ❌ | PV production (proximal + remote) |
+| 701 | DER AC Measurement | ✅ | ❌ | Per-phase W/VA/Var/PF/A/V + lifetime energy |
+| 702 | DER Capacity | ✅ | ❌ | Nameplate ratings (WChaRteMax/WDisChaRteMax) |
+| 703 | Enter Service | ✅ | ❌ | |
+| 704 | DER AC Controls | ✅ | ✅ | WSetPct/WSetEna confirmed working |
+| 705 | DER Volt-Var | ✅ | ⚠️ | Untested |
+| 706 | DER Volt-Watt | ✅ | ⚠️ | Untested |
+| 707–712 | DER Trip / Freq-Droop / Watt-Var | ✅ | ❌ | Present on the aGate catalog |
 | 713 | DER Storage Capacity | ✅ | ❌ | ⚠️ Sta always 0 (unreliable) |
-| 714 | DER Storage Status | ✅ | ❌ | DCW used for battery state derivation |
-| 715 | DER Storage Controls | ✅ | ❌ | LocRemCtl read-only, heartbeat non-functional |
+| 714 | DER DC Measurement | ✅ | ❌ | DCW used for battery-state derivation; multi-stack aware (repeating blocks) |
+| 715 | DERCtl | ✅ | ❌ | LocRemCtl read-only, heartbeat non-functional |
 
 ## FranklinWH Extension Registers
 
 | Register | Address | Access | Description |
 |----------|---------|--------|-------------|
-| OnGridMode | 15507 | R (RW with SPAN) | 1=Backup, 2=Self-Consumption, 3=TOU |
+| OnGridMode | 15507 | R (RW with SPAN) | 1=Emergency Backup, 2=Self-Consumption, 3=TOU, 4=Manual |
 | Self Reserve SOC | 15508 | R (RW with SPAN) | Self-consumption reserve percentage (0-100) |
 | TOU Reserve SOC | 15509 | R (RW with SPAN) | ⚠️ Known defect: always mirrors 15508 |
 
