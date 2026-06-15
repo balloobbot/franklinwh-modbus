@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-06-15
+
 ### Added
 - Multi-battery parallel stack support in SunSpec Model 714 (`DER Storage DC Measurement`), including summing power/energy, voltage averaging, and peak temperature tracking across parallel battery stacks.
 - Per-battery telemetry array (`individual_batteries`) in `read_battery_status()` for granular battery stack diagnostics.
@@ -113,7 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI tool with `--status`, `--charge`, `--discharge`, `--stop`
 - Basic alarm monitoring
 
-[Unreleased]: https://github.com/david2069/franklinwh-modbus/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/david2069/franklinwh-modbus/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/david2069/franklinwh-modbus/compare/v0.9.2...v0.9.3
 [0.9.0]: https://github.com/david2069/franklinwh-modbus/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/david2069/franklinwh-modbus/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/david2069/franklinwh-modbus/compare/v0.6.0...v0.7.0
