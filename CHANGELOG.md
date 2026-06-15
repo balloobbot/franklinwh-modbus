@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CRITICAL:** Fixed bug in `verify_command_execution()` where scale factor lookup failed due to using `self` instead of `self.ctrl`.
 - Synchronized Grid and Battery telemetry signs with confirmed hardware behavior (Negative = Charge/Import). Resolves directional labeling conflict in CLI and Monitor (Batch 4 / Issue #6).
 - Corrected `battery_state` derivation in `controller.py` to match physical power flow.
+- **CRITICAL:** Added missing `Union` to the `typing` import in `controller.py`; method parameter annotations using `Union[...]` raised `NameError: name 'Union' is not defined` at import on Python ≤ 3.13 (the eager-annotation versions, incl. CI's 3.12). Python 3.14's deferred annotation evaluation (PEP 649) had masked it in local dev runs.
 
 ### Changed
 - Replaced hardcoded IP addresses with `YOUR_AGATE_IP` placeholder

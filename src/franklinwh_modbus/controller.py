@@ -9,7 +9,7 @@ import logging
 import time
 import struct
 import threading
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 
 from .types import BatteryCommand, HealthStatus, ONGRID_MODES
 from .constants import get_pics_enum_desc
