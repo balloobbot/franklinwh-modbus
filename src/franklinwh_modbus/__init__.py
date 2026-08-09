@@ -1,69 +1,75 @@
+"""FranklinWH aGate control over Modbus TCP.
+
+The aGate speaks the SunSpec IEEE 1547 profile — models 1, 502 and 701-715 —
+plus a block of manufacturer registers at 15500. All of it is reached through
+`modbus-connection <https://github.com/home-assistant-libs/modbus-connection>`_,
+whose typed components and pooled reads replace the pysunspec2 client this
+library used to drive.
+
+Example::
+
+    import asyncio
+    from franklinwh_modbus import AGate, VirtualMode, VirtualModeController
+
+    async def main() -> None:
+        agate = AGate("192.168.1.100")
+        await agate.async_connect()
+        print(agate.battery_status())
+
+        modes = VirtualModeController(agate)
+        await modes.async_set_mode(VirtualMode.SELF_CONSUMPTION)
+        await modes.async_run(duration_s=3600)
+        await agate.async_close()
+
+    asyncio.run(main())
 """
-FranklinWH Modbus Battery Manager
 
-A Python library for controlling FranklinWH aGate battery systems via Modbus TCP.
+from __future__ import annotations
 
-Example usage:
-    from franklinwh_modbus import FranklinWHController, VirtualModeController, VirtualMode
-    
-    # Connect to aGate
-    ctrl = FranklinWHController('192.168.1.100')
-    ctrl.connect()
-    
-    # Use virtual modes
-    vmc = VirtualModeController(ctrl)
-    vmc.set_mode(VirtualMode.SELF_CONSUMPTION)
-    vmc.run_continuous(duration_seconds=3600)
-"""
-
-__version__ = '0.9.3'
-
-from .types import (
-    ControlMode,
-    VirtualMode,
-    BatteryCommand,
-    HealthStatus,
-    ONGRID_MODES,
-    ALARM_BITS,
-    PICS_STATUS,
-    DEFAULT_MAX_POWER_W,
-)
-
-from .schedule import TOUSchedule, DEFAULT_SCHEDULE
-
-from .controller import FranklinWHController
-
+from .device import AGate, AGateError
+from .models import MODELS
+from .models.extensions import Extensions, OnGridMode
 from .modes import VirtualModeController, run_with_signal_handling
+from .schedule import DEFAULT_SCHEDULE, TOUSchedule
+from .sequencer import Sequencer, SequenceError, TransitionValidationError
+from .sync import SyncAGate
+from .types import (
+    ALARM_BITS,
+    DEFAULT_MAX_POWER_W,
+    ONGRID_MODES,
+    PICS_STATUS,
+    BatteryCommand,
+    ControlMode,
+    HealthStatus,
+    VirtualMode,
+)
+from .writing import WriteRejected, write_many, write_verified
 
-# Optional monitor import (requires rich dependency)
-try:
-    from .monitor import CLIMonitor, MonitorConfig
-    HAS_MONITOR = True
-except ImportError:
-    HAS_MONITOR = False
-    CLIMonitor = None
-    MonitorConfig = None
+__version__ = "0.10.0"
 
 __all__ = [
-    # Types
-    'ControlMode',
-    'VirtualMode',
-    'BatteryCommand',
-    'HealthStatus',
-    'ONGRID_MODES',
-    'ALARM_BITS',
-    'PICS_STATUS',
-    'DEFAULT_MAX_POWER_W',
-    # Schedule
-    'TOUSchedule',
-    'DEFAULT_SCHEDULE',
-    # Controller
-    'FranklinWHController',
-    # Modes
-    'VirtualModeController',
-    'run_with_signal_handling',
-    # Monitor (optional)
-    'CLIMonitor',
-    'MonitorConfig',
-    'HAS_MONITOR',
+    "ALARM_BITS",
+    "DEFAULT_MAX_POWER_W",
+    "DEFAULT_SCHEDULE",
+    "MODELS",
+    "ONGRID_MODES",
+    "PICS_STATUS",
+    "AGate",
+    "AGateError",
+    "BatteryCommand",
+    "ControlMode",
+    "Extensions",
+    "HealthStatus",
+    "OnGridMode",
+    "SequenceError",
+    "Sequencer",
+    "SyncAGate",
+    "TOUSchedule",
+    "TransitionValidationError",
+    "VirtualMode",
+    "VirtualModeController",
+    "WriteRejected",
+    "run_with_signal_handling",
+    "write_many",
+    "write_verified",
 ]

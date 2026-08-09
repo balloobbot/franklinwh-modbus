@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from modbus_connection import ModbusTcpParams
 from modbus_connection.model import ComponentGroup
 from modbus_connection.model.sunspec import SunSpecMapShiftError, scan
-from modbus_connection.pymodbus import ModbusConnection
+from modbus_connection.tmodbus import ModbusConnection
 
 from .models import MODELS
 from .models.extensions import Extensions, OnGridMode

@@ -1,793 +1,591 @@
-"""
-FranklinWH Modbus Battery Manager - Virtual Mode Controller
+"""Software control modes: decide a battery setpoint, then hold it.
 
-This module provides software-based battery mode control for FranklinWH aGate.
+The aGate's own modes live in a manufacturer register (see
+``models.extensions``). These are the *virtual* modes: a control loop that
+computes a power setpoint from solar, load and SOC each tick and writes it
+through model 704. That is why the loop has to release control on the way out —
+the device's own reversion timer counts down without ever reverting.
+
+A caveat carried over unchanged from before the migration: the sign convention
+is not consistent across the mode calculators. ``BatteryCommand`` documents
+positive as charge, and most of the arithmetic here follows it, but
+self-consumption returns ``-max_charge_w`` for "charge flat out", and both
+peak-shave and the time-of-use discharge branch return a *positive* number to
+discharge. These are reproduced exactly rather than corrected, because they are
+what the shipped behaviour is and no hardware was available to re-tune against.
 """
 
+from __future__ import annotations
+
+import asyncio
+import contextlib
 import logging
 import signal
 import time
-import threading
-from datetime import datetime
-from typing import Dict, Any, Optional, Callable, Tuple
+from typing import TYPE_CHECKING, Any
 
-from .types import VirtualMode, BatteryCommand, ControlMode
 from .schedule import TOUSchedule
+from .types import BatteryCommand, ControlMode, VirtualMode
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .device import AGate
+
+_LOGGER = logging.getLogger(__name__)
+
+#: How often the control loop recomputes and rewrites the setpoint.
+TICK_INTERVAL_S = 5.0
+#: Consecutive failed ticks before the loop gives up.
+MAX_CONSECUTIVE_FAILURES = 5
+#: How often the loop re-checks whether the grid is still there.
+OFF_GRID_CHECK_INTERVAL_S = 30.0
+ALARM_CHECK_INTERVAL_S = 60.0
+SANITY_CHECK_INTERVAL_S = 30.0
+
+#: Absolute SOC bounds, below/above which no charge/discharge is issued at all.
+SOC_HARD_MAX = 99.5
+SOC_HARD_MIN = 0.5
 
 
 class VirtualModeController:
-    """Software-based battery mode controller for FranklinWH aGate.
-    
-    Provides virtual control modes that calculate optimal battery power
-    based on system state, solar production, and user preferences.
-    
-    Usage:
-        controller = VirtualModeController(hw)
-        modes = VirtualModeController(hw)
-        modes.set_mode(VirtualMode.TIME_OF_USE)
-        modes.run_continuous(duration_seconds=3600)
-    """
-    
+    """Hold a battery setpoint computed from the current system state."""
+
     def __init__(
         self,
-        franklinwh_controller,
+        device: AGate,
+        *,
         max_charge_soc: int = 100,
-        min_discharge_soc: Optional[int] = None,
+        min_discharge_soc: int | None = None,
         soc_ramp_window: int = 10,
         force_soc_limits: bool = False,
-        grid_import_limit_w: Optional[float] = None,
-        grid_export_limit_w: Optional[float] = None,
-        battery_charge_limit_w: Optional[float] = None,
-        battery_discharge_limit_w: Optional[float] = None,
-    ):
-        """Initialize virtual mode controller.
-        
-        Args:
-            franklinwh_controller: Connected FranklinWHController instance
-            max_charge_soc: Maximum SoC for charging (with ramping)
-            min_discharge_soc: Minimum SoC for discharging (with ramping)
-            soc_ramp_window: SoC percentage for ramping before hard limit
-            force_soc_limits: If True, allows override of SoC limits
+        grid_import_limit_w: float | None = None,
+        grid_export_limit_w: float | None = None,
+        battery_charge_limit_w: float | None = None,
+        battery_discharge_limit_w: float | None = None,
+    ) -> None:
+        """Configure the loop against a connected device.
+
+        ``min_discharge_soc`` defaults to whichever SOC reserve the aGate's own
+        active mode honours, so the software loop does not fight it.
         """
-        self.ctrl = franklinwh_controller
+        self.device = device
         self.mode = VirtualMode.SELF_CONSUMPTION
         self.tou = TOUSchedule()
-        
-        # Mode-specific parameters
+
         self.self_reserve_pct = 20
         self.backup_target_soc = 95
         self.target_soc = 100
         self.grid_zero_buffer = 100
         self.peak_shave_threshold = 2000
-        self.manual_power_w = 0
-        
-        # SoC limit parameters
+        self.manual_power_w = 0.0
+
         self.max_charge_soc = max_charge_soc
         self.soc_ramp_window = soc_ramp_window
         self.force_soc_limits = force_soc_limits
-        
-        # PCS limits
+
         self.grid_import_limit_w = grid_import_limit_w
         self.grid_export_limit_w = grid_export_limit_w
         self.battery_charge_limit_w = battery_charge_limit_w
         self.battery_discharge_limit_w = battery_discharge_limit_w
-        
-        # Track last commanded power to avoid feedback loops
-        # (hardware DC power reading is always 0, so we track our own commands)
-        self._last_commanded_power = 0.0
-        
+
         if min_discharge_soc is None:
-            self.min_discharge_soc = self._read_agate_reserve_soc()
+            reserve, _ = device.effective_reserve_level()
+            self.min_discharge_soc = reserve if reserve is not None else 20
         else:
             self.min_discharge_soc = min_discharge_soc
-    
-    def _read_agate_reserve_soc(self) -> int:
-        """Read aGate reserve SoC from native mode registers."""
-        try:
-            native = self.ctrl.read_native_mode()
-            if native:
-                ongrid_mode = native.get('mode_raw', -1)
-                if ongrid_mode in (1, 2):  # Backup or Self-Consumption
-                    return native.get('self_reserve_pct', 20)
-                elif ongrid_mode == 3:  # TOU
-                    return native.get('tou_reserve_pct', 20)
-        except Exception as e:
-            logger.debug(f"Could not read aGate reserve: {e}")
-        return 20
-    
-    def set_mode(self, mode: VirtualMode, **kwargs):
-        """Change operating mode with optional parameters."""
-        self.mode = mode
-        
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-                logger.info(f"Set {key} = {value}")
-        
-        # Get current state for validation
-        bat = self.ctrl.read_battery_status()
-        current_soc = bat.get('soc', 50)
-        target_soc = getattr(self, 'target_soc', 100)
-        
-        # Print summary line with all SOCs and ETA
-        self._print_soc_summary(current_soc)
-        
-        # Validate target SOC - EXIT if target already reached for charge modes
-        if mode == VirtualMode.SELF_CONSUMPTION and current_soc >= target_soc:
-            logger.error(f"TARGET ALREADY REACHED: Current SoC {current_soc:.1f}% >= Target {target_soc:.1f}%")
-            logger.error("Battery is already at or above target. Cannot charge further.")
-            logger.error("Exiting. Lower target SoC or wait for battery to discharge.")
-            raise ValueError(f"Target SoC {target_soc}% already reached (current: {current_soc}%)")
-        
-        if mode == VirtualMode.EMERGENCY_BACKUP and current_soc >= target_soc:
-            logger.error(f"TARGET ALREADY REACHED: Current SoC {current_soc:.1f}% >= Target {target_soc:.1f}%")
-            logger.error("Battery is already at/above backup target.")
-            logger.error("Exiting. Lower target SoC or wait for battery to discharge.")
-            raise ValueError(f"Target SoC {target_soc}% already reached (current: {current_soc}%)")
-        
-        # Check for control conflicts before taking over
-        state = self.ctrl.check_state()
-        conflicts = state.get('conflicts', [])
-        if conflicts:
-            for conflict in conflicts:
-                logger.warning(f"CONTROL CONFLICT: {conflict}")
-            logger.warning("Use --reset-on-start to force takeover, or resolve conflict in vendor app")
-        
-        logger.info(f"Mode changed to: {self.mode.value}")
-        self.execute_once()
-    
-    def _print_soc_summary(self, current_soc: float):
-        """Print single-line summary of SOC status with ETA."""
-        target = getattr(self, 'target_soc', 100)
-        min_discharge = getattr(self, 'min_discharge_soc', 20)
-        max_charge = getattr(self, 'max_charge_soc', 100)
-        
-        # Calculate ETA to target based on full charge rate
-        if current_soc < target:
-            soc_gap = target - current_soc
-            # Assume 13.6 kWh battery (from screenshot), 5kW charge = ~2.7 hours for full charge
-            # So 1% = ~0.027 hours = ~1.6 minutes at full power
-            eta_minutes = soc_gap * 1.6  # Approximate
-            eta_str = f"ETA: +{int(eta_minutes)}min"
-        elif current_soc == target:
-            eta_str = "AT TARGET"
-        else:
-            eta_str = "ABOVE TARGET"
-        
-        logger.info(f"SoC: {current_soc:.1f}% | Target: {target:.1f}% | "
-                   f"Min: {min_discharge}% | Max: {max_charge}% | {eta_str}")
-    
-    def is_off_grid(self, status: Optional[Dict] = None) -> bool:
-        """Check if the system is currently off-grid."""
-        if status is None:
-            try:
-                grid = self.ctrl.read_grid_status()
-            except Exception:
-                return False  # Assume on-grid if we can't check
-        else:
-            grid = status.get('grid', {})
-        return grid.get('connection_state', 'Connected') != 'Connected'
-    
-    def read_status(self) -> Dict[str, Any]:
-        """Get current system status from hardware."""
-        status = {
-            'battery': self.ctrl.read_battery_status(),
-            'grid': self.ctrl.read_grid_status(),
-            'solar': self.ctrl.read_solar_status(),
-            'control': self.ctrl.read_control_status(),
+
+        self._last_commanded_power = 0.0
+        self._last_logged_power: float | None = None
+        self._last_safety_reason: str | None = None
+        self._warned_high_load = False
+        self._off_grid_warned = False
+
+    # -- state ----------------------------------------------------------------
+
+    @property
+    def max_charge_w(self) -> float:
+        """The battery's charge ceiling, from the device's nameplate."""
+        return self.device.max_charge_w
+
+    @property
+    def max_discharge_w(self) -> float:
+        """The battery's discharge ceiling, from the device's nameplate."""
+        return self.device.max_discharge_w
+
+    def status(self) -> dict[str, Any]:
+        """The last poll's readings, plus the quantities the modes work from."""
+        readings = {
+            "battery": self.device.battery_status(),
+            "grid": self.device.grid_status(),
+            "solar": self.device.solar_status(),
+            "control": self.device.control_status(),
         }
-        
-        solar_data = status['solar']
-        solar = solar_data.get('dc_power_w', 0)
-        
-        total_solar = solar
-        extension_data = solar_data.get('extension', {})
-        if extension_data:
-            total_solar = extension_data.get('total_solar', solar)
-        
-        grid = status['grid'].get('grid_power_w', 0)
-        
-        home_ext = extension_data.get('home_load_ext', 0) if extension_data else 0
-        if home_ext > 0:
-            # Use extension register home load if available (FranklinWH extension)
-            home_est = home_ext
-        else:
-            # No extension data - estimate home load without feedback loop
-            # Simple conservative estimate based on typical home loads
-            # When importing: home = solar + grid_import (assuming idle battery)
-            # This avoids the feedback loop from using _last_commanded_power
-            
-            if grid > 0:
-                # Importing from grid - home load is at least solar + some grid
-                home_est = max(solar + grid * 0.5, 300)
-            elif grid < 0:
-                # Exporting to grid - home load is less than solar
-                home_est = max(solar + grid, 200)  # grid is negative
-            else:
-                # Grid neutral - home load approximately equals solar
-                home_est = max(solar, 300)
-            
-            # Sanity bounds
-            home_est = max(200, min(home_est, 15000))
-        
-        status['derived'] = {
-            'home_load_w': home_est,
-            'excess_solar_w': max(total_solar - home_est, 0),
-            'grid_import_w': max(grid, 0),
-            'grid_export_w': max(-grid, 0),
-            'total_solar_w': total_solar,
+        solar = readings["solar"].get("dc_power_w", 0.0)
+        total_solar = readings["solar"].get("total_solar_w", solar)
+        grid = readings["grid"].get("grid_power_w", 0.0)
+        home = self.device.home_load_w() or _estimate_home_load(solar, grid)
+        readings["derived"] = {
+            "home_load_w": home,
+            "excess_solar_w": max(total_solar - home, 0.0),
+            "grid_import_w": max(grid, 0.0),
+            "grid_export_w": max(-grid, 0.0),
+            "total_solar_w": total_solar,
         }
-        
-        return status
-    
-    def calculate_power(self) -> float:
-        """Calculate desired battery power based on current mode.
-        
-        Returns: watts (positive=charge, negative=discharge, 0=idle)
+        return readings
+
+    def is_off_grid(self, status: dict[str, Any] | None = None) -> bool:
+        """Whether the device has lost the grid."""
+        grid = (status or self.status())["grid"]
+        return grid.get("connection_state", "Connected") != "Connected"
+
+    async def async_set_mode(self, mode: VirtualMode, **options: Any) -> float:
+        """Switch mode and issue the first setpoint.
+
+        Raises ``ValueError`` if a charging mode is asked for at or above its
+        target SOC, which would otherwise sit at 0 W looking like a fault.
         """
-        status = self.read_status()
-        
-        solar = status['solar'].get('dc_power_w', 0)
-        home = status['derived'].get('home_load_w', 0)
-        grid = status['grid'].get('grid_power_w', 0)
-        soc = status['battery'].get('soc', 50)
-        
-        calculator = self._get_calculator()
-        power = calculator(solar, home, grid, soc)
-        
-        power = self._apply_safety_limits(power, soc)
-        power = self._apply_software_pcs_limits(power, status)
-        
-        # Inverter safety check only applies when off-grid
-        # On-grid: the aGate handles inverter protection natively
-        off_grid = self.is_off_grid(status)
-        if off_grid:
-            is_safe, reason, safe_power = self._check_inverter_safety(status, power)
-            if not is_safe:
-                # Only log safety violations when the reason changes (dedup)
-                if reason != getattr(self, '_last_safety_reason', None):
-                    logger.error(f"⚠️  OFF-GRID SAFETY: {reason}. Using safe power: {safe_power:.0f}W")
+        self.mode = mode
+        for key, value in options.items():
+            if not hasattr(self, key):
+                raise ValueError(f"unknown mode option {key!r}")
+            setattr(self, key, value)
+            _LOGGER.info("set %s = %s", key, value)
+
+        await self.device.async_update()
+        soc = self.device.battery_status().get("soc", 50)
+        self._log_soc_summary(soc)
+        charging_modes = (VirtualMode.SELF_CONSUMPTION, VirtualMode.EMERGENCY_BACKUP)
+        if mode in charging_modes and soc >= self.target_soc:
+            raise ValueError(
+                f"target SoC {self.target_soc}% is already reached (now {soc}%)"
+            )
+
+        _LOGGER.info("mode changed to %s", self.mode.value)
+        return await self.async_execute_once()
+
+    def _log_soc_summary(self, soc: float) -> None:
+        """Log where SOC sits between the configured bounds."""
+        if soc < self.target_soc:
+            # ~1.6 min per percent at full charge rate on a 13.6 kWh pack.
+            eta = f"ETA: +{int((self.target_soc - soc) * 1.6)}min"
+        else:
+            eta = "AT TARGET" if soc == self.target_soc else "ABOVE TARGET"
+        _LOGGER.info(
+            "SoC: %.1f%% | Target: %.1f%% | Min: %s%% | Max: %s%% | %s",
+            soc,
+            self.target_soc,
+            self.min_discharge_soc,
+            self.max_charge_soc,
+            eta,
+        )
+
+    # -- setpoint calculation --------------------------------------------------
+
+    def calculate_power(self) -> float:
+        """The setpoint this mode wants right now, in watts (positive charges)."""
+        status = self.status()
+        solar = status["solar"].get("dc_power_w", 0.0)
+        home = status["derived"]["home_load_w"]
+        grid = status["grid"].get("grid_power_w", 0.0)
+        soc = status["battery"].get("soc", 50)
+
+        power = self._calculator()(solar, home, grid, soc)
+        power = self._apply_soc_limits(power, soc)
+        power = self._apply_pcs_limits(power, status)
+
+        # On-grid the aGate protects its own inverter; off-grid it does not.
+        if self.is_off_grid(status):
+            safe, reason, limited = self._inverter_safety(status, power)
+            if not safe:
+                if reason != self._last_safety_reason:
+                    _LOGGER.error(
+                        "off-grid safety: %s — using %.0fW", reason, limited
+                    )
                     self._last_safety_reason = reason
-                power = safe_power
-            else:
-                self._last_safety_reason = None
-        
+                return limited
+            self._last_safety_reason = None
         return power
-    
-    def _get_calculator(self) -> Callable:
-        """Get the power calculation function for current mode."""
-        calculators = {
+
+    def _calculator(self) -> Callable[[float, float, float, float], float]:
+        """The power function for the active mode."""
+        return {
             VirtualMode.SELF_CONSUMPTION: self._calc_self_consumption,
             VirtualMode.EMERGENCY_BACKUP: self._calc_emergency_backup,
             VirtualMode.TIME_OF_USE: self._calc_time_of_use,
             VirtualMode.GRID_ZERO: self._calc_grid_zero,
             VirtualMode.PEAK_SHAVE: self._calc_peak_shave,
             VirtualMode.MANUAL: self._calc_manual,
-        }
-        return calculators.get(self.mode, self._calc_self_consumption)
-    
-    def _calc_self_consumption(self, solar: float, home: float,
-                                grid: float, soc: float) -> float:
-        """Self-consumption with reserve charging (like vendor app).
-        
-        - Discharge to cover home load when solar insufficient
-        - Charge from excess solar when available  
-        - Charge from grid to reach target/reserve SoC (vendor-like behavior)
-        """
-        max_charge = self.ctrl.RATED_MAX_CHARGE_W
-        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
-        target_soc = getattr(self, 'target_soc', 100)
-        excess_solar = solar - home
-        
-        # ABOVE target: normal self-consumption (discharge to cover load)
-        if soc >= target_soc:
-            if excess_solar < 0:
-                return max(home - solar, -max_discharge)
-            elif excess_solar > 0:
-                return min(excess_solar, max_charge)  # Charge from excess
-            return 0
-        
-        # BELOW target: FULL POWER CHARGE (matches vendor app screenshot)
-        # Vendor charges at maximum power to reach reserve ASAP
-        return -max_charge
-    
-    def _calc_emergency_backup(self, solar: float, home: float,
-                                grid: float, soc: float) -> float:
-        """Keep battery charged for outages."""
-        max_charge = self.ctrl.RATED_MAX_CHARGE_W
-        target = getattr(self, 'target_soc', self.backup_target_soc)
-        
+        }.get(self.mode, self._calc_self_consumption)
+
+    def _calc_self_consumption(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Cover the house from solar, then the battery; charge to target."""
+        if soc < self.target_soc:
+            # Below target the vendor app charges flat out, so match it.
+            return -self.max_charge_w
+        excess = solar - home
+        if excess < 0:
+            return max(home - solar, -self.max_discharge_w)
+        return min(excess, self.max_charge_w)
+
+    def _calc_emergency_backup(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Hold the pack charged for an outage."""
+        target = self.target_soc or self.backup_target_soc
         if soc >= target:
-            return 0
-        
-        charge_needed = (target - soc) / 100 * 5000
-        return min(charge_needed * 10, max_charge)
-    
-    def _calc_grid_zero(self, solar: float, home: float,
-                        grid: float, soc: float) -> float:
-        """Minimize grid interaction."""
-        max_charge = self.ctrl.RATED_MAX_CHARGE_W
-        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
-        target_soc = getattr(self, 'target_soc', 100)
-        
+            return 0.0
+        return min((target - soc) / 100 * 5000 * 10, self.max_charge_w)
+
+    def _calc_grid_zero(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Keep the meter at zero in both directions."""
         net_load = home - solar
-        
         if net_load > 0:
-            return max(-min(net_load, max_discharge), -max_discharge)
-        else:
-            if soc < target_soc:
-                return min(-net_load, max_charge)
-            return 0
-    
-    def _calc_peak_shave(self, solar: float, home: float,
-                         grid: float, soc: float) -> float:
-        """Discharge during peak demand."""
-        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
-        
-        if home > self.peak_shave_threshold:
-            if soc > self.min_discharge_soc + 5:
-                return max(min(home - solar, max_discharge), -max_discharge)
-        return 0
-    
-    def _calc_time_of_use(self, solar: float, home: float,
-                          grid: float, soc: float) -> float:
-        """Time-of-use arbitrage."""
-        max_charge = self.ctrl.RATED_MAX_CHARGE_W
-        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W
-        target_soc = getattr(self, 'target_soc', 100)
-        
+            return max(-min(net_load, self.max_discharge_w), -self.max_discharge_w)
+        if soc < self.target_soc:
+            return min(-net_load, self.max_charge_w)
+        return 0.0
+
+    def _calc_peak_shave(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Discharge only while the house is over the peak threshold."""
+        if home > self.peak_shave_threshold and soc > self.min_discharge_soc + 5:
+            return max(min(home - solar, self.max_discharge_w), -self.max_discharge_w)
+        return 0.0
+
+    def _calc_time_of_use(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Follow the tariff schedule."""
         strategy = self.tou.get_strategy()
         min_soc = self.tou.get_min_soc()
-        max_soc_limit = self.tou.get_max_soc()
-        
-        if strategy == "charge":
-            if soc < min(max_soc_limit, target_soc) - 5:
-                if solar > home:
-                    return min(solar - home + max_charge * 0.6, max_charge)
-                else:
-                    return max_charge
-            return 0
-        
-        elif strategy == "discharge":
-            if soc > max(min_soc, self.min_discharge_soc) + 5:
-                return max(min(home - solar, max_discharge), -max_discharge)
-            return 0
-        
-        elif strategy == "grid_zero":
-            return self._calc_grid_zero(solar, home, grid, soc)
-        
-        elif strategy == "solar_priority":
-            if soc < max_soc_limit - 5 and solar > 0:
-                return min(solar, max_charge)
-            return self._calc_self_consumption(solar, home, grid, soc)
-        
-        else:
-            return self._calc_self_consumption(solar, home, grid, soc)
-    
-    def _calc_manual(self, solar: float, home: float,
-                     grid: float, soc: float) -> float:
-        """Manual power setting."""
+        max_soc = self.tou.get_max_soc()
+
+        match strategy:
+            case "charge":
+                if soc < min(max_soc, self.target_soc) - 5:
+                    if solar > home:
+                        return min(
+                            solar - home + self.max_charge_w * 0.6, self.max_charge_w
+                        )
+                    return self.max_charge_w
+                return 0.0
+            case "discharge":
+                if soc > max(min_soc, self.min_discharge_soc) + 5:
+                    return max(
+                        min(home - solar, self.max_discharge_w), -self.max_discharge_w
+                    )
+                return 0.0
+            case "grid_zero":
+                return self._calc_grid_zero(solar, home, grid, soc)
+            case "solar_priority" if soc < max_soc - 5 and solar > 0:
+                return min(solar, self.max_charge_w)
+            case _:
+                return self._calc_self_consumption(solar, home, grid, soc)
+
+    def _calc_manual(
+        self, solar: float, home: float, grid: float, soc: float
+    ) -> float:
+        """Whatever the caller asked for."""
         return self.manual_power_w
-    
-    def _apply_safety_limits(self, power: float, soc: float) -> float:
-        """Apply SoC-based safety limits with ramping."""
-        if soc >= 99.5 and power > 0:
-            logger.warning(f"SoC {soc:.1f}% at absolute maximum - blocking charge")
-            return 0
-        
-        if soc <= 0.5 and power < 0:
-            logger.warning(f"SoC {soc:.1f}% at absolute minimum - blocking discharge")
-            return 0
-        
-        max_charge_soc = getattr(self, 'max_charge_soc', 100)
-        min_discharge_soc = getattr(self, 'min_discharge_soc', 5)
-        ramp_window = getattr(self, 'soc_ramp_window', 10)
-        force_override = getattr(self, 'force_soc_limits', False)
-        
-        if power > 0 and soc >= (max_charge_soc - ramp_window):
-            if soc >= max_charge_soc:
-                if not force_override:
-                    logger.info(f"SoC {soc:.1f}% at max limit ({max_charge_soc}%) - blocking charge")
-                    return 0
-                else:
-                    logger.warning(f"FORCE OVERRIDE: SoC {soc:.1f}% exceeds max")
-            else:
-                ramp_progress = (soc - (max_charge_soc - ramp_window)) / ramp_window
-                ramp_factor = 1.0 - ramp_progress
-                ramped_power = power * max(ramp_factor, 0.05)
-                power = ramped_power
-        
-        if power < 0 and soc <= (min_discharge_soc + ramp_window):
-            if soc <= min_discharge_soc:
-                if not force_override:
-                    logger.info(f"SoC {soc:.1f}% at min limit ({min_discharge_soc}%) - blocking discharge")
-                    return 0
-                else:
-                    logger.warning(f"FORCE OVERRIDE: SoC {soc:.1f}% below min")
-            else:
-                ramp_progress = ((min_discharge_soc + ramp_window) - soc) / ramp_window
-                ramp_factor = 1.0 - ramp_progress
-                ramped_power = power * max(ramp_factor, 0.05)
-                power = ramped_power
-        
-        return power
-        
-    def _apply_software_pcs_limits(self, power: float, status: Dict[str, Any]) -> float:
-        """Apply software-based PCS (Power Control System) limits on grid and battery flow."""
-        # 1. Battery Limits (always positive values, clamp absolute rate)
-        if power > 0 and self.battery_charge_limit_w is not None:
-            if power > self.battery_charge_limit_w:
-                logger.debug(f"PCS: Clamping battery charge {power:.0f}W -> {self.battery_charge_limit_w:.0f}W")
-                power = self.battery_charge_limit_w
-                
-        if power < 0 and self.battery_discharge_limit_w is not None:
-            if abs(power) > self.battery_discharge_limit_w:
-                logger.debug(f"PCS: Clamping battery discharge {abs(power):.0f}W -> {self.battery_discharge_limit_w:.0f}W")
-                power = -self.battery_discharge_limit_w
-                
-        # 2. Grid Limits (grid power: positive = import, negative = export)
-        grid_w = status['grid'].get('grid_power_w', 0.0)
-        
-        # Grid Import limit: if grid_w > grid_import_limit_w and we are charging,
-        # we can reduce charging power to reduce grid import.
-        if self.grid_import_limit_w is not None and grid_w > self.grid_import_limit_w:
-            excess_import = grid_w - self.grid_import_limit_w
-            if power > 0: # battery is charging
-                new_power = max(0.0, power - excess_import)
-                logger.debug(f"PCS: Grid import {grid_w:.0f}W exceeds limit {self.grid_import_limit_w:.0f}W. Reducing charge {power:.0f}W -> {new_power:.0f}W")
-                power = new_power
-                
-        # Grid Export limit: if grid_w < -grid_export_limit_w (exporting) and we are discharging (power < 0),
-        # we can reduce discharging power to reduce grid export.
-        if self.grid_export_limit_w is not None and grid_w < -self.grid_export_limit_w:
-            export_w = -grid_w
-            excess_export = export_w - self.grid_export_limit_w
-            if power < 0: # battery is discharging
-                new_power = min(0.0, power + excess_export) # make it less negative
-                logger.debug(f"PCS: Grid export {export_w:.0f}W exceeds limit {self.grid_export_limit_w:.0f}W. Reducing discharge {abs(power):.0f}W -> {abs(new_power):.0f}W")
-                power = new_power
-                
-        return power
-    
-    def _check_inverter_safety(self, status: Dict, proposed_power: float) -> Tuple[bool, str, float]:
-        """Check if operation is safe for inverter.
-        
-        Uses the actual charge/discharge nameplate ratings (WChaRteMax/WDisChaRteMax
-        from Model 702), NOT the AC continuous rating (WRtg).
-        """
-        solar = status['solar'].get('dc_power_w', 0)
-        home = status['derived'].get('home_load_w', 0)
-        max_charge = self.ctrl.RATED_MAX_CHARGE_W      # e.g. 5000W
-        max_discharge = self.ctrl.RATED_MAX_DISCHARGE_W  # e.g. 5000W
-        
-        if proposed_power > 0 and proposed_power > max_charge * 1.05:
-            return False, "Charge limit exceeded", max_charge
-        
-        if proposed_power < 0 and abs(proposed_power) > max_discharge * 1.05:
-            return False, "Discharge limit exceeded", -max_discharge
-        
-        # Off-grid / high-load protection: don't overdraw inverter capacity
-        available_solar = max(0, solar)
-        total_available = max_discharge + available_solar
-        
-        if home > total_available * 0.8:
-            if not getattr(self, '_warned_high_load', False):
-                logger.warning(f"High load: {home:.0f}W at {home/total_available*100:.0f}% of capacity")
-                self._warned_high_load = True
-            
-            if proposed_power < 0 and home > total_available * 0.9:
-                max_safe = total_available - home - 500
-                if max_safe < 0:
-                    max_safe = 0
-                if abs(proposed_power) > max_safe:
-                    logger.error(f"EMERGENCY: Load exceeds capacity! Limiting discharge")
-                    return False, "Load exceeds capacity", -max_safe
-        else:
-            self._warned_high_load = False
-        
-        return True, "Safety check passed", proposed_power
-    
-    def verify_command_execution(self, tolerance_percent: float = 20.0) -> tuple:
-        """
-        Verify that commanded power matches actual battery DC power.
-        
-        Returns:
-            (ok: bool, commanded: float, actual: float, diff_percent: float)
-        """
-        try:
-            # Get commanded power from control status
-            ctl = self.ctrl.read_control_status()
-            commanded = ctl.get('wset_watts', 0)
-            wset_ena = ctl.get('wset_enabled', 0)
-            
-            if wset_ena != 1 or commanded == 0:
-                # Not actively controlling, skip check
-                return True, 0, 0, 0
-            
-            # Get actual battery DC power from Model 714
-            m714 = self.ctrl.get_model(714)
-            if not m714:
-                return True, commanded, 0, 0  # Can't verify without Model 714
-            
-            m714.read()
-            sf_w = self.ctrl._get_scale_factor(m714, 'DCW_SF')
-            blocks = m714.blocks[1:] if hasattr(m714, 'blocks') and len(m714.blocks) > 1 else [m714]
-            actual = sum(
-                block.DCW.value * (10 ** sf_w)
-                for block in blocks
-                if hasattr(block, 'DCW') and block.DCW.value is not None
-            )
-            
-            # Calculate difference percentage
-            if commanded == 0:
-                diff_percent = 0 if actual == 0 else 100
-            else:
-                diff_percent = abs((actual - commanded) / commanded) * 100
-            
-            # Check if within tolerance
-            ok = diff_percent <= tolerance_percent
-            
-            return ok, commanded, actual, diff_percent
-            
-        except Exception as e:
-            logger.debug(f"Could not verify command execution: {e}")
-            return True, 0, 0, 0  # Fail open (assume OK) on error
-    
-    def execute_once(self) -> float:
-        """Calculate and send single command. Returns actual power sent."""
-        status = self.read_status()
-        
-        power = self.calculate_power()
-        
-        cmd = BatteryCommand(power_watts=power, mode=ControlMode.LIMIT_ABS)
-        success, msg = self.ctrl.send_command(cmd)
-        
-        if success:
-            # Only log when power changes (dedup for loop mode)
-            if power != getattr(self, '_last_logged_power', None):
-                logger.info(f"{self.mode.value}: {power:.0f}W")
-                self._last_logged_power = power
-            self._last_commanded_power = power
-            return power
-        else:
-            # Raise exception so tick() can handle reconnection
-            err_msg = str(msg).lower()
-            if any(x in err_msg for x in ['broken pipe', 'socket', 'timeout', 'connection', 'modbus']):
-                raise ConnectionError(f"Modbus error: {msg}")
-            else:
-                raise RuntimeError(f"Command failed: {msg}")
-    
-    def tick(self) -> bool:
-        """Execute one control cycle. Returns True if successful."""
-        try:
-            self.execute_once()
-            return True
-        except Exception as e:
-            # Check if it's a connection-related error
-            err_str = str(e).lower()
-            is_connection_error = (
-                isinstance(e, (ConnectionError, BrokenPipeError, OSError)) or
-                'broken pipe' in err_str or
-                'socket' in err_str or
-                'timeout' in err_str or
-                'connection' in err_str or
-                'modbus' in err_str
-            )
-            
-            if is_connection_error:
-                # Connection issues - try to reconnect
-                logger.warning(f"Connection lost during tick: {e}")
-                if self.ctrl.reconnect():
-                    logger.info("Reconnected, retrying tick...")
-                    try:
-                        self.execute_once()
-                        return True
-                    except Exception as e2:
-                        logger.error(f"Control tick failed after reconnect: {e2}")
-                        return False
-                else:
-                    logger.error("Failed to reconnect")
-                    return False
-            else:
-                logger.error(f"Control tick failed: {e}")
-                return False
-    
-    def run_continuous(self, duration_seconds: Optional[float] = None,
-                        enable_safety_checks: bool = False,
-                        stop_event: Optional[threading.Event] = None):
-        """Run controller continuously.
-        
-        Args:
-            duration_seconds: Run for N seconds, or None for indefinite
-            enable_safety_checks: If True, enable alarm/sanity/SoC limit checks
-                                  (adds Modbus overhead, use for automation only)
-            stop_event: Optional threading.Event to signal shutdown.
-                        If None, runs until duration expires or failure limit hit.
-                        For CLI usage, use run_with_signal_handling() instead.
-        """
-        start_time = time.time()
-        tick_interval = 5.0
-        last_tick = 0
-        consecutive_failures = 0
-        max_consecutive_failures = 5
-        last_progress_soc = None
-        off_grid_check_interval = 30.0
-        last_off_grid_check = 0
-        
-        # Safety check intervals (only used if enable_safety_checks=True)
-        alarm_interval = 60.0
-        sanity_interval = 30.0
-        last_alarm_check = 0
-        last_sanity_check = 0
-        alarm_failures = 0
-        
-        # Off-grid check at start
-        if self.is_off_grid():
-            logger.warning("⚠️  SYSTEM IS OFF-GRID — inverter safety limits active")
-            logger.warning("   Battery operations limited to prevent overload")
-        
-        logger.info(f"Running continuous control: safety_checks={enable_safety_checks}")
-        
-        try:
-            while True:
-                # Check stop signal
-                if stop_event and stop_event.is_set():
-                    logger.info("Stop event received, shutting down...")
-                    break
-                
-                now = time.time()
-                elapsed = now - start_time
-                
-                if duration_seconds and elapsed >= duration_seconds:
-                    logger.info("Duration expired, stopping...")
-                    break
-                
-                # Periodic off-grid check (every 30s)
-                if now - last_off_grid_check >= off_grid_check_interval:
-                    last_off_grid_check = now
-                    if self.is_off_grid():
-                        if not getattr(self, '_off_grid_warned', False):
-                            logger.warning("⚠️  SYSTEM IS OFF-GRID — inverter safety limits active")
-                            self._off_grid_warned = True
-                    else:
-                        self._off_grid_warned = False
-                
-                # Main control tick (every 5s)
-                if now - last_tick >= tick_interval:
-                    success = self.tick()
-                    if success:
-                        consecutive_failures = 0
-                        
-                        # Compact progress output (dedup by SoC change)
-                        try:
-                            bat = self.ctrl.read_battery_status()
-                            soc = bat.get('soc', 0)
-                            target = getattr(self, 'target_soc', 100)
-                            power = self._last_commanded_power
-                            remaining = f" | {int(duration_seconds - elapsed)}s left" if duration_seconds else ""
-                            direction = "↑" if power > 0 else "↓" if power < 0 else "—"
-                            
-                            if soc != last_progress_soc:
-                                logger.info(f"SoC: {soc:.0f}% {direction} {abs(power):.0f}W | Target: {target}%{remaining}")
-                                last_progress_soc = soc
-                        except Exception:
-                            pass
-                        
-                        # SoC limit check (only if safety checks enabled)
-                        if enable_safety_checks:
-                            try:
-                                status = self.ctrl.read_battery_status()
-                                soc = status.get('soc', 0)
-                                power = self.calculate_power()
-                                
-                                if power > 0 and soc >= self.max_charge_soc:
-                                    logger.info(f"✓ MAX CHARGE SoC REACHED: {soc:.1f}%")
-                                    break
-                                if power < 0 and soc <= self.min_discharge_soc:
-                                    logger.info(f"✓ MIN DISCHARGE SoC REACHED: {soc:.1f}%")
-                                    break
-                            except Exception as e:
-                                logger.debug(f"SoC check failed: {e}")
-                    else:
-                        consecutive_failures += 1
-                        logger.warning(f"Tick failed ({consecutive_failures}/{max_consecutive_failures})")
-                        if consecutive_failures >= max_consecutive_failures:
-                            logger.error("Too many failures, stopping")
-                            break
-                    
-                    last_tick = now
-                
-                # Optional safety checks (for automation mode only)
-                if enable_safety_checks and consecutive_failures == 0:
-                    # Alarm check
-                    if now - last_alarm_check >= alarm_interval:
-                        last_alarm_check = now
-                        try:
-                            can_operate, blocking = self.ctrl.check_blocking_alarms()
-                            if not can_operate:
-                                logger.error(f"🚨 BLOCKING ALARMS: {', '.join(blocking)}")
-                                alarm_failures += 1
-                                if alarm_failures >= 2:
-                                    break
-                            else:
-                                alarm_failures = 0
-                        except Exception as e:
-                            logger.debug(f"Alarm check failed: {e}")
-                    
-                    # Sanity check
-                    if now - last_sanity_check >= sanity_interval:
-                        last_sanity_check = now
-                        try:
-                            ok, commanded, actual, diff = self.verify_command_execution()
-                            if not ok:
-                                logger.warning(f"Command verification: {commanded:.0f}W vs actual {actual:.0f}W")
-                        except Exception as e:
-                            logger.debug(f"Sanity check failed: {e}")
-                
-                time.sleep(0.1)
-                
-        finally:
-            # Cleanup - try to reset control state
-            cleanup_ok = False
-            try:
-                # If connection is broken, try to reconnect first
-                if not self.ctrl.is_connected():
-                    logger.info("Connection lost, reconnecting to reset control...")
-                    if self.ctrl.reconnect():
-                        logger.info("Reconnected for cleanup")
-                    else:
-                        logger.error("Could not reconnect for cleanup - control may still be active!")
-                
-                if self.ctrl.is_connected():
-                    self.ctrl.reset_control_state()
-                    logger.info("Control released (WSetEna=0)")
-                    cleanup_ok = True
-            except Exception as e:
-                logger.error(f"Cleanup failed: {e}")
-            
-            if not cleanup_ok:
-                logger.warning(
-                    f"Could not release Modbus control! "
-                    f"Manually run: franklinwh_cli.py -i {self.ctrl.ip_address} --stop"
+
+    # -- limits ----------------------------------------------------------------
+
+    def _apply_soc_limits(self, power: float, soc: float) -> float:
+        """Block, or ramp down, a setpoint that would push SOC past its bounds."""
+        if soc >= SOC_HARD_MAX and power > 0:
+            _LOGGER.warning("SoC %.1f%% at absolute maximum — blocking charge", soc)
+            return 0.0
+        if soc <= SOC_HARD_MIN and power < 0:
+            _LOGGER.warning("SoC %.1f%% at absolute minimum — blocking discharge", soc)
+            return 0.0
+
+        window = self.soc_ramp_window
+        if power > 0 and soc >= self.max_charge_soc - window:
+            if soc < self.max_charge_soc:
+                return power * max(1.0 - (soc - self.max_charge_soc + window) / window, 0.05)
+            if not self.force_soc_limits:
+                _LOGGER.info(
+                    "SoC %.1f%% at max limit (%s%%) — blocking charge",
+                    soc,
+                    self.max_charge_soc,
                 )
+                return 0.0
+            _LOGGER.warning("force override: SoC %.1f%% exceeds max", soc)
+        if power < 0 and soc <= self.min_discharge_soc + window:
+            if soc > self.min_discharge_soc:
+                return power * max(1.0 - (self.min_discharge_soc + window - soc) / window, 0.05)
+            if not self.force_soc_limits:
+                _LOGGER.info(
+                    "SoC %.1f%% at min limit (%s%%) — blocking discharge",
+                    soc,
+                    self.min_discharge_soc,
+                )
+                return 0.0
+            _LOGGER.warning("force override: SoC %.1f%% below min", soc)
+        return power
+
+    def _apply_pcs_limits(self, power: float, status: dict[str, Any]) -> float:
+        """Clamp the setpoint to the configured battery and grid flow limits."""
+        if power > 0 and self.battery_charge_limit_w is not None:
+            power = min(power, self.battery_charge_limit_w)
+        if power < 0 and self.battery_discharge_limit_w is not None:
+            power = max(power, -self.battery_discharge_limit_w)
+
+        grid = status["grid"].get("grid_power_w", 0.0)
+        if (
+            self.grid_import_limit_w is not None
+            and grid > self.grid_import_limit_w
+            and power > 0
+        ):
+            # Charging is what is drawing the import over the limit; back it off.
+            power = max(0.0, power - (grid - self.grid_import_limit_w))
+        if (
+            self.grid_export_limit_w is not None
+            and -grid > self.grid_export_limit_w
+            and power < 0
+        ):
+            power = min(0.0, power + (-grid - self.grid_export_limit_w))
+        return power
+
+    def _inverter_safety(
+        self, status: dict[str, Any], proposed: float
+    ) -> tuple[bool, str, float]:
+        """Off-grid check: can the inverter actually deliver this setpoint?"""
+        solar = max(status["solar"].get("dc_power_w", 0.0), 0.0)
+        home = status["derived"]["home_load_w"]
+
+        if proposed > self.max_charge_w * 1.05:
+            return False, "Charge limit exceeded", self.max_charge_w
+        if -proposed > self.max_discharge_w * 1.05:
+            return False, "Discharge limit exceeded", -self.max_discharge_w
+
+        available = self.max_discharge_w + solar
+        if home <= available * 0.8:
+            self._warned_high_load = False
+            return True, "Safety check passed", proposed
+
+        if not self._warned_high_load:
+            _LOGGER.warning(
+                "high load: %.0fW at %.0f%% of capacity",
+                home,
+                home / available * 100,
+            )
+            self._warned_high_load = True
+        if proposed < 0 and home > available * 0.9:
+            headroom = max(available - home - 500, 0.0)
+            if -proposed > headroom:
+                _LOGGER.error("load exceeds capacity — limiting discharge")
+                return False, "Load exceeds capacity", -headroom
+        return True, "Safety check passed", proposed
+
+    # -- the loop --------------------------------------------------------------
+
+    def verify_command_execution(
+        self, tolerance_percent: float = 20.0
+    ) -> tuple[bool, float, float, float]:
+        """Compare the commanded setpoint against the battery's actual DC power.
+
+        Returns ``(within_tolerance, commanded, actual, difference_percent)``.
+        Reports success when nothing is being commanded.
+        """
+        control = self.device.control_status()
+        commanded = control.get("wset_watts", 0.0)
+        if control.get("wset_enabled") != 1 or not commanded:
+            return True, 0.0, 0.0, 0.0
+        actual = self.device.battery_status().get("battery_power_w", 0.0)
+        difference = abs((actual - commanded) / commanded) * 100
+        return difference <= tolerance_percent, commanded, actual, difference
+
+    async def async_execute_once(self) -> float:
+        """Recompute and write the setpoint once; returns the watts sent."""
+        await self.device.async_update()
+        power = self.calculate_power()
+        await self.device.async_send_command(
+            BatteryCommand(power_watts=power, mode=ControlMode.LIMIT_ABS)
+        )
+        if power != self._last_logged_power:
+            _LOGGER.info("%s: %.0fW", self.mode.value, power)
+            self._last_logged_power = power
+        self._last_commanded_power = power
+        return power
+
+    async def async_run(
+        self,
+        *,
+        duration_s: float | None = None,
+        safety_checks: bool = False,
+        stop: asyncio.Event | None = None,
+    ) -> None:
+        """Hold the setpoint until told to stop, then release control.
+
+        ``safety_checks`` adds periodic alarm and setpoint-vs-actual checks; it
+        costs extra reads, so it is off by default and on for unattended runs.
+        The loop always releases control on the way out — nothing else will.
+        """
+        started = time.monotonic()
+        last_tick = last_off_grid = last_alarm = last_sanity = 0.0
+        failures = alarm_failures = 0
+        last_reported_soc: float | None = None
+
+        if self.is_off_grid():
+            _LOGGER.warning("system is off-grid — inverter safety limits active")
+        _LOGGER.info("running continuous control (safety_checks=%s)", safety_checks)
+
+        try:
+            while not (stop is not None and stop.is_set()):
+                now = time.monotonic()
+                elapsed = now - started
+                if duration_s is not None and elapsed >= duration_s:
+                    _LOGGER.info("duration expired, stopping")
+                    break
+
+                if now - last_off_grid >= OFF_GRID_CHECK_INTERVAL_S:
+                    last_off_grid = now
+                    self._report_off_grid()
+
+                if now - last_tick >= TICK_INTERVAL_S:
+                    last_tick = now
+                    if await self._tick():
+                        failures = 0
+                        last_reported_soc = self._report_progress(
+                            last_reported_soc, duration_s, elapsed
+                        )
+                        if safety_checks and self._soc_target_reached():
+                            break
+                    else:
+                        failures += 1
+                        _LOGGER.warning(
+                            "tick failed (%d/%d)", failures, MAX_CONSECUTIVE_FAILURES
+                        )
+                        if failures >= MAX_CONSECUTIVE_FAILURES:
+                            _LOGGER.error("too many failures, stopping")
+                            break
+
+                if safety_checks and failures == 0:
+                    if now - last_alarm >= ALARM_CHECK_INTERVAL_S:
+                        last_alarm = now
+                        can_operate, blocking = self.device.blocking_alarms()
+                        if can_operate:
+                            alarm_failures = 0
+                        else:
+                            _LOGGER.error("blocking alarms: %s", ", ".join(blocking))
+                            alarm_failures += 1
+                            if alarm_failures >= 2:
+                                break
+                    if now - last_sanity >= SANITY_CHECK_INTERVAL_S:
+                        last_sanity = now
+                        ok, commanded, actual, _ = self.verify_command_execution()
+                        if not ok:
+                            _LOGGER.warning(
+                                "commanded %.0fW but measured %.0fW", commanded, actual
+                            )
+
+                await asyncio.sleep(0.1)
+        finally:
+            await self._release_control()
+
+    async def _tick(self) -> bool:
+        """One control cycle; ``False`` if it failed for any reason."""
+        try:
+            await self.async_execute_once()
+        except Exception:
+            _LOGGER.exception("control tick failed")
+            return False
+        return True
+
+    def _report_off_grid(self) -> None:
+        """Log the grid state, but only when it changes."""
+        off_grid = self.is_off_grid()
+        if off_grid and not self._off_grid_warned:
+            _LOGGER.warning("system is off-grid — inverter safety limits active")
+        self._off_grid_warned = off_grid
+
+    def _report_progress(
+        self, last_soc: float | None, duration_s: float | None, elapsed: float
+    ) -> float:
+        """Log SOC progress when it moves; returns the SOC just reported."""
+        soc = self.device.battery_status().get("soc", 0)
+        if soc == last_soc:
+            return soc
+        power = self._last_commanded_power
+        direction = "up" if power > 0 else "down" if power < 0 else "flat"
+        remaining = (
+            f" | {int(duration_s - elapsed)}s left" if duration_s is not None else ""
+        )
+        _LOGGER.info(
+            "SoC: %.0f%% %s %.0fW | target: %s%%%s",
+            soc,
+            direction,
+            abs(power),
+            self.target_soc,
+            remaining,
+        )
+        return soc
+
+    def _soc_target_reached(self) -> bool:
+        """Whether the configured SOC bound for the current direction is hit."""
+        soc = self.device.battery_status().get("soc", 0)
+        power = self._last_commanded_power
+        if power > 0 and soc >= self.max_charge_soc:
+            _LOGGER.info("max charge SoC reached: %.1f%%", soc)
+            return True
+        if power < 0 and soc <= self.min_discharge_soc:
+            _LOGGER.info("min discharge SoC reached: %.1f%%", soc)
+            return True
+        return False
+
+    async def _release_control(self) -> None:
+        """Put the device back under its own control, whatever happened."""
+        try:
+            await self.device.async_reset_control_state()
+        except Exception:
+            _LOGGER.exception(
+                "could not release Modbus control — the device may still be "
+                "following the last setpoint; run the CLI's --stop against it"
+            )
+        else:
+            _LOGGER.info("control released (WSetEna=0)")
 
 
-def run_with_signal_handling(
-    controller: 'VirtualModeController',
-    duration_seconds: Optional[float] = None,
-    enable_safety_checks: bool = False,
-):
-    """Run a VirtualModeController with SIGINT/SIGTERM signal handling.
-    
-    This is a CLI convenience wrapper around run_continuous(). Library consumers
-    should call run_continuous() directly with a stop_event instead.
-    
-    Args:
-        controller: Configured VirtualModeController instance
-        duration_seconds: Run for N seconds, or None for indefinite
-        enable_safety_checks: If True, enable alarm/sanity/SoC limit checks
+def _estimate_home_load(solar: float, grid: float) -> float:
+    """Estimate house load when the extension register does not answer.
+
+    Deliberately does not use the last commanded battery power: that would
+    close a feedback loop between the setpoint and the load it is computed
+    from. Bounded to a plausible domestic range.
     """
-    stop = threading.Event()
-    
-    def signal_handler(signum, frame):
-        logger.info(f"Signal {signum} received, shutting down...")
-        stop.set()
-    
-    old_sigint = signal.getsignal(signal.SIGINT)
-    old_sigterm = signal.getsignal(signal.SIGTERM)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
+    if grid > 0:
+        estimate = max(solar + grid * 0.5, 300)  # importing
+    elif grid < 0:
+        estimate = max(solar + grid, 200)  # exporting; grid is negative
+    else:
+        estimate = max(solar, 300)
+    return max(200.0, min(estimate, 15000.0))
+
+
+async def run_with_signal_handling(
+    controller: VirtualModeController,
+    *,
+    duration_s: float | None = None,
+    safety_checks: bool = False,
+) -> None:
+    """Run the loop until SIGINT/SIGTERM, then shut it down cleanly."""
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for signal_number in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(signal_number, stop.set)
     try:
-        controller.run_continuous(
-            duration_seconds=duration_seconds,
-            enable_safety_checks=enable_safety_checks,
-            stop_event=stop,
+        await controller.async_run(
+            duration_s=duration_s, safety_checks=safety_checks, stop=stop
         )
     finally:
-        # Restore original signal handlers
-        signal.signal(signal.SIGINT, old_sigint)
-        signal.signal(signal.SIGTERM, old_sigterm)
+        for signal_number in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError, ValueError):
+                loop.remove_signal_handler(signal_number)

@@ -1,0 +1,197 @@
+--- /tmp/claude-1000/-home-paulus-dev-hass-franklinwh-modbus/f780bbe6-f2a9-4ef0-953c-93c1d615b287/scratchpad/mc-base/src/modbus_connection/model/sunspec/generate.py	2026-08-09 17:26:38.925901765 -0400
++++ /tmp/claude-1000/-home-paulus-dev-hass-franklinwh-modbus/f780bbe6-f2a9-4ef0-953c-93c1d615b287/scratchpad/mc/src/modbus_connection/model/sunspec/generate.py	2026-08-09 17:12:46.785369662 -0400
+@@ -316,10 +316,17 @@
+     size: int | None  # registers per instance; None when only the device knows
+ 
+ 
+-def _fixed_count(raw_count: Any) -> int | None:
+-    """The statically-known repeat count, or None for a device-sized block."""
++def _fixed_count(raw_count: Any, counts: Mapping[str, int]) -> int | None:
++    """The statically-known repeat count, or None for a device-sized block.
++
++    A count named in ``counts`` — the value that point holds on the device being
++    generated for — is statically known too, which is what lets a block whose
++    size depends on it be placed.
++    """
+     if isinstance(raw_count, int) and raw_count > 0:
+         return raw_count
++    if isinstance(raw_count, str):
++        return counts.get(raw_count)
+     return None
+ 
+ 
+@@ -331,7 +338,9 @@
+     return names
+ 
+ 
+-def _parse_group(raw: Mapping[str, Any], start: int, model_id: int) -> _Group:
++def _parse_group(
++    raw: Mapping[str, Any], start: int, model_id: int, counts: Mapping[str, int]
++) -> _Group:
+     """Place a block's points and nested blocks."""
+     points = _parse_points(raw.get("points", []), start)
+     offset = start + sum(p.size for p in points)
+@@ -344,9 +353,9 @@
+                 " device-dependent size but is not the last block, so later"
+                 " addresses are unknown"
+             )
+-        child = _parse_group(sub, offset, model_id)
++        child = _parse_group(sub, offset, model_id, counts)
+         children.append(child)
+-        count = _fixed_count(child.raw_count)
++        count = _fixed_count(child.raw_count, counts)
+         if count is not None and child.size is not None:
+             offset += count * child.size
+             size = offset - start
+@@ -361,11 +370,14 @@
+     module: _ModuleWriter,
+     model_id: int,
+     group_name: str,
++    counts: Mapping[str, int],
+ ) -> str | None:
+     """Return the expression that supplies a repeated block's count.
+ 
+     Raises ``SunSpecGenerationError`` for an unknown count point.
+     """
++    if isinstance(raw_count, str) and raw_count in counts:
++        return str(counts[raw_count])
+     if isinstance(raw_count, str):
+         for point in scopes[-1].points:
+             if point.name == raw_count:
+@@ -394,11 +406,12 @@
+     writer: _ClassWriter,
+     module: _ModuleWriter,
+     model_id: int,
++    counts: Mapping[str, int],
+ ) -> list[str]:
+     """Emit the parent field for a nested block."""
+     attr = writer.attr_name(child.name)
+     count_expr = _count_expression(
+-        child.raw_count, scopes, module, model_id, child.name
++        child.raw_count, scopes, module, model_id, child.name, counts
+     )
+     if count_expr is not None and child.size:
+         module.model_imports.add("repeating_group")
+@@ -485,6 +498,7 @@
+     model_id: int,
+     scopes: list[_Group],
+     referenced_sf: frozenset[str],
++    counts: Mapping[str, int],
+ ) -> str:
+     """Emit one block's ``Component`` class (children first); return its name."""
+     class_name = module.claim_class(f"{prefix}{_camel(group.name)}")
+@@ -504,9 +518,12 @@
+             model_id,
+             [*scopes, group],
+             referenced_sf,
++            counts,
+         )
+         wiring.append(
+-            _wire_child(child, child_class, [*scopes, group], writer, module, model_id)
++            _wire_child(
++                child, child_class, [*scopes, group], writer, module, model_id, counts
++            )
+         )
+     scale_addresses, scale_in_block = _block_scales(group, top_scales, model_id, scopes)
+     if scale_in_block:
+@@ -522,12 +539,14 @@
+     return class_name
+ 
+ 
+-def _generate_model(model: Mapping[str, Any], module: _ModuleWriter) -> None:
++def _generate_model(
++    model: Mapping[str, Any], module: _ModuleWriter, counts: Mapping[str, int]
++) -> None:
+     """Append one model's classes (innermost blocks first) to the module."""
+     model_id = int(model["id"])
+     module.sources.append(f"json/model_{model_id}.json")
+ 
+-    top = _parse_group(model["group"], 0, model_id)
++    top = _parse_group(model["group"], 0, model_id, counts)
+     # ID and L are the model header; SunSpecComponent already declares them
+     # (model_id / model_length at 0 and 1), so they are parsed for the address
+     # walk but not emitted.
+@@ -547,9 +566,18 @@
+     wiring: list[list[str]] = []
+     for child in top.children:
+         child_class = _emit_group_class(
+-            child, class_name, module, scale_addresses, model_id, [top], referenced_sf
++            child,
++            class_name,
++            module,
++            scale_addresses,
++            model_id,
++            [top],
++            referenced_sf,
++            counts,
++        )
++        wiring.append(
++            _wire_child(child, child_class, [top], writer, module, model_id, counts)
+         )
+-        wiring.append(_wire_child(child, child_class, [top], writer, module, model_id))
+     for point in data_points:
+         if _emitted(point, referenced_sf):
+             _emit_point(point, writer, module, scale_addresses, model_id)
+@@ -558,11 +586,25 @@
+     module.classes.append(writer.render())
+ 
+ 
+-def generate_source(models: Iterable[Mapping[str, Any]]) -> str:
+-    """Render parsed SunSpec model JSON into a Python module's source."""
++def generate_source(
++    models: Iterable[Mapping[str, Any]],
++    counts: Mapping[int | None, Mapping[str, int]] | None = None,
++) -> str:
++    """Render parsed SunSpec model JSON into a Python module's source.
++
++    ``counts`` names count points whose value on the target device is already
++    known, keyed by model ID with ``None`` for every model
++    (``{705: {"NPt": 4}}``). A block sized by one of them is placed as an
++    ordinary fixed-count ``repeating_group``, which is what lets a model whose
++    layout depends on a runtime count be generated at all.
++    """
+     module = _ModuleWriter()
++    scoped = counts or {}
+     for model in models:
+-        _generate_model(model, module)
++        model_id = int(model["id"])
++        _generate_model(
++            model, module, {**scoped.get(None, {}), **scoped.get(model_id, {})}
++        )
+     if not module.classes:
+         raise SunSpecGenerationError("no models given")
+     return module.render()
+@@ -594,13 +636,32 @@
+         " or paths to local model_N.json files",
+     )
+     parser.add_argument(
++        "--count",
++        action="append",
++        default=[],
++        metavar="[MODEL:]NAME=VALUE",
++        help="the value a count point holds on the target device"
++        " (e.g. --count 705:NPt=4); a block sized by it is then placed"
++        " statically. Prefix with a model ID when generating several models"
++        " whose count points share a name but not a value.",
++    )
++    parser.add_argument(
+         "-o",
+         "--out",
+         help="write the generated module here instead of stdout",
+     )
+     options = parser.parse_args(argv)
++    counts: dict[int | None, dict[str, int]] = {}
++    for item in options.count:
++        target, _, value = item.partition("=")
++        scope, _, name = target.rpartition(":")
++        if not name or not value.lstrip("-").isdigit():
++            parser.error(f"--count expects [MODEL:]NAME=VALUE, got {item!r}")
++        if scope and not scope.isdigit():
++            parser.error(f"--count model scope must be a model ID, got {scope!r}")
++        counts.setdefault(int(scope) if scope else None, {})[name] = int(value)
+     try:
+-        source = generate_source(_load(spec) for spec in options.models)
++        source = generate_source((_load(spec) for spec in options.models), counts)
+     except (OSError, SunSpecGenerationError) as err:
+         print(f"error: {err}", file=sys.stderr)
+         return 1

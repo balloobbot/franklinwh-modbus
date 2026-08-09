@@ -1,506 +1,337 @@
-"""
-SunSpec InfoPoint Sequencer
-Executes deterministic sequences of SunSpec register operations with verification.
+"""Run declarative register sequences with verification.
+
+A sequence is a list of steps in JSON (see ``examples/sequencer/``). Each step
+writes some points, optionally waits for a condition, reads some points back
+and then pauses. Its reason for existing is that the aGate's control path is
+ordered and stateful: a setpoint written while the enable register is still set
+is ignored, and the enable register has to go last.
+
+Tags name a point as ``"<model>.<Point>"`` (``704.WSetPct``), with an optional
+``_<n>`` suffix to reach instance *n* of a repeating block (``714.DCW_1``), or
+a bare address for a manufacturer register (``15507``). The tag grammar is a
+user-facing contract — the shipped sequences use it — so it is unchanged from
+before the migration even though the resolution behind it is completely
+different: the old implementation could not reach the 15500 block through
+pysunspec2 at all and hand-assembled Modbus TCP frames onto the raw socket.
 """
 
+from __future__ import annotations
+
+import asyncio
 import logging
+import operator
 import time
-import struct
-from typing import Dict, List, Any, Optional, Tuple
-from .constants import EXTENSION_REGISTRY
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-try:
-    import sunspec2.modbus.client as client
-except ImportError:
-    client = None
+from .models.extensions import EXTENSION_BASE
+from .writing import WriteRejected, write_many
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    from modbus_connection.model import Component
+
+    from .device import AGate
+
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_VERIFY_TIMEOUT_MS = 2000
+DEFAULT_WAIT_TIMEOUT_MS = 30_000
+DEFAULT_POLL_MS = 1000
+
+_OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    "<": operator.lt,
+    ">=": operator.ge,
+    "<=": operator.le,
+    "in": lambda current, target: current in target,
+    "not in": lambda current, target: current not in target,
+}
+
 
 class TransitionValidationError(Exception):
-    """Raised when a mandatory state transition is not observed."""
-    pass
+    """A step demanded a state change and the point was already there."""
 
-class SunSpecSequencer:
-    """Orchestrates multi-step SunSpec operations."""
-    
-    def __init__(self, device: Any, base_address: int = 0):
+
+class SequenceError(Exception):
+    """A sequence could not be run as written."""
+
+
+@dataclass(frozen=True)
+class Target:
+    """A resolved point: which component, and which field of it."""
+
+    component: Component
+    field: str
+    label: str
+
+
+@dataclass
+class StepResult:
+    """What one step did."""
+
+    name: str
+    written: dict[str, Any] = field(default_factory=dict)
+    read: dict[str, Any] = field(default_factory=dict)
+    skipped: list[str] = field(default_factory=list)
+    ok: bool = True
+
+
+class Sequencer:
+    """Resolve tags against a connected device and run sequences on it."""
+
+    def __init__(self, device: AGate) -> None:
+        self._device = device
+        self._by_point: dict[tuple[int, str], str] | None = None
+
+    # -- tag resolution --------------------------------------------------------
+
+    def resolve(self, tag: str | Mapping[str, Any]) -> Target:
+        """Resolve a tag to the component and field it names.
+
+        Raises ``SequenceError`` for a malformed tag, an absent model, or a
+        point the device's components do not carry.
         """
-        Initialize with a sunspec2 device object.
-        
-        Args:
-            device: An instance of SunSpecModbusClientDeviceTCP (or similar)
-                   that has already been scanned.
-            base_address: The starting Modbus address used for scanning.
-        """
-        self.device = device
-        self.base_address = base_address
-        self.verbose = False
+        text = _tag_text(tag)
+        if "." not in text:
+            return self._resolve_extension(text)
+        model_part, _, point = text.partition(".")
+        if not model_part.isdigit():
+            raise SequenceError(
+                f"invalid tag {text!r}: expected '<model>.<Point>' or an address"
+            )
+        component = self._device.model(int(model_part))
+        if component is None:
+            raise SequenceError(f"model {model_part} is not present on this device")
+        point, index = _split_instance(point)
+        attribute = self._attribute_for(int(model_part), point)
+        if index is not None:
+            component = _instance(component, index, text)
+        if attribute not in component.declared_fields:
+            raise SequenceError(f"{text}: model {model_part} has no point {point!r}")
+        return Target(component, attribute, text)
 
-    def get_point(self, tag: Any) -> Tuple[Optional[Any], Any]:
-        """Resolve 'Model.Point', 'RawAddress' tag, or a config dict."""
-        tag_str = tag
-        if isinstance(tag, dict):
-            tag_str = str(tag.get('point', tag.get('addr', tag.get('address', ''))))
-
-        if '.' not in tag_str:
-            # Assume raw address
-            try:
-                addr = int(tag_str)
-                return None, addr
-            except ValueError:
-                raise ValueError(f"Invalid tag format '{tag}'. Use 'ModelID.PointName' or 'Address'")
-
+    def _resolve_extension(self, text: str) -> Target:
+        """Resolve a bare address in the manufacturer block."""
         try:
-            model_id_str, point_name = tag_str.split('.')
-            model_id = int(model_id_str)
-        except ValueError:
-            raise ValueError(f"Invalid tag format '{tag_str}'. Use 'ModelID.PointName' (e.g. 704.WSetPct)")
+            address = int(text)
+        except ValueError as err:
+            raise SequenceError(
+                f"invalid tag {text!r}: expected '<model>.<Point>' or an address"
+            ) from err
+        if address < EXTENSION_BASE:
+            raise SequenceError(
+                f"address {address} is below the manufacturer block at"
+                f" {EXTENSION_BASE}; name a SunSpec point as '<model>.<Point>'"
+            )
+        extensions = self._device.extensions
+        for name, register in extensions.declared_fields.items():
+            if register.address == address:
+                return Target(extensions, name, text)
+        raise SequenceError(f"address {address} is not a known extension register")
 
-        model = self.device.models.get(model_id)
-        if model is None:
-            model = self.device.models.get(str(model_id))
-        
-        if model is None:
-            raise ValueError(f"Model {model_id} not found on device")
-        
-        if isinstance(model, list):
-            model = model[0]
-            
-        # Parse potential block index suffix (e.g. "DCW_2")
-        block_idx = 1
-        base_point_name = point_name
-        has_suffix = False
-        if '_' in point_name:
-            parts = point_name.rsplit('_', 1)
-            if parts[1].isdigit():
-                block_idx = int(parts[1])
-                base_point_name = parts[0]
-                has_suffix = True
-                
-        # Resolve the point object
-        point = None
-        if has_suffix and hasattr(model, 'blocks') and block_idx < len(model.blocks):
-            point = getattr(model.blocks[block_idx], base_point_name, None)
-        else:
-            point = getattr(model, point_name, None)
-            
-        if point is None:
-            raise ValueError(f"Point '{point_name}' not found in Model {model_id}")
-            
-        return model, point
+    def _attribute_for(self, model_id: int, point: str) -> str:
+        """Map a SunSpec point name to the generated attribute name.
 
-    def get_point_val(self, model: Any, point: Any) -> Any:
-        """Helper to get scaled value from a point."""
-        val = point.value
-        if val is None:
-            return None
-            
-        # Robust point definition attribute access
-        pdef = point.pdef
-        def get_attr(obj, key):
-            if isinstance(obj, dict): return obj.get(key)
-            return getattr(obj, key, None)
-            
-        sf_name = get_attr(pdef, 'sf')
-        if sf_name:
-            sf_point = getattr(model, sf_name, None)
-            if sf_point:
-                sf_val = sf_point.value
-                if sf_val is not None:
-                    # Apply scale factor: value * 10^sf
-                    return val * (10 ** sf_val)
-        return val
+        The generated components snake-case point names (``WSetPct`` becomes
+        ``w_set_pct``), so the mapping is built once by matching the
+        de-punctuated forms rather than reimplementing the generator's rule.
+        """
+        if self._by_point is None:
+            self._by_point = {}
+            components = {**self._device.models, 0: self._device.extensions}
+            for identifier, component in components.items():
+                for attribute in component.declared_fields:
+                    key = attribute.replace("_", "").lower()
+                    self._by_point[(identifier, key)] = attribute
+                for group, instances in component._groups.items():  # noqa: SLF001
+                    for instance in instances[:1]:
+                        for attribute in instance.declared_fields:
+                            key = attribute.replace("_", "").lower()
+                            self._by_point.setdefault((identifier, key), attribute)
+                    del group
+        return self._by_point.get((model_id, point.replace("_", "").lower()), point)
 
-    def read_value(self, tag: Any) -> Any:
-        model, point = self.get_point(tag)
-        if model is None:
-            # Raw address read - Uses raw socket to bypass sunspec2 remapping
-            addr = point
-            
-            # Determine properties: check inline dict, then registry defaults
-            reg_config = {}
-            if isinstance(tag, dict):
-                reg_config = tag
-            else:
-                reg_config = EXTENSION_REGISTRY.get(addr, {})
-                
-            reg_type = reg_config.get('type', 'uint16')
-            sf = reg_config.get('sf', 0)
-            count = 2 if reg_type in ('uint32', 'int32') else 1
-            
-            client_obj = getattr(self.device, 'client', None)
-            if client_obj and client_obj.socket:
-                try:
-                    unit_id = getattr(self.device, 'slave_id', 1)
-                    # Raw Modbus TCP: Transaction(2) Protocol(2) Length(2) Unit(1) Func(1) Addr(2) Count(2)
-                    req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 3, addr, count)
-                    sock = client_obj.socket
-                    sock.sendall(req)
-                    resp = sock.recv(256)
-                    if len(resp) >= 9 + count * 2: # 9 header + data
-                        data_bytes = resp[9:9+count*2]
-                        if reg_type == 'uint32':
-                            raw_val = struct.unpack('>I', data_bytes)[0]
-                        elif reg_type == 'int32':
-                            raw_val = struct.unpack('>i', data_bytes)[0]
-                        elif reg_type == 'int16':
-                            raw_val = struct.unpack('>h', data_bytes)[0]
-                        else: # uint16
-                            raw_val = struct.unpack('>H', data_bytes)[0]
-                        
-                        return raw_val * (10 ** sf) if sf else raw_val
-                except Exception as e:
-                    logger.debug(f"Raw socket read at {addr} failed: {e}")
-            return None
+    # -- reading ---------------------------------------------------------------
 
-        model.read()
-        return self.get_point_val(model, point)
+    async def read(self, tag: str | Mapping[str, Any]) -> Any:
+        """Read one point, refreshing its component first."""
+        target = self.resolve(tag)
+        await target.component.async_update()
+        return getattr(target.component, target.field)
 
-    def write_value(self, tag: Any, human_val: Any) -> Any:
-        """Write a value, applying scale factor conversion if needed."""
-        model, point = self.get_point(tag)
-        
-        if model is None:
-            # Raw address write
-            addr = point
-            
-            # Determine properties
-            reg_config = {}
-            actual_val = human_val
-            if isinstance(tag, dict):
-                reg_config = tag
-            elif isinstance(human_val, dict):
-                reg_config = human_val
-                actual_val = human_val.get('value')
-                
-            if not reg_config:
-                reg_config = EXTENSION_REGISTRY.get(addr, {})
-                
-            reg_type = reg_config.get('type', 'uint16')
-            sf = reg_config.get('sf', 0)
-            
-            raw_val = actual_val
-            if sf:
-                raw_val = int(actual_val / (10 ** sf))
-            else:
-                raw_val = int(actual_val)
-                
-            client_obj = getattr(self.device, 'client', None)
-            if client_obj:
-                try:
-                    if reg_type in ('uint32', 'int32'):
-                        fmt = '>I' if reg_type == 'uint32' else '>i'
-                        packed = struct.pack(fmt, raw_val)
-                        words = list(struct.unpack('>2H', packed))
-                        client_obj.write_hregs(addr, words)
-                    else:
-                        client_obj.write_hregs(addr, [raw_val])
-                    return actual_val
-                except Exception as e:
-                    logger.debug(f"Raw write at {addr} failed: {e}")
-            return None
+    def value_of(self, tag: str | Mapping[str, Any]) -> Any:
+        """One point's value from the last poll, without going to the device."""
+        target = self.resolve(tag)
+        return getattr(target.component, target.field)
 
-        raw_val = human_val
-        pdef = point.pdef
-        
-        def get_attr(obj, key):
-            if isinstance(obj, dict): return obj.get(key)
-            return getattr(obj, key, None)
-            
-        sf_name = get_attr(pdef, 'sf')
-        if sf_name:
-            sf_point = getattr(model, sf_name, None)
-            if sf_point:
-                model.read() # Ensure we have the latest SF
-                sf_val = sf_point.value
-                if sf_val is not None:
-                    # Inverse scale factor: raw = human / 10^sf
-                    raw_val = int(human_val / (10 ** sf_val))
-                    
-        point.value = raw_val
-        model.write()
-        return raw_val
+    # -- running ---------------------------------------------------------------
 
-    def run_sequence(self, sequence: List[Dict[str, Any]], dry_run: bool = False) -> bool:
-        """Execute a list of step dictionaries."""
-        total_steps = len(sequence)
-        logger.info(f"Starting sequence with {total_steps} steps...")
-        
-        for i, step in enumerate(sequence):
-            step_name = step.get('name', step.get('step', f"Step {i+1}"))
-            logger.info(f"\n--- [{i+1}/{total_steps}] {step_name} ---")
-            
-            # 1. Handle Writes
-            writes = step.get('writes', {})
-            if writes:
-                if not self.execute_writes(writes, step, dry_run):
-                    if step.get('abort_on_failure', True):
-                        logger.error(f"Aborting sequence due to write failure in '{step_name}'")
-                        return False
+    async def run(
+        self, sequence: Sequence[Mapping[str, Any]], *, dry_run: bool = False
+    ) -> list[StepResult]:
+        """Run every step in order, stopping at the first that fails hard.
 
-            # 2. Handle Wait For (Polling Loop)
-            wait_for = step.get('wait_for')
-            if wait_for:
-                if not self.execute_wait_for(wait_for, step_name):
-                    if step.get('abort_on_failure', True):
-                        logger.error(f"Aborting sequence due to wait condition failure in '{step_name}'")
-                        return False
+        Returns one :class:`StepResult` per step attempted.
+        """
+        results: list[StepResult] = []
+        for number, step in enumerate(sequence, start=1):
+            name = str(step.get("name", step.get("step", f"Step {number}")))
+            _LOGGER.info("[%d/%d] %s", number, len(sequence), name)
+            result = await self._run_step(name, step, dry_run=dry_run)
+            results.append(result)
+            if not result.ok and step.get("abort_on_failure", True):
+                _LOGGER.error("aborting: %s failed", name)
+                break
+        return results
 
-            # 3. Handle Reads
-            reads = step.get('reads', [])
-            if reads:
-                self.execute_reads(reads)
+    async def _run_step(
+        self, name: str, step: Mapping[str, Any], *, dry_run: bool
+    ) -> StepResult:
+        """Run one step's writes, wait condition, reads and pause."""
+        result = StepResult(name=name)
+        writes = step.get("writes") or {}
+        if writes:
+            result.ok = await self._execute_writes(step, writes, result, dry_run)
+            if not result.ok:
+                return result
 
-            # 4. Handle Sleep
-            sleep_ms = step.get('sleep_ms', step.get('post_sleep_ms', 0))
-            if sleep_ms > 0:
-                logger.info(f"Sleeping for {sleep_ms}ms...")
-                time.sleep(sleep_ms / 1000.0)
-            
-            # Step completion summary (especially useful if logs are suppressed)
-            if logger.level > logging.INFO:
-                print(f"DONE: {step_name}")
+        wait_for = step.get("wait_for")
+        if wait_for and not await self._wait_for(wait_for):
+            result.ok = False
+            return result
 
-        logger.info("\nSequence complete.")
-        return True
+        for tag in step.get("reads") or []:
+            result.read[_tag_text(tag)] = await self.read(tag)
+            _LOGGER.info("  read %s: %s", _tag_text(tag), result.read[_tag_text(tag)])
 
-    def execute_writes(self, writes: Dict[str, Any], step: Dict[str, Any], dry_run: bool) -> bool:
-        verify = step.get('verify', True)
-        timeout_ms = step.get('verify_timeout_ms', 2000)
-        
-        # Capture "Before" state
-        before_vals = {}
-        for tag in writes:
-            try:
-                before_vals[tag] = self.read_value(tag)
-            except Exception as e:
-                logger.warning(f"  Could not read initial value for {tag}: {e}")
-                before_vals[tag] = "Unknown"
+        pause_ms = step.get("sleep_ms", step.get("post_sleep_ms", 0))
+        if pause_ms:
+            _LOGGER.info("  sleeping %dms", pause_ms)
+            await asyncio.sleep(pause_ms / 1000)
+        return result
 
-        if dry_run:
-            for tag, val in writes.items():
-                compare_val = val.get('value') if isinstance(val, dict) else val
-                logger.info(f"  [DRY RUN] Would write {tag}: {before_vals[tag]} -> {compare_val}")
-            return True
+    async def _execute_writes(
+        self,
+        step: Mapping[str, Any],
+        writes: Mapping[str, Any],
+        result: StepResult,
+        dry_run: bool,
+    ) -> bool:
+        """Write a step's points, batching the ones that share a component.
 
-        # Perform writes (grouped by model for efficiency)
-        models_to_write = {}
-        write_attempted = {} # Tracks which tags actually triggered a Modbus write
-        
-        def get_attr(obj, key):
-            if isinstance(obj, dict): return obj.get(key)
-            return getattr(obj, key, None)
-
-        require_transition = step.get('require_transition', False)
-
-        for tag, val in writes.items():
-            compare_val = val.get('value') if isinstance(val, dict) else val
-            initial = before_vals.get(tag)
-            
-            # Mandatory State Transition Validation
-            if require_transition and initial == compare_val:
-                raise TransitionValidationError(f"Step '{step.get('name')}' failed transition requirement: "
-                                               f"{tag} already matches target {compare_val}")
-
-            if initial == compare_val:
-                logger.info(f"  Skipping {tag}: already matches target {compare_val} [MATCHED - NO TRANSITION]")
-                write_attempted[tag] = False
+        Points already holding their target are skipped, so a sequence stays
+        idempotent — except under ``require_transition``, where a point that is
+        already there means the step's premise was wrong.
+        """
+        require_transition = bool(step.get("require_transition", False))
+        pending: dict[Component, dict[str, Any]] = {}
+        for tag, raw in writes.items():
+            target = self.resolve(tag)
+            value = raw.get("value") if isinstance(raw, dict) else raw
+            before = getattr(target.component, target.field)
+            if before == value:
+                if require_transition:
+                    raise TransitionValidationError(
+                        f"{step.get('name')}: {target.label} already holds {value}"
+                    )
+                _LOGGER.info("  %s already %s — no transition", target.label, value)
+                result.skipped.append(target.label)
                 continue
+            if dry_run:
+                _LOGGER.info("  [dry run] %s: %s -> %s", target.label, before, value)
+            pending.setdefault(target.component, {})[target.field] = value
+            result.written[target.label] = value
 
-            write_attempted[tag] = True
-            model, point = self.get_point(tag)
-            if model is None:
-                model_id = 0
-            else:
-                tag_str = tag.get('point', tag.get('addr', tag.get('address', ''))) if isinstance(tag, dict) else tag
-                model_id = int(tag_str.split('.')[0])
-                
-            if model not in models_to_write:
-                models_to_write[model] = []
-            
-            # Resolve raw value
-            raw_val = compare_val
-            if model is not None:
-                pdef = point.pdef
-                sf_name = get_attr(pdef, 'sf')
-                if sf_name:
-                    sf_point = getattr(model, sf_name, None)
-                    if sf_point:
-                        model.read()
-                        sf_val = sf_point.value
-                        if sf_val is not None:
-                            raw_val = int(compare_val / (10 ** sf_val))
-            else:
-                reg_config = val if isinstance(val, dict) else EXTENSION_REGISTRY.get(point, {})
-                sf = reg_config.get('sf', 0)
-                if sf:
-                    raw_val = int(compare_val / (10 ** sf))
-                else:
-                    raw_val = int(compare_val)
-            
-            # Get address for logging
-            if model is not None:
-                pdef = point.pdef
-                offset = getattr(point, 'offset', get_attr(pdef, 'offset'))
-                
-                # Derive absolute address
-                addr = getattr(point, 'addr', None)
-                if addr is None:
-                    # Calculate: Device Base + Model Offset + Point Offset
-                    d_base = getattr(self.device, 'base_addr', 0)
-                    if d_base == 0:
-                        d_base = getattr(self, 'base_address', 0)
-                    
-                    m_off = getattr(model, 'model_addr', getattr(model, 'addr', 0))
-                    if offset is not None:
-                        addr = d_base + m_off + offset
-            else:
-                addr = point
-            
-            addr_str = f"{addr}" if addr is not None else "???"
-            logger.info(f"  Writing {tag} = {compare_val} [Raw: {raw_val}, Addr: {addr_str}]")
-            models_to_write[model].append((point, raw_val, val))
-
-        for model, points in models_to_write.items():
-            if model is not None:
-                for point, raw_val, _ in points:
-                    point.value = raw_val
-                model.write()
-            else:
-                # Raw Modbus writes - Uses raw socket to bypass sunspec2 remapping
-                client_obj = getattr(self.device, 'client', None)
-                if client_obj and client_obj.socket:
-                    unit_id = getattr(self.device, 'slave_id', 1)
-                    sock = client_obj.socket
-                    for addr, raw_val, val_obj in points:
-                        reg_config = val_obj if isinstance(val_obj, dict) else EXTENSION_REGISTRY.get(addr, {})
-                        reg_type = reg_config.get('type', 'uint16')
-                        
-                        if reg_type in ('uint32', 'int32'):
-                            fmt = '>I' if reg_type == 'uint32' else '>i'
-                            packed_val = struct.pack(fmt, raw_val)
-                            header = struct.pack('>HHHBBHHB', 0, 0, 11, unit_id, 16, addr, 2, 4)
-                            req = header + packed_val
-                            sock.sendall(req)
-                            resp = sock.recv(256)
-                            if len(resp) < 12 or resp[7] != 16:
-                                logger.error(f"  ✗ Raw 32-bit write to {addr} failed (Response: {resp.hex()})")
-                        else:
-                            req = struct.pack('>HHHBBHH', 0, 0, 6, unit_id, 6, addr, int(raw_val))
-                            sock.sendall(req)
-                            resp = sock.recv(256)
-                            if len(resp) < 12 or resp[7] != 6:
-                                logger.error(f"  ✗ Raw write to {addr} failed (Response: {resp.hex()})")
-
-        # Verification
-        if not verify:
-            for tag, val in writes.items():
-                compare_val = val.get('value') if isinstance(val, dict) else val
-                logger.info(f"  Write {tag}: {before_vals.get(tag)} -> {compare_val} [SENT]")
+        if dry_run or not pending:
             return True
 
-        start_time = time.time()
-        deadline = start_time + (timeout_ms / 1000.0)
-        pending = list(writes.keys())
-        
-        logger.info("  Verifying transitions...")
-        while pending and time.time() < deadline:
-            for tag in list(pending):
-                current = self.read_value(tag)
-                val = writes[tag]
-                target = val.get('value') if isinstance(val, dict) else val
-                
-                if current == target:
-                    elapsed = int((time.time() - start_time) * 1000)
-                    
-                    # Differentiated Labeling based on write_attempted
-                    if write_attempted.get(tag, True):
-                        label = f"[VERIFIED in {elapsed}ms]"
-                    else:
-                        label = "[MATCHED - NO TRANSITION]"
-                        
-                    logger.info(f"  ✓ {tag}: {before_vals.get(tag)} -> {current} {label}")
-                    pending.remove(tag)
-            
-            if pending:
-                time.sleep(0.1)
-
-        if pending:
-            for tag in pending:
-                current = self.read_value(tag)
-                val = writes[tag]
-                target = val.get('value') if isinstance(val, dict) else val
-                logger.error(f"  ✗ {tag}: Update failure. Current: {current}, Expected: {target}")
+        settle = step.get("settle_ms", 0) / 1000
+        verify = bool(step.get("verify", True))
+        started = time.monotonic()
+        try:
+            for component, values in pending.items():
+                await write_many(component, values, verify=verify, settle=settle)
+        except WriteRejected as err:
+            _LOGGER.error("  %s", err)
             return False
-        
+        _LOGGER.info(
+            "  wrote %s in %dms",
+            ", ".join(result.written),
+            int((time.monotonic() - started) * 1000),
+        )
         return True
 
-    def execute_wait_for(self, config: Dict[str, Any], step_name: str) -> bool:
-        """Poll a point until a condition is met."""
-        tag = config.get('point')
-        op = config.get('operator', '==')
-        target = config.get('value')
-        timeout_ms = config.get('timeout_ms', 30000)
-        poll_ms = config.get('poll_ms', 1000)
-        
+    async def _wait_for(self, config: Mapping[str, Any]) -> bool:
+        """Poll one point until a condition holds or the timeout expires."""
+        tag = config.get("point")
         if not tag:
-            logger.error("  wait_for missing 'point'")
-            return False
-            
-        logger.info(f"  Waiting for {tag} {op} {target} (timeout: {timeout_ms}ms)...")
-        
-        start_time = time.time()
-        deadline = start_time + (timeout_ms / 1000.0)
-        
-        while time.time() < deadline:
-            try:
-                current = self.read_value(tag)
-                
-                # Evaluation
-                satisfied = False
-                if op == '==': satisfied = (current == target)
-                elif op == '!=': satisfied = (current != target)
-                elif op == '>': satisfied = (current > target)
-                elif op == '<': satisfied = (current < target)
-                elif op == '>=': satisfied = (current >= target)
-                elif op == '<=': satisfied = (current <= target)
-                elif op == 'in': satisfied = (current in target)
-                elif op == 'not in': satisfied = (current not in target)
-                else:
-                    logger.error(f"  Unsupported operator '{op}'")
-                    return False
-                    
-                if satisfied:
-                    elapsed = int((time.time() - start_time) * 1000)
-                    logger.info(f"  ✓ Condition met: {current} {op} {target} [after {elapsed}ms]")
-                    return True
-                
-                if self.verbose:
-                    logger.info(f"    Current: {current} (target: {target})")
-                    
-            except Exception as e:
-                logger.warning(f"  Polling {tag} failed: {e}")
-                
-            time.sleep(poll_ms / 1000.0)
-            
-        logger.error(f"  ✗ Timeout waiting for {tag} {op} {target}")
-        return False
+            raise SequenceError("wait_for needs a 'point'")
+        symbol = config.get("operator", "==")
+        compare = _OPERATORS.get(symbol)
+        if compare is None:
+            raise SequenceError(f"unsupported wait_for operator {symbol!r}")
+        target = config.get("value")
+        timeout = config.get("timeout_ms", DEFAULT_WAIT_TIMEOUT_MS) / 1000
+        poll = config.get("poll_ms", DEFAULT_POLL_MS) / 1000
 
-    def execute_reads(self, tags: List[Any]):
-        for tag in tags:
-            try:
-                val = self.read_value(tag)
-                model, point = self.get_point(tag)
-                meaning = ""
-                if model is not None:
-                    if hasattr(point, 'pdef') and hasattr(point.pdef, 'symbols'):
-                        meaning = f" ({point.pdef.symbols.get(val, 'Unknown')})"
-                else:
-                    addr = point
-                    reg_config = tag if isinstance(tag, dict) else EXTENSION_REGISTRY.get(addr, {})
-                    symbols = reg_config.get('symbols')
-                    if symbols and val in symbols:
-                        meaning = f" ({symbols[val]})"
-                logger.info(f"  Read {tag}: {val}{meaning}")
-            except Exception as e:
-                logger.error(f"  Read {tag} failed: {e}")
+        _LOGGER.info("  waiting for %s %s %s", _tag_text(tag), symbol, target)
+        deadline = time.monotonic() + timeout
+        while True:
+            current = await self.read(tag)
+            if compare(current, target):
+                _LOGGER.info("  condition met: %s %s %s", current, symbol, target)
+                return True
+            if time.monotonic() >= deadline:
+                _LOGGER.error(
+                    "  timed out waiting for %s %s %s (last %s)",
+                    _tag_text(tag),
+                    symbol,
+                    target,
+                    current,
+                )
+                return False
+            await asyncio.sleep(poll)
+
+
+def _tag_text(tag: str | Mapping[str, Any]) -> str:
+    """The tag string, whether it came bare or inside an override dict."""
+    if isinstance(tag, str):
+        return tag
+    for key in ("point", "addr", "address"):
+        if key in tag:
+            return str(tag[key])
+    raise SequenceError(f"tag {tag!r} names no point or address")
+
+
+def _split_instance(point: str) -> tuple[str, int | None]:
+    """Split a ``Point_2`` suffix into the point name and its instance index."""
+    base, separator, suffix = point.rpartition("_")
+    if separator and suffix.isdigit():
+        return base, int(suffix)
+    return point, None
+
+
+def _instance(component: Component, index: int, tag: str) -> Component:
+    """The ``index``-th sub-instance of a component's single repeating group.
+
+    Raises ``SequenceError`` if the component has no repeating group, has more
+    than one so the index is ambiguous, or does not have that many instances.
+    """
+    groups = {name: members for name, members in component._groups.items() if members}  # noqa: SLF001
+    if not groups:
+        raise SequenceError(f"{tag}: this model has no repeating block to index")
+    if len(groups) > 1:
+        raise SequenceError(
+            f"{tag}: this model has several repeating blocks "
+            f"({', '.join(sorted(groups))}), so an index is ambiguous"
+        )
+    members = next(iter(groups.values()))
+    if not 1 <= index <= len(members):
+        raise SequenceError(
+            f"{tag}: instance {index} is outside 1..{len(members)}"
+        )
+    return members[index - 1]

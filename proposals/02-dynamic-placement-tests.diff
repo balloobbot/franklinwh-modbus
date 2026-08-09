@@ -1,0 +1,18 @@
+--- /tmp/claude-1000/-home-paulus-dev-hass-franklinwh-modbus/f780bbe6-f2a9-4ef0-953c-93c1d615b287/scratchpad/mc-base/tests/test_repeating.py	2026-08-09 17:26:38.928081950 -0400
++++ /tmp/claude-1000/-home-paulus-dev-hass-franklinwh-modbus/f780bbe6-f2a9-4ef0-953c-93c1d615b287/scratchpad/mc/tests/test_repeating.py	2026-08-09 17:28:54.841708537 -0400
+@@ -578,6 +578,7 @@
+     # count is read in the parent's first pass, then the fixed-count instances'
+     # second pass sizes and reads the nested register-count groups.
+     class Inner(Component):
++        count_in_block = True  # each instance carries its own count register
+         leaves = repeating_group(uint16(5), Module, stride=20)
+ 
+     class Outer(Component):
+@@ -596,6 +597,7 @@
+     # each level adds a read pass, the outer count sizing the middle instances
+     # whose counts then size the leaves.
+     class Inner(Component):
++        count_in_block = True  # each instance carries its own count register
+         leaves = repeating_group(uint16(5), Module, stride=20)
+ 
+     class Outer(Component):

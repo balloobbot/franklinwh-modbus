@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "franklinwh-modbus"
-version = "0.9.3"
+version = "0.10.0"
 description = "FranklinWH aGate Modbus TCP library — SunSpec + extension registers"
 readme = "readme.md"
 license = "MIT"
@@ -13,7 +13,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "modbus-connection[pymodbus]>=4.3.0",
+    "modbus-connection[tmodbus]>=4.3.0",
 ]
 keywords = ["franklinwh", "battery", "modbus", "sunspec", "energy", "solar"]
 classifiers = [
