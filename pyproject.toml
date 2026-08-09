@@ -11,27 +11,23 @@ license = "MIT"
 authors = [
     {name = "David Hona", email = "david2069@users.noreply.github.com"}
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 dependencies = [
-    "pysunspec2>=1.1.0",
-    "pymodbus>=3.0.0",
+    "modbus-connection[pymodbus]>=4.3.0",
 ]
 keywords = ["franklinwh", "battery", "modbus", "sunspec", "energy", "solar"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Home Automation",
     "Topic :: System :: Hardware",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0.0", "pytest-mock>=3.0.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0"]
 monitor = ["rich>=13.0.0"]
 
 [project.urls]
