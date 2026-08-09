@@ -385,6 +385,24 @@ class AGate:
             case _:
                 return None, "no reserve applies in this mode"
 
+    def lifetime_energy(self) -> dict[str, float]:
+        """Lifetime accumulators, summed over the battery's DC ports.
+
+        SunSpec ``acc*`` points read ``None`` when the device has not
+        accumulated anything yet, which is a different thing from zero; they
+        are reported as 0 here because every consumer wants a number.
+        """
+        ports = self._dc_ports()
+        grid = self.grid_status()
+        module = self._models.get(502)
+        return {
+            "discharged_wh": sum(_scaled(port.dc_wh_inj) for port in ports),
+            "charged_wh": sum(_scaled(port.dc_wh_abs) for port in ports),
+            "generated_wh": _scaled(module.out_wh) if module is not None else 0.0,
+            "grid_export_wh": grid["grid_export_wh"],
+            "grid_import_wh": grid["grid_import_wh"],
+        }
+
     # -- alarms ---------------------------------------------------------------
 
     def alarms(self) -> dict[str, Any]:
@@ -407,6 +425,34 @@ class AGate:
                 name: bool(system & (1 << bit)) for bit, name in ALARM_BITS.items()
             },
         }
+
+    async def async_clear_alarms(self) -> None:
+        """Pulse model 715's AlarmReset: write 1, let it land, then write 0.
+
+        Raises ``AGateError`` if model 715 is absent and ``WriteRejected`` if
+        the device does not take the reset.
+        """
+        lifecycle = self._require(715)
+        await write_verified(
+            lifecycle, "alarm_reset", 1, settle=CONTROL_SETTLE_S
+        )
+        await asyncio.sleep(ENABLE_SETTLE_S)
+        await write_verified(lifecycle, "alarm_reset", 0)
+        await lifecycle.async_update()
+
+    def check_state(self) -> dict[str, Any]:
+        """What the device is doing, and whether something else is driving it."""
+        from .safety import check_state
+
+        return check_state(self)
+
+    def validate_soc_safety(
+        self, target_soc: float, current_soc: float, operation: str
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Whether a charge or discharge to ``target_soc`` is safe to start."""
+        from .safety import validate_soc_safety
+
+        return validate_soc_safety(self, target_soc, current_soc, operation)  # type: ignore[arg-type]
 
     def blocking_alarms(self) -> tuple[bool, list[str]]:
         """Whether control is safe right now, and why not if it is not."""

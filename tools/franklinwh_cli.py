@@ -30,12 +30,15 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
 from franklinwh_modbus import (
-    FranklinWHController,
-    VirtualModeController,
-    VirtualMode,
-    TOUSchedule,
+    SAFETY_MARGIN_PCT,
     BatteryCommand,
     ControlMode,
+    OnGridMode,
+    SyncAGate,
+    TOUSchedule,
+    VirtualMode,
+    VirtualModeController,
+    WriteRejected,
 )
 
 logging.basicConfig(
@@ -43,6 +46,20 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def attempt(action, *args, **kwargs):
+    """Run a write that raises, and report it the way this CLI prints things.
+
+    The device layer raises WriteRejected when a write is acknowledged but not
+    applied, which is the aGate's usual way of refusing. The CLI's output
+    format predates that, so it is adapted here rather than in the library.
+    """
+    try:
+        action(*args, **kwargs)
+    except (WriteRejected, ValueError, Exception) as err:
+        return False, str(err)
+    return True, "OK"
 
 # Native mode mapping for CLI arguments (maps to Register 15507 indices 1-4)
 NATIVE_MODE_MAP = {
@@ -248,13 +265,13 @@ Examples:
     return parser
 
 
-def print_status_summary(ctrl: FranklinWHController):
+def print_status_summary(ctrl: SyncAGate):
     """Print compact system status — nutshell view."""
-    bat = ctrl.read_battery_status()
-    grid = ctrl.read_grid_status()
-    solar = ctrl.read_solar_status()
-    ctl = ctrl.read_control_status()
-    native = ctrl.read_native_mode()
+    bat = ctrl.battery_status()
+    grid = ctrl.grid_status()
+    solar = ctrl.solar_status()
+    ctl = ctrl.control_status()
+    native = ctrl.native_mode()
     
     soc = bat.get('soc', 0)
     grid_power = grid.get('grid_power_w', 0)
@@ -330,20 +347,20 @@ def print_status_summary(ctrl: FranklinWHController):
     print()
 
 
-def print_status(ctrl: FranklinWHController):
+def print_status(ctrl: SyncAGate):
     """Print system status with dashboard-style layout."""
     print("\n" + "=" * 60)
     print("  FRANKLINWH SYSTEM STATUS")
     print("=" * 60)
     
     # Read all data first
-    nameplate = ctrl.read_nameplate()
-    bat = ctrl.read_battery_status()
-    grid = ctrl.read_grid_status()
-    solar = ctrl.read_solar_status()
-    ctl = ctrl.read_control_status()
-    native = ctrl.read_native_mode()
-    alarms = ctrl.read_alarms()
+    nameplate = ctrl.nameplate()
+    bat = ctrl.battery_status()
+    grid = ctrl.grid_status()
+    solar = ctrl.solar_status()
+    ctl = ctrl.control_status()
+    native = ctrl.native_mode()
+    alarms = ctrl.alarms()
     
     soc = bat.get('soc', 0)
     soh = bat.get('soh', 0)
@@ -808,15 +825,18 @@ def main():
             sys.exit(1)
     
     # Connect to hardware
-    ctrl = FranklinWHController(
-        ip_address=args.ip,
+    ctrl = SyncAGate(
+        args.ip,
         port=args.port,
         unit_id=args.unit,
         timeout=args.timeout,
         base_address=args.base_address,
     )
-    
-    if not ctrl.connect():
+
+    try:
+        ctrl.connect()
+    except Exception as err:
+        logger.error("Connection failed: %s", err)
         sys.exit(1)
     
     # --revert is passed to send_command(duration_s=) at command time
@@ -824,16 +844,16 @@ def main():
     
     # Handle max-charge/max-discharge flags (convert to power values)
     if args.max_charge:
-        args.power = ctrl.RATED_MAX_CHARGE_W
+        args.power = ctrl.max_charge_w
         print(f"Using max charge rate: {args.power}W (from M702 nameplate)")
     elif args.max_discharge:
-        args.power = -ctrl.RATED_MAX_DISCHARGE_W
+        args.power = -ctrl.max_discharge_w
         print(f"Using max discharge rate: {abs(args.power)}W (from M702 nameplate)")
     
     # Handle sequencing before battery control logic
     if args.sequence or args.sequence_file:
         import json
-        from franklinwh_modbus.sequencer import SunSpecSequencer
+        from franklinwh_modbus.sequencer import Sequencer
         
         sequence = []
         if args.sequence_file:
@@ -861,12 +881,11 @@ def main():
         if args.brief:
             logging.getLogger("franklinwh_modbus.sequencer").setLevel(logging.WARNING)
             
-        sequencer = SunSpecSequencer(ctrl.dev, base_address=args.base_address)
-        sequencer.verbose = args.verbose
-        
+        sequencer = Sequencer(ctrl.device)
+
         try:
-            success = sequencer.run_sequence(sequence, dry_run=args.dry_run)
-            sys.exit(0 if success else 1)
+            results = ctrl._run(sequencer.run(sequence, dry_run=args.dry_run))
+            sys.exit(0 if all(step.ok for step in results) else 1)
         except Exception as e:
             logger.error(f"Sequence execution failed: {e}")
             sys.exit(1)
@@ -893,7 +912,7 @@ def main():
             print(f"  aGate IP: {agate_ip}")
             
             # Read nameplate for context
-            nameplate = ctrl.read_nameplate()
+            nameplate = ctrl.nameplate()
             if nameplate.get('serial'):
                 print(f"  aGate SN: {nameplate['serial']}")
             
@@ -953,15 +972,7 @@ def main():
                 print()
                 print(f"  → SPAN panel on same subnet as aGate ({agate_ip})")
                 print(f"  → Extension registers (15507-15509) may be WRITABLE")
-                # Check current extension register state
-                ext_writable = ctrl._span_writable
-                if ext_writable is True:
-                    print(f"  → Extension write test: ✅ CONFIRMED WRITABLE")
-                elif ext_writable is False:
-                    print(f"  → Extension write test: ❌ Still READ-ONLY")
-                    print(f"     (SPAN Modbus may need enabling in FranklinWH installer app)")
-                else:
-                    print(f"  → Extension write test: ⚠️  Not yet tested")
+                print(f"  → Confirm with: --test-extension-write")
             else:
                 print(f"  — No SPAN panels found on {network}")
                 print(f"  → Extension registers will be READ-ONLY")
@@ -973,7 +984,7 @@ def main():
             print("  ALARM STATUS CHECK")
             print("=" * 70)
             
-            alarms = ctrl.read_alarms()
+            alarms = ctrl.alarms()
             decoded = alarms.get('decoded', {})
             
             # System alarms
@@ -998,7 +1009,7 @@ def main():
             print(f"\n  Battery Status: {decoded.get('battery_status', 'UNKNOWN')}")
             
             # Check if blocking
-            can_operate, blocking = ctrl.check_blocking_alarms()
+            can_operate, blocking = ctrl.blocking_alarms()
             if blocking:
                 print(f"\n  🚨 BLOCKING ALARMS: {', '.join(blocking)}")
             else:
@@ -1009,16 +1020,13 @@ def main():
         
         # Stop control
         if args.stop:
-            if ctrl.reset_control_state():
-                print("✓ Control released")
-                sys.exit(0)
-            else:
-                print("✗ Failed to release control")
-                sys.exit(1)
+            success, msg = attempt(ctrl.reset_control_state)
+            print("✓ Control released" if success else f"✗ Failed: {msg}")
+            sys.exit(0 if success else 1)
         
         # Clear alarms
         if args.clear_alarms:
-            success, msg = ctrl.clear_alarms()
+            success, msg = attempt(ctrl.clear_alarms)
             if success:
                 print(f"✓ {msg}")
                 sys.exit(0)
@@ -1038,8 +1046,8 @@ def main():
         if args.monitor:
             from franklinwh_modbus.monitor import CLIMonitor, MonitorConfig
             
-            # Disconnect the controller we just connected (monitor will create its own)
-            ctrl.disconnect()
+            # The monitor owns its own connection.
+            ctrl.close()
             
             config = MonitorConfig(
                 ip_address=args.ip,
@@ -1056,39 +1064,37 @@ def main():
         # Test extension register writability
         if args.test_extension_write:
             print("\n  Testing Extension Register Writability...")
-            print("  " + "─" * 54)
-            
-            # Force re-test by resetting results and running again
-            ctrl._extension_write_results = {
-                'tested': False,
-                'timestamp': None,
-                'ongrid_mode': {'writable': False, 'error': None},
-                'self_reserve': {'writable': False, 'error': None},
-                'tou_reserve': {'writable': False, 'error': None},
-            }
-            results = ctrl._test_extension_writability()
-            
-            print(f"\n  Results:")
-            for reg_name in ['ongrid_mode', 'self_reserve', 'tou_reserve']:
-                reg_result = results.get(reg_name, {})
-                addr = {'ongrid_mode': 15507, 'self_reserve': 15508, 'tou_reserve': 15509}[reg_name]
-                if reg_result.get('writable'):
-                    print(f"    ✓ {reg_name.replace('_', ' ').title():12} ({addr}): WRITABLE")
+            print("  " + "\u2500" * 54)
+            print("  Each register is written with the value it already holds,")
+            print("  then read back — the aGate acknowledges writes it discards,")
+            print("  so a read-back is the only way to tell.\n")
+
+            current = ctrl.native_mode()
+            probes = [
+                ("ongrid_mode", 15507, ctrl.set_native_mode, current["mode_raw"]),
+                ("self_reserve", 15508, ctrl.set_self_consumption_reserve,
+                 current["self_reserve_pct"]),
+                ("tou_reserve", 15509, ctrl.set_tou_reserve,
+                 current["tou_reserve_pct"]),
+            ]
+            writable_count = 0
+            for name, address, setter, value in probes:
+                ok, message = attempt(setter, value)
+                label = name.replace("_", " ").title()
+                if ok:
+                    writable_count += 1
+                    print(f"    \u2713 {label:12} ({address}): WRITABLE")
                 else:
-                    err = reg_result.get('error', 'unknown')
-                    print(f"    ✗ {reg_name.replace('_', ' ').title():12} ({addr}): READ-ONLY ({err})")
-            
-            writable_count = sum(1 for k in ['ongrid_mode', 'self_reserve', 'tou_reserve']
-                                if results.get(k, {}).get('writable'))
-            
+                    print(f"    \u2717 {label:12} ({address}): READ-ONLY ({message})")
+
             print(f"\n  Summary: {writable_count}/3 registers writable")
             if writable_count == 0:
-                print("  Note: Write access requires 'SPAN Modbus' unlock in installer settings")
+                print("  Note: write access requires 'SPAN Modbus' unlock in "
+                      "installer settings")
             elif writable_count < 3:
-                print("  Note: Partial write access - some features may be limited")
+                print("  Note: partial write access - some features may be limited")
             else:
                 print("  Full write access - all extension features available")
-            
             print("")
             sys.exit(0)
         
@@ -1175,7 +1181,7 @@ def main():
                 if args.min_discharge_soc:
                     min_discharge = args.min_discharge_soc
                 elif effective_reserve:
-                    min_discharge = effective_reserve + ctrl.SAFETY_MARGIN_PCT
+                    min_discharge = effective_reserve + SAFETY_MARGIN_PCT
                 else:
                     min_discharge = 20  # Default fallback
                 
@@ -1201,7 +1207,7 @@ def main():
                     print(f"   Current SoC: {current_soc:.1f}%")
                     print(f"   Min Discharge SoC: {min_discharge}%")
                     if effective_reserve:
-                        print(f"   (Reserve: {effective_reserve}% + {ctrl.SAFETY_MARGIN_PCT}% safety margin)")
+                        print(f"   (Reserve: {effective_reserve}% + {SAFETY_MARGIN_PCT}% safety margin)")
                     print(f"   Cannot discharge - at minimum discharge limit.")
                     print(f"   Use --force to override (not recommended).")
                     sys.exit(1)
@@ -1213,21 +1219,35 @@ def main():
         if args.mode:
             mode_index = NATIVE_MODE_MAP.get(args.mode)
             if mode_index:
-                success, msg = ctrl.set_native_mode(mode_index, dry_run=args.dry_run)
+                if args.dry_run:
+                    print(f"Dry run: would set native mode to {args.mode} "
+                          f"(register 15507 = {mode_index})")
+                    sys.exit(0)
+                success, msg = attempt(ctrl.set_native_mode, OnGridMode(mode_index))
                 print(f"Native Mode Switch: {'SUCCESS' if success else 'FAILED'}")
                 print(f"Message: {msg}")
                 sys.exit(0 if success else 1)
         
         # --- NATIVE SELF-CONSUMPTION RESERVE SWITCHING (Register 15508) ---
         if args.self_reserve is not None:
-            success, msg = ctrl.set_self_consumption_reserve(args.self_reserve, dry_run=args.dry_run)
+            if args.dry_run:
+                print(f"Dry run: would set Self-Consumption reserve to "
+                      f"{args.self_reserve}% (register 15508)")
+                sys.exit(0)
+            success, msg = attempt(
+                ctrl.set_self_consumption_reserve, args.self_reserve
+            )
             print(f"Self-Consumption Reserve Change: {'SUCCESS' if success else 'FAILED'}")
             print(f"Message: {msg}")
             sys.exit(0 if success else 1)
 
         # --- NATIVE TOU RESERVE SWITCHING (Register 15509) ---
         if args.tou_reserve is not None:
-            success, msg = ctrl.set_tou_reserve(args.tou_reserve, dry_run=args.dry_run)
+            if args.dry_run:
+                print(f"Dry run: would set TOU reserve to {args.tou_reserve}% "
+                      f"(register 15509)")
+                sys.exit(0)
+            success, msg = attempt(ctrl.set_tou_reserve, args.tou_reserve)
             print(f"TOU Reserve Change: {'SUCCESS' if success else 'FAILED'}")
             print(f"Message: {msg}")
             sys.exit(0 if success else 1)
@@ -1237,7 +1257,7 @@ def main():
             # Create virtual mode controller
             from franklinwh_modbus import VirtualModeController, VirtualMode
             vmc = VirtualModeController(
-                ctrl,
+                ctrl.device,
                 max_charge_soc=args.max_charge_soc,
                 min_discharge_soc=args.min_discharge_soc,
                 soc_ramp_window=args.soc_ramp_window,
@@ -1270,7 +1290,7 @@ def main():
             
             # Set mode and run
             try:
-                vmc.set_mode(VirtualMode(args.vmode), **mode_kwargs)
+                ctrl._run(vmc.async_set_mode(VirtualMode(args.vmode), **mode_kwargs))
             except ValueError as e:
                 print(f"\n❌ CONFIGURATION ERROR: {e}")
                 sys.exit(1)
@@ -1295,7 +1315,7 @@ def main():
             print(f"{'='*60}")
             
             needs_cleanup = True
-            vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
+            ctrl._run(vmc.async_run(duration_s=args.duration))
             sys.exit(0)
         
         # Direct power control (no mode)
@@ -1349,7 +1369,7 @@ def main():
                     min_discharge_soc=args.min_discharge_soc or 20,
                     soc_ramp_window=args.soc_ramp_window
                 )
-                vmc.set_mode(VirtualMode.MANUAL, manual_power_w=args.power)
+                ctrl._run(vmc.async_set_mode(VirtualMode.MANUAL, manual_power_w=args.power))
                 
                 if has_target_soc:
                     # Target SoC auto-stop mode
@@ -1428,7 +1448,7 @@ def main():
                                 break
                             
                             # Check current SoC
-                            status = ctrl.read_battery_status()
+                            status = ctrl.battery_status()
                             current_soc = status.get('soc', 0)
                             
                             # Check if target reached
@@ -1466,7 +1486,7 @@ def main():
                     if args.duration:
                         print(f"  Duration: {args.duration}s")
                     print(f"{'='*60}")
-                    print(f"\n  Would run: vmc.run_continuous(")
+                    print(f"\n  Would run: vmc.async_run(")
                     print(f"      duration_seconds={args.duration},")
                     print(f"      enable_safety_checks=False")
                     print(f"  )")
@@ -1481,13 +1501,16 @@ def main():
                 print(f"  Min discharge SoC: {vmc.min_discharge_soc}%")
                 print("Press Ctrl+C to stop")
                 needs_cleanup = True
-                vmc.run_continuous(duration_seconds=args.duration, enable_safety_checks=False)
+                ctrl._run(vmc.async_run(duration_s=args.duration))
                 sys.exit(0)
             else:
                 # One-shot command
                 revert_s = args.revert if args.revert and args.revert > 0 else None
                 cmd = BatteryCommand(power_watts=args.power, mode=ControlMode.LIMIT_ABS)
-                success, msg = ctrl.send_command(cmd, dry_run=args.dry_run)
+                if args.dry_run:
+                    print(f"Dry run: would command {args.power}W")
+                    sys.exit(0)
+                success, msg = attempt(ctrl.send_command, cmd, duration_s=revert_s)
                 print(f"Result: {'SUCCESS' if success else 'FAILED'} - {msg}")
                 if success:
                     if revert_s:
@@ -1529,7 +1552,7 @@ def main():
                 logger.info("Control released")
             except:
                 pass
-        ctrl.disconnect()
+        ctrl.close()
 
 
 if __name__ == '__main__':

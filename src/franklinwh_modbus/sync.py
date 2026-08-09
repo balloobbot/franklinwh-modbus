@@ -150,6 +150,20 @@ class SyncAGate:
         """Whether control is safe right now, and why not if it is not."""
         return self._device.blocking_alarms()
 
+    def check_state(self) -> dict[str, Any]:
+        """What the device is doing, and whether something else is driving it."""
+        return self._device.check_state()
+
+    def validate_soc_safety(
+        self, target_soc: float, current_soc: float, operation: str
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Whether a charge or discharge to ``target_soc`` is safe to start."""
+        return self._device.validate_soc_safety(target_soc, current_soc, operation)
+
+    def lifetime_energy(self) -> dict[str, float]:
+        """Lifetime accumulators."""
+        return self._device.lifetime_energy()
+
     def healthcheck(self) -> HealthStatus:
         """Whether the device is in a state worth driving."""
         return self._device.healthcheck()
@@ -185,6 +199,10 @@ class SyncAGate:
         return self._run(
             self._device.async_send_command(command, duration_s=duration_s)
         )
+
+    def clear_alarms(self) -> None:
+        """Pulse the alarm-reset register."""
+        self._run(self._device.async_clear_alarms())
 
     def reset_control_state(self) -> None:
         """Hand control back to the device."""

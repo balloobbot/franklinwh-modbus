@@ -225,12 +225,19 @@ class Sequencer:
 
         Points already holding their target are skipped, so a sequence stays
         idempotent — except under ``require_transition``, where a point that is
-        already there means the step's premise was wrong.
+        already there means the step's premise was wrong. The skip decision has
+        to be made against the device rather than the last poll, so every
+        component this step touches is refreshed first: an earlier step in the
+        same sequence has very likely just moved one of these registers.
         """
         require_transition = bool(step.get("require_transition", False))
+        targets = {tag: self.resolve(tag) for tag in writes}
+        for component in {id(t.component): t.component for t in targets.values()}.values():
+            await component.async_update()
+
         pending: dict[Component, dict[str, Any]] = {}
         for tag, raw in writes.items():
-            target = self.resolve(tag)
+            target = targets[tag]
             value = raw.get("value") if isinstance(raw, dict) else raw
             before = getattr(target.component, target.field)
             if before == value:

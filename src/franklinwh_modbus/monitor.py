@@ -52,7 +52,7 @@ try:
 except ImportError:
     HAS_RICH = False
 
-from .controller import FranklinWHController
+from .sync import SyncAGate
 from .types import BatteryCommand, ControlMode
 
 
@@ -315,7 +315,10 @@ class CLIMonitor:
         self.config = config
         self.theme = ThemeConfig.get_theme(config.theme)
         self.console = Console(theme=self._get_rich_theme()) if HAS_RICH else None
-        self.controller: Optional[FranklinWHController] = None
+        self.controller: Optional[SyncAGate] = None
+        # The aGate acknowledges extension writes it discards, so writability
+        # is only ever known from a write that came back verified.
+        self._extension_writes_accepted = True
         self.data = SystemData()
         self.running = False
         self.paused = False
@@ -372,11 +375,11 @@ class CLIMonitor:
         if self.config.quiet:
             logging.getLogger().setLevel(logging.WARNING)
         try:
-            self.controller = FranklinWHController(
-                ip_address=self.config.ip_address,
+            self.controller = SyncAGate(
+                self.config.ip_address,
                 port=self.config.port,
                 unit_id=self.config.unit_id,
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
             self.controller.connect()
             return True
@@ -391,56 +394,29 @@ class CLIMonitor:
         """Disconnect and cleanup."""
         if self.controller:
             try:
-                self.controller.disconnect()
-            except:
-                pass
+                self.controller.close()
+            except Exception:
+                logger.debug("monitor disconnect failed", exc_info=True)
             self.controller = None
             
     def _read_lifetime_energy(self) -> dict:
-        """Read lifetime energy accumulators from Model 715 (if available)."""
-        try:
-            m715 = self.controller.get_model(715)
-            if not m715:
-                return {}
-            m715.read()
-            
-            # Check if this is actually an accumulator model or control model
-            # Some firmware versions have M715 as DER control, not accumulators
-            if hasattr(m715, 'TotWhExp'):
-                sf_wh = self.controller._get_scale_factor(m715, 'TotWhExp_SF')
-                
-                def get_wh(point_name):
-                    pt = getattr(m715, point_name, None)
-                    if pt and hasattr(pt, 'value') and pt.value is not None:
-                        return pt.value * (10 ** sf_wh)
-                    return 0
-                
-                return {
-                    'injected_wh': get_wh('TotWhExp'),
-                    'absorbed_wh': get_wh('TotWhImp'),
-                    'discharged_wh': get_wh('TotWhOut'),
-                    'charged_wh': get_wh('TotWhIn'),
-                    'generated_wh': get_wh('TotWhExp'),
-                }
-            else:
-                # M715 is DER control model, not accumulators
-                return {}
-        except Exception as e:
-            return {}
-        
+        """Lifetime accumulators, from the last poll."""
+        return self.controller.lifetime_energy()
+
     def fetch_data(self) -> bool:
         """Fetch all data from the device."""
         if not self.controller:
             return False
             
         try:
-            # Read all status methods (enriched — includes M714, M701 extras, extensions)
-            battery = self.controller.read_battery_status()
-            grid = self.controller.read_grid_status()
-            solar = self.controller.read_solar_status()
-            control = self.controller.read_control_status()
-            native = self.controller.read_native_mode()
-            nameplate = self.controller.read_nameplate()  # Now returns strings
+            # One pooled poll; every view below reads from what it left behind.
+            self.controller.update()
+            battery = self.controller.battery_status()
+            grid = self.controller.grid_status()
+            solar = self.controller.solar_status()
+            control = self.controller.control_status()
+            native = self.controller.native_mode()
+            nameplate = self.controller.nameplate()
             
             # Get extension solar data if available
             ext_solar = solar.get('extension', {})
@@ -458,9 +434,9 @@ class CLIMonitor:
             self.data.power_flow.grid_w = grid_raw
             
             # Sourced home load from high-res ext register 16000 or fallback to balance calculation
-            home_load_ext = ext_solar.get('home_load_ext', 0)
-            if home_load_ext > 0:
-                self.data.power_flow.home_w = home_load_ext
+            home_load = self.controller.home_load_w()
+            if home_load > 0:
+                self.data.power_flow.home_w = home_load
             else:
                 self.data.power_flow.home_w = solar_total + battery_dc + grid_raw
             
@@ -498,9 +474,9 @@ class CLIMonitor:
             
             # Update Solar (AC-coupled)
             self.data.solar.total_w = solar_total
-            self.data.solar.proximal_w = ext_solar.get('pv_proximal', solar_total)
-            self.data.solar.remote1_w = ext_solar.get('pv_remote1', 0)
-            self.data.solar.remote2_w = ext_solar.get('pv_remote2', 0)
+            self.data.solar.proximal_w = ext_solar.get('proximal_solar', solar_total)
+            self.data.solar.remote1_w = ext_solar.get('remote1_solar', 0)
+            self.data.solar.remote2_w = ext_solar.get('remote2_solar', 0)
             
             # Update Temperatures — enriched grid status now includes temps
             self.data.cabinet_temp = grid.get('cabinet_temp_c', 0)
@@ -521,42 +497,16 @@ class CLIMonitor:
             else:
                 self.data.derived_control = f"Local (aGate, {self.data.operating_mode})"
                 
-            # Set extension writable from connection writability check
-            write_status = self.controller.get_extension_write_status()
-            self.data.extension_writable = write_status.get('ongrid_mode', {}).get('writable', False)
+            # Whether the extension block accepts writes is only knowable by
+            # trying: the device acknowledges writes it discards. A write now
+            # raises WriteRejected instead of being probed for up front.
+            self.data.extension_writable = self._extension_writes_accepted
             
-            # Update Lifetime Energy (from M502 solar and M714 battery)
-            m502 = self.controller.get_model(502)
-            m714_energy = self.controller.get_model(714)
-            
-            if m502 and hasattr(m502, 'OutWh') and m502.OutWh.value is not None:
-                self.data.lifetime_generated = m502.OutWh.value
-            
-            if m714_energy:
-                try:
-                    m714_energy.read()
-                    sf_wh = self.controller._get_scale_factor(m714_energy, 'DCWH_SF')
-                    if sf_wh is None:
-                        sf_wh = self.controller._get_scale_factor(m714_energy, 'DCWh_SF')
-                    if sf_wh is None:
-                        sf_wh = 0
-                    
-                    blocks = m714_energy.blocks[1:] if hasattr(m714_energy, 'blocks') and len(m714_energy.blocks) > 1 else [m714_energy]
-                    
-                    self.data.lifetime_discharged = sum(
-                        block.DCWhInj.value * (10 ** sf_wh)
-                        for block in blocks
-                        if hasattr(block, 'DCWhInj') and block.DCWhInj.value is not None
-                    )
-                    
-                    self.data.lifetime_charged = sum(
-                        block.DCWhAbs.value * (10 ** sf_wh)
-                        for block in blocks
-                        if hasattr(block, 'DCWhAbs') and block.DCWhAbs.value is not None
-                    )
-                except Exception as e:
-                    logger.debug(f"Could not read Model 714 lifetime energy in monitor: {e}")
-            
+            lifetime = self.controller.lifetime_energy()
+            self.data.lifetime_generated = lifetime["generated_wh"]
+            self.data.lifetime_discharged = lifetime["discharged_wh"]
+            self.data.lifetime_charged = lifetime["charged_wh"]
+
             # Grid lifetime energy (from M701 already read above)
             grid_export_wh = grid.get('grid_export_wh', 0)
             grid_import_wh = grid.get('grid_import_wh', 0)
@@ -699,7 +649,7 @@ class CLIMonitor:
         
         # Inverter Utilization Bar (if controller available)
         if self.controller:
-            max_w = self.controller.RATED_MAX_W
+            max_w = self.controller.max_discharge_w
             battery_abs = abs(pf.battery_w)
             util_pct = min(100, (battery_abs / max_w) * 100) if max_w > 0 else 0
             bar_width = 15
@@ -1080,13 +1030,13 @@ class CLIMonitor:
         # Max charge
         if key == 'm':
             if self.controller:
-                self._send_command(self.controller.RATED_MAX_CHARGE_W)
+                self._send_command(self.controller.max_charge_w)
             return True
             
         # Max discharge
         if key == 'M':
             if self.controller:
-                self._send_command(-self.controller.RATED_MAX_DISCHARGE_W)
+                self._send_command(-self.controller.max_discharge_w)
             return True
             
         # Increase/decrease power
@@ -1149,15 +1099,17 @@ class CLIMonitor:
                     self._send_command(-abs(val))  # Negative = discharge
                 elif self.prompt_mode == 'mode':
                     if self.controller:
-                        success, msg = self.controller.set_native_mode(val)
+                        success, msg = self._try(self.controller.set_native_mode, val)
                         self._log_command(f"Mode set {val}: {'Success' if success else 'Error: ' + msg}")
                 elif self.prompt_mode == 'self_reserve':
                     if self.controller:
-                        success, msg = self.controller.set_self_consumption_reserve(val)
+                        success, msg = self._try(
+                            self.controller.set_self_consumption_reserve, val
+                        )
                         self._log_command(f"Self reserve set {val}%: {'Success' if success else 'Error: ' + msg}")
                 elif self.prompt_mode == 'tou_reserve':
                     if self.controller:
-                        success, msg = self.controller.set_tou_reserve(val)
+                        success, msg = self._try(self.controller.set_tou_reserve, val)
                         self._log_command(f"TOU reserve set {val}%: {'Success' if success else 'Error: ' + msg}")
             except ValueError:
                 self._log_command("Error: Invalid number")
@@ -1187,6 +1139,15 @@ class CLIMonitor:
             
         return True
         
+    @staticmethod
+    def _try(action, *args) -> tuple:
+        """Run a write that raises, and report it the way the console expects."""
+        try:
+            action(*args)
+        except Exception as err:
+            return False, str(err)
+        return True, "OK"
+
     def _log_command(self, message: str):
         """Add a message to the command log."""
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -1200,32 +1161,24 @@ class CLIMonitor:
         if not self.controller:
             self._log_command("Error: No controller connected")
             return
-        if not self.controller.is_connected():
+        if not self.controller.connected:
             self._log_command("Error: Modbus disconnected — reconnecting...")
             if not self.controller.reconnect():
                 self._log_command("Error: Reconnect failed")
                 return
         try:
             from .types import BatteryCommand
-            cmd = BatteryCommand(power_watts=power_w)
-            success, msg = self.controller.send_command(cmd)
+            percent = self.controller.send_command(BatteryCommand(power_watts=power_w))
             self.current_power = power_w
-            
-            # Log the command with result
             if power_w > 0:
                 action = f"Charge: {power_w}W"
             elif power_w < 0:
                 action = f"Discharge: {abs(power_w)}W"
             else:
                 action = "Standby (0W)"
-            
-            if success:
-                self._log_command(f"{action} — OK")
-            else:
-                self._log_command(f"{action} — FAILED: {msg}")
-                
+            self._log_command(f"{action} — OK ({percent:.0f}%)")
         except Exception as e:
-            self._log_command(f"Error: {str(e)[:50]}")
+            self._log_command(f"Error: {str(e)[:60]}")
             
     def _adjust_power(self, delta: int):
         """Adjust current power by delta."""

@@ -30,6 +30,7 @@ from .device import AGate, AGateError
 from .models import MODELS
 from .models.extensions import Extensions, OnGridMode
 from .modes import VirtualModeController, run_with_signal_handling
+from .safety import SAFETY_MARGIN_PCT, check_state, validate_soc_safety
 from .schedule import DEFAULT_SCHEDULE, TOUSchedule
 from .sequencer import Sequencer, SequenceError, TransitionValidationError
 from .sync import SyncAGate
@@ -54,6 +55,7 @@ __all__ = [
     "MODELS",
     "ONGRID_MODES",
     "PICS_STATUS",
+    "SAFETY_MARGIN_PCT",
     "AGate",
     "AGateError",
     "BatteryCommand",
@@ -69,7 +71,9 @@ __all__ = [
     "VirtualMode",
     "VirtualModeController",
     "WriteRejected",
+    "check_state",
     "run_with_signal_handling",
+    "validate_soc_safety",
     "write_many",
     "write_verified",
 ]
