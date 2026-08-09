@@ -26,6 +26,7 @@ Example::
 
 from __future__ import annotations
 
+from .curves import CurveError, CurvePoint, read_curve, read_trip_curve, write_curve
 from .device import AGate, AGateError
 from .models import MODELS
 from .models.extensions import Extensions, OnGridMode
@@ -44,7 +45,7 @@ from .types import (
     HealthStatus,
     VirtualMode,
 )
-from .writing import WriteRejected, write_many, write_verified
+from .writing import WriteRejected, write_across, write_many, write_verified
 
 __version__ = "0.10.0"
 
@@ -60,6 +61,8 @@ __all__ = [
     "AGateError",
     "BatteryCommand",
     "ControlMode",
+    "CurveError",
+    "CurvePoint",
     "Extensions",
     "HealthStatus",
     "OnGridMode",
@@ -72,8 +75,12 @@ __all__ = [
     "VirtualModeController",
     "WriteRejected",
     "check_state",
+    "read_curve",
+    "read_trip_curve",
     "run_with_signal_handling",
     "validate_soc_safety",
+    "write_curve",
     "write_many",
+    "write_across",
     "write_verified",
 ]

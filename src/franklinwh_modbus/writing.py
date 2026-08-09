@@ -44,6 +44,7 @@ class _Placed:
     name: str
     address: int
     words: list[int]
+    force_fc16: bool = False
 
     @property
     def end(self) -> int:
@@ -52,18 +53,22 @@ class _Placed:
 
 
 async def _scale_exponents(
-    component: Component, names: list[str]
+    unit: Any, entries: list[tuple[Component, str, Any]]
 ) -> dict[int, int | None]:
-    """Read every distinct scale register the named fields need, once each."""
-    fields = component._register_fields  # noqa: SLF001 — no public accessor
-    addresses = {
-        component._scale_address(fields[name])  # noqa: SLF001
-        for name in names
-        if fields[name].scale_register is not None
-    }
+    """Read every distinct scale register these fields need, once each.
+
+    Distinct across the whole batch, not per component: a repeating block's
+    instances all reference the same scale factor in the model's fixed block,
+    so writing a whole curve should read it once rather than once per point.
+    """
+    addresses = set()
+    for component, name, _ in entries:
+        field = component._register_fields[name]  # noqa: SLF001 — no accessor
+        if field.scale_register is not None:
+            addresses.add(component._scale_address(field))  # noqa: SLF001
     exponents: dict[int, int | None] = {}
     for address in sorted(addresses):
-        (word,) = await component._unit.read_holding_registers(address, 1)  # noqa: SLF001
+        (word,) = await unit.read_holding_registers(address, 1)
         exponents[address] = decode_int([word], signed=True)
     return exponents
 
@@ -102,20 +107,53 @@ async def write_many(
     if a value cannot be encoded, and ``WriteRejected`` if a verified register
     does not hold the value afterwards.
     """
-    if not values:
-        return
-    fields = component._register_fields  # noqa: SLF001
-    unknown = set(values) - set(fields)
-    if unknown:
-        raise AttributeError(f"unknown field(s): {', '.join(sorted(unknown))}")
-    read_only = [name for name in values if not fields[name].writable]
-    if read_only:
-        raise AttributeError(f"read-only field(s): {', '.join(sorted(read_only))}")
+    await write_across(
+        [(component, name, value) for name, value in values.items()],
+        verify=verify,
+        settle=settle,
+    )
 
-    exponents = await _scale_exponents(component, list(values))
+
+async def write_across(
+    entries: list[tuple[Component, str, Any]],
+    *,
+    verify: bool = True,
+    settle: float = 0.0,
+) -> None:
+    """Write fields spread over several components as one plan.
+
+    The run that matters is often not inside a single component. A SunSpec
+    curve's points are one sub-component each, so the eight contiguous
+    registers of a four-point curve span four components — batching within a
+    component cannot reach them, and they all share the same two scale factors
+    in the model's fixed block. Planning across the whole set turns a curve
+    write from seventeen round trips into three.
+
+    Every component must be on the same unit.
+
+    Raises ``AttributeError`` for an unknown or read-only field, ``ValueError``
+    if a value cannot be encoded or the components differ in unit, and
+    ``WriteRejected`` if a verified register does not hold the value after.
+    """
+    if not entries:
+        return
+    units = {id(component._unit): component._unit for component, _, _ in entries}  # noqa: SLF001
+    if len(units) > 1:
+        raise ValueError("write_across needs every component on one unit")
+    unit = next(iter(units.values()))
+    max_span = min(component.max_span for component, _, _ in entries)
+
+    for component, name, _ in entries:
+        fields = component._register_fields  # noqa: SLF001
+        if name not in fields:
+            raise AttributeError(f"unknown field {name!r}")
+        if not fields[name].writable:
+            raise AttributeError(f"{name} is read-only")
+
+    exponents = await _scale_exponents(unit, entries)
     placed: list[_Placed] = []
-    for name, value in values.items():
-        field = fields[name]
+    for component, name, value in entries:
+        field = component._register_fields[name]  # noqa: SLF001
         if callable(field.writable):
             value = field.writable(value)
         exponent = (
@@ -124,16 +162,21 @@ async def write_many(
             else None
         )
         placed.append(
-            _Placed(name, component._address(field), field.encode(value, exponent))  # noqa: SLF001
+            _Placed(
+                name,
+                component._address(field),  # noqa: SLF001
+                field.encode(value, exponent),
+                force_fc16=field.force_fc16,
+            )
         )
 
-    for run in _plan(placed, component.max_span):
+    for run in _plan(placed, max_span):
         words = [word for item in run for word in item.words]
         start = run[0].address
-        if len(words) == 1 and not fields[run[0].name].force_fc16:
-            await component._unit.write_register(start, words[0])  # noqa: SLF001
+        if len(words) == 1 and not run[0].force_fc16:
+            await unit.write_register(start, words[0])
         else:
-            await component._unit.write_registers(start, words)  # noqa: SLF001
+            await unit.write_registers(start, words)
         _LOGGER.debug(
             "wrote %s at %d: %s", ", ".join(i.name for i in run), start, words
         )
@@ -142,19 +185,19 @@ async def write_many(
         return
     if settle:
         await asyncio.sleep(settle)
-    await _verify(component, placed)
+    await _verify(unit, placed, max_span)
 
 
-async def _verify(component: Component, placed: list[_Placed]) -> None:
+async def _verify(unit: Any, placed: list[_Placed], max_span: int) -> None:
     """Read each written run back and compare it to what was sent.
 
     Raises ``WriteRejected`` naming every field that did not take.
     """
     mismatched: list[str] = []
-    for run in _plan(placed, component.max_span):
+    for run in _plan(placed, max_span):
         start = run[0].address
         count = run[-1].end - start
-        got = await component._unit.read_holding_registers(start, count)  # noqa: SLF001
+        got = await unit.read_holding_registers(start, count)
         for item in run:
             offset = item.address - start
             actual = list(got[offset : offset + len(item.words)])
