@@ -1,0 +1,1772 @@
+"""Provide generated SunSpec components."""
+# Source: https://github.com/sunspec/models (json/model_1.json, json/model_701.json, json/model_702.json, json/model_703.json, json/model_704.json, json/model_705.json, json/model_706.json, json/model_707.json, json/model_708.json, json/model_709.json, json/model_710.json, json/model_711.json, json/model_712.json, json/model_713.json, json/model_714.json, json/model_715.json, json/model_502.json)
+
+from __future__ import annotations
+
+from enum import IntEnum, IntFlag
+
+from modbus_connection.model import Component, repeating_group
+from modbus_connection.model.sunspec import (
+    SunSpecComponent,
+    acc32,
+    bitfield16,
+    bitfield32,
+    enum16,
+    enum32,
+    int16,
+    int32,
+    string,
+    uint16,
+    uint32,
+    uint64,
+)
+
+
+class ACWiringType(IntEnum):
+    SINGLE_PHASE = 0
+    SPLIT_PHASE = 1
+    THREE_PHASE = 2
+
+
+class OperatingState(IntEnum):
+    OFF = 0
+    ON = 1
+
+
+class InverterState(IntEnum):
+    OFF = 0
+    SLEEPING = 1
+    STARTING = 2
+    RUNNING = 3
+    THROTTLED = 4
+    SHUTTING_DOWN = 5
+    FAULT = 6
+    STANDBY = 7
+
+
+class GridConnectionState(IntEnum):
+    DISCONNECTED = 0
+    CONNECTED = 1
+
+
+class AlarmBitfield(IntFlag):
+    GROUND_FAULT = 1 << 0
+    DC_OVER_VOLT = 1 << 1
+    AC_DISCONNECT = 1 << 2
+    DC_DISCONNECT = 1 << 3
+    GRID_DISCONNECT = 1 << 4
+    CABINET_OPEN = 1 << 5
+    MANUAL_SHUTDOWN = 1 << 6
+    OVER_TEMP = 1 << 7
+    OVER_FREQUENCY = 1 << 8
+    UNDER_FREQUENCY = 1 << 9
+    AC_OVER_VOLT = 1 << 10
+    AC_UNDER_VOLT = 1 << 11
+    BLOWN_STRING_FUSE = 1 << 12
+    UNDER_TEMP = 1 << 13
+    MEMORY_LOSS = 1 << 14
+    HW_TEST_FAILURE = 1 << 15
+    MANUFACTURER_ALRM = 1 << 16
+
+
+class DEROperationalCharacteristics(IntFlag):
+    GRID_FOLLOWING = 1 << 0
+    GRID_FORMING = 1 << 1
+    PV_CLIPPED = 1 << 2
+
+
+class ThrottleSourceInformation(IntFlag):
+    MAX_W = 1 << 0
+    FIXED_W = 1 << 1
+    FIXED_VAR = 1 << 2
+    FIXED_PF = 1 << 3
+    VOLT_VAR = 1 << 4
+    FREQ_WATT = 1 << 5
+    DYN_REACT_CURR = 1 << 6
+    LVRT = 1 << 7
+    HVRT = 1 << 8
+    WATT_VAR = 1 << 9
+    VOLT_WATT = 1 << 10
+    SCHEDULED = 1 << 11
+    LFRT = 1 << 12
+    HFRT = 1 << 13
+    DERATED = 1 << 14
+
+
+class NormalOperatingCategory(IntEnum):
+    CAT_A = 0
+    CAT_B = 1
+
+
+class AbnormalOperatingCategory(IntEnum):
+    CAT_1 = 0
+    CAT_2 = 1
+    CAT_3 = 2
+
+
+class SupportedControlModes(IntFlag):
+    MAX_W = 1 << 0
+    FIXED_W = 1 << 1
+    FIXED_VAR = 1 << 2
+    FIXED_PF = 1 << 3
+    VOLT_VAR = 1 << 4
+    FREQ_WATT = 1 << 5
+    DYN_REACT_CURR = 1 << 6
+    LV_TRIP = 1 << 7
+    HV_TRIP = 1 << 8
+    WATT_VAR = 1 << 9
+    VOLT_WATT = 1 << 10
+    SCHEDULED = 1 << 11
+    LF_TRIP = 1 << 12
+    HF_TRIP = 1 << 13
+
+
+class IntentionalIslandCategories(IntFlag):
+    UNCATEGORIZED = 1 << 0
+    INT_ISL_CAPABLE = 1 << 1
+    BLACK_START_CAPABLE = 1 << 2
+    ISOCH_CAPABLE = 1 << 3
+
+
+class PermitEnterService(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class PowerFactorExcitationWInj(IntEnum):
+    OVER_EXCITED = 0
+    UNDER_EXCITED = 1
+
+
+class ReversionPFExcitationWInj(IntEnum):
+    OVER_EXCITED = 0
+    UNDER_EXCITED = 1
+
+
+class PowerFactorExcitationWAbs(IntEnum):
+    OVER_EXCITED = 0
+    UNDER_EXCITED = 1
+
+
+class ReversionPFExcitationWAbs(IntEnum):
+    OVER_EXCITED = 0
+    UNDER_EXCITED = 1
+
+
+class PowerFactorEnableWInjEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class PowerFactorReversionEnableWInj(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class PowerFactorEnableWAbsEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class PowerFactorReversionEnableWAbs(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class LimitMaxPowerPctEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class ReversionLimitMaxPowerPctEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetActivePowerEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetActivePowerMode(IntEnum):
+    W_MAX_PCT = 0
+    WATTS = 1
+
+
+class ReversionActivePowerEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetReactivePowerEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetReactivePowerMode(IntEnum):
+    W_MAX_PCT = 0
+    VAR_MAX_PCT = 1
+    VAR_AVAIL_PCT = 2
+    VA_MAX_PCT = 3
+    VARS = 4
+
+
+class ReactivePowerPriority(IntEnum):
+    ACTIVE = 0
+    REACTIVE = 1
+    VENDOR = 2
+
+
+class ReversionReactivePowerEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class NormalRampRateReference(IntEnum):
+    A_MAX = 0
+    W_MAX = 1
+
+
+class AntiIslandingEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class DependentReference(IntEnum):
+    W_MAX_PCT = 0
+    VAR_MAX_PCT = 1
+    VAR_AVAL_PCT = 2
+    VA_MAX_PCT = 3
+
+
+class PowerPriority(IntEnum):
+    ACTIVE = 0
+    REACTIVE = 1
+    VENDOR = 2
+
+
+class AutonomousVrefEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class CurveAccess(IntEnum):
+    RW = 0
+    R = 1
+
+
+class DERVoltVarModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class AdoptCurveResult(IntEnum):
+    IN_PROGRESS = 0
+    COMPLETED = 1
+    FAILED = 2
+
+
+class DERVoltWattCrvDependentReference(IntEnum):
+    W_MAX_PCT = 0
+    W_AVAL_PCT = 1
+
+
+class DERVoltWattModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class DERTripLVModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class DERTripHVModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class DERTripLFModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class DERTripHFModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class ControlAccess(IntEnum):
+    RW = 0
+    R = 1
+
+
+class DERFrequencyDroopModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetActiveControlResult(IntEnum):
+    IN_PROGRESS = 0
+    COMPLETED = 1
+    FAILED = 2
+
+
+class DERWattVarCrvPowerPriority(IntEnum):
+    ACTIVE = 0
+    REACTIVE = 1
+
+
+class DERWattVarModuleEnable(IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
+
+class SetActiveCurveResult(IntEnum):
+    IN_PROGRESS = 0
+    COMPLETED = 1
+    FAILED = 2
+
+
+class Status(IntEnum):
+    OK = 0
+    WARNING = 1
+    ERROR = 2
+
+
+class PortType(IntEnum):
+    PV = 0
+    ESS = 1
+    EV = 2
+    INJ = 3
+    ABS = 4
+    BIDIR = 5
+    DC_DC = 6
+
+
+class DCPortStatus(IntEnum):
+    OFF = 0
+    ON = 1
+    WARNING = 2
+    ERROR = 3
+
+
+class DCPortAlarm(IntFlag):
+    GROUND_FAULT = 1 << 0
+    INPUT_OVER_VOLTAGE = 1 << 1
+    DC_DISCONNECT = 1 << 3
+    CABINET_OPEN = 1 << 5
+    MANUAL_SHUTDOWN = 1 << 6
+    OVER_TEMP = 1 << 7
+    BLOWN_FUSE = 1 << 12
+    UNDER_TEMP = 1 << 13
+    MEMORY_LOSS = 1 << 14
+    ARC_DETECTION = 1 << 15
+    RESERVED = 1 << 19
+    TEST_FAILED = 1 << 20
+    INPUT_UNDER_VOLTAGE = 1 << 21
+    INPUT_OVER_CURRENT = 1 << 22
+
+
+class ControlMode(IntEnum):
+    REMOTE = 0
+    LOCAL = 1
+
+
+class SetOperation(IntEnum):
+    STOP = 0
+    START = 1
+    ENTER_STANDBY = 2
+    EXIT_STANDBY = 3
+
+
+class SolarModuleStatus(IntEnum):
+    OFF = 1
+    SLEEPING = 2
+    STARTING = 3
+    MPPT = 4
+    THROTTLED = 5
+    SHUTTING_DOWN = 6
+    FAULT = 7
+    STANDBY = 8
+    TEST = 9
+    OTHER = 10
+
+
+class Events(IntFlag):
+    GROUND_FAULT = 1 << 0
+    INPUT_OVER_VOLTAGE = 1 << 1
+    RESERVED_2 = 1 << 2
+    DC_DISCONNECT = 1 << 3
+    RESERVED_4 = 1 << 4
+    RESERVED_5 = 1 << 5
+    MANUAL_SHUTDOWN = 1 << 6
+    OVER_TEMPERATURE = 1 << 7
+    RESERVED_8 = 1 << 8
+    RESERVED_9 = 1 << 9
+    RESERVED_10 = 1 << 10
+    RESERVED_11 = 1 << 11
+    BLOWN_FUSE = 1 << 12
+    UNDER_TEMPERATURE = 1 << 13
+    MEMORY_LOSS = 1 << 14
+    ARC_DETECTION = 1 << 15
+    THEFT_DETECTION = 1 << 16
+    OUTPUT_OVER_CURRENT = 1 << 17
+    OUTPUT_OVER_VOLTAGE = 1 << 18
+    OUTPUT_UNDER_VOLTAGE = 1 << 19
+    TEST_FAILED = 1 << 20
+
+
+class Common(SunSpecComponent):
+    """SunSpec model 1: Common."""
+
+    mn = string(2, 16)
+    """Manufacturer. Well known value registered with SunSpec for compliance."""
+
+    md = string(18, 16)
+    """Model. Manufacturer specific value (32 chars)."""
+
+    opt = string(34, 8)
+    """Options. Manufacturer specific value (16 chars)."""
+
+    vr = string(42, 8)
+    """Version. Manufacturer specific value (16 chars)."""
+
+    sn = string(50, 16)
+    """Serial Number. Manufacturer specific value (32 chars)."""
+
+    da = uint16(66, writable=True)
+    """Device Address. Modbus device address."""
+
+
+class DERMeasureAC(SunSpecComponent):
+    """SunSpec model 701: DER AC Measurement."""
+
+    ac_type = enum16(2, ACWiringType)
+    """AC Wiring Type."""
+
+    st = enum16(3, OperatingState)
+    """Operating State. Operating state of the DER."""
+
+    inv_st = enum16(4, InverterState)
+    """Inverter State."""
+
+    conn_st = enum16(5, GridConnectionState)
+    """Grid Connection State. Grid connection state of the DER."""
+
+    alrm = bitfield32(6, AlarmBitfield)
+    """Alarm Bitfield. Active alarms for the DER."""
+
+    der_mode = bitfield32(8, DEROperationalCharacteristics)
+    """DER Operational Characteristics. Current operational characteristics of the
+    DER."""
+
+    w = int16(10, scale_register=116, unit='W')
+    """Active Power. Total active power. Active power is positive for DER generation
+    and negative for absorption."""
+
+    va = int16(11, scale_register=118, unit='VA')
+    """Apparent Power. Total apparent power."""
+
+    var = int16(12, scale_register=119, unit='Var')
+    """Reactive Power. Total reactive power."""
+
+    pf = int16(13, scale_register=117)
+    """Power Factor. Power factor. The sign of power factor should be the sign of
+    active power."""
+
+    a = int16(14, scale_register=113, unit='A')
+    """Total AC Current."""
+
+    llv = uint16(15, scale_register=114, unit='V')
+    """Voltage LL. Line to line AC voltage as an average of active phases."""
+
+    lnv = uint16(16, scale_register=114, unit='V')
+    """Voltage LN. Line to neutral AC voltage as an average of active phases."""
+
+    hz = uint32(17, scale_register=115, unit='Hz')
+    """Frequency. AC frequency."""
+
+    tot_wh_inj = uint64(19, scale_register=120, unit='Wh')
+    """Total Energy Injected. Total active energy injected (Quadrants 1 & 4)."""
+
+    tot_wh_abs = uint64(23, scale_register=120, unit='Wh')
+    """Total Energy Absorbed. Total active energy absorbed (Quadrants 2 & 3)."""
+
+    tot_varh_inj = uint64(27, scale_register=121, unit='Varh')
+    """Total Reactive Energy Inj. Total reactive energy injected (Quadrants 1 & 2)."""
+
+    tot_varh_abs = uint64(31, scale_register=121, unit='Varh')
+    """Total Reactive Energy Abs. Total reactive energy absorbed (Quadrants 3 & 4)."""
+
+    tmp_amb = int16(35, scale_register=122, unit='C')
+    """Ambient Temperature."""
+
+    tmp_cab = int16(36, scale_register=122, unit='C')
+    """Cabinet Temperature."""
+
+    tmp_snk = int16(37, scale_register=122, unit='C')
+    """Heat Sink Temperature."""
+
+    tmp_trns = int16(38, scale_register=122, unit='C')
+    """Transformer Temperature."""
+
+    tmp_sw = int16(39, scale_register=122, unit='C')
+    """IGBT/MOSFET Temperature."""
+
+    tmp_ot = int16(40, scale_register=122, unit='C')
+    """Other Temperature."""
+
+    wl1 = int16(41, scale_register=116, unit='W')
+    """Watts L1. Active power L1."""
+
+    val1 = int16(42, scale_register=118, unit='VA')
+    """VA L1. Apparent power L1."""
+
+    var_l1 = int16(43, scale_register=119, unit='Var')
+    """Var L1. Reactive power L1."""
+
+    pfl1 = int16(44, scale_register=117)
+    """PF L1. Power factor phase L1."""
+
+    al1 = int16(45, scale_register=113, unit='A')
+    """Amps L1. Current phase L1."""
+
+    vl1_l2 = uint16(46, scale_register=114, unit='V')
+    """Phase Voltage L1-L2."""
+
+    vl1 = uint16(47, scale_register=114, unit='V')
+    """Phase Voltage L1-N."""
+
+    tot_wh_inj_l1 = uint64(48, scale_register=120, unit='Wh')
+    """Total Watt-Hours Inj L1. Total active energy injected L1."""
+
+    tot_wh_abs_l1 = uint64(52, scale_register=120, unit='Wh')
+    """Total Watt-Hours Abs L1. Total active energy absorbed L1."""
+
+    tot_varh_inj_l1 = uint64(56, scale_register=121, unit='Varh')
+    """Total Var-Hours Inj L1. Total reactive energy injected L1."""
+
+    tot_varh_abs_l1 = uint64(60, scale_register=121, unit='Varh')
+    """Total Var-Hours Abs L1. Total reactive energy absorbed L1."""
+
+    wl2 = int16(64, scale_register=116, unit='W')
+    """Watts L2. Active power L2."""
+
+    val2 = int16(65, scale_register=118, unit='VA')
+    """VA L2. Apparent power L2."""
+
+    var_l2 = int16(66, scale_register=119, unit='Var')
+    """Var L2. Reactive power L2."""
+
+    pfl2 = int16(67, scale_register=117)
+    """PF L2. Power factor L2."""
+
+    al2 = int16(68, scale_register=113, unit='A')
+    """Amps L2. Current L2."""
+
+    vl2_l3 = uint16(69, scale_register=114, unit='V')
+    """Phase Voltage L2-L3."""
+
+    vl2 = uint16(70, scale_register=114, unit='V')
+    """Phase Voltage L2-N."""
+
+    tot_wh_inj_l2 = uint64(71, scale_register=120, unit='Wh')
+    """Total Watt-Hours Inj L2. Total active energy injected L2."""
+
+    tot_wh_abs_l2 = uint64(75, scale_register=120, unit='Wh')
+    """Total Watt-Hours Abs L2. Total active energy absorbed L2."""
+
+    tot_varh_inj_l2 = uint64(79, scale_register=121, unit='Varh')
+    """Total Var-Hours Inj L2. Total reactive energy injected L2."""
+
+    tot_varh_abs_l2 = uint64(83, scale_register=121, unit='Varh')
+    """Total Var-Hours Abs L2. Total reactive energy absorbed L2."""
+
+    wl3 = int16(87, scale_register=116, unit='W')
+    """Watts L3. Active power L3."""
+
+    val3 = int16(88, scale_register=118, unit='VA')
+    """VA L3. Apparent power L3."""
+
+    var_l3 = int16(89, scale_register=119, unit='Var')
+    """Var L3. Reactive power L3."""
+
+    pfl3 = int16(90, scale_register=117)
+    """PF L3. Power factor L3."""
+
+    al3 = int16(91, scale_register=113, unit='A')
+    """Amps L3. Current L3."""
+
+    vl3_l1 = uint16(92, scale_register=114, unit='V')
+    """Phase Voltage L3-L1."""
+
+    vl3 = uint16(93, scale_register=114, unit='V')
+    """Phase Voltage L3-N."""
+
+    tot_wh_inj_l3 = uint64(94, scale_register=120, unit='Wh')
+    """Total Watt-Hours Inj L3. Total active energy injected L3."""
+
+    tot_wh_abs_l3 = uint64(98, scale_register=120, unit='Wh')
+    """Total Watt-Hours Abs L3. Total active energy absorbed L3."""
+
+    tot_varh_inj_l3 = uint64(102, scale_register=121, unit='Varh')
+    """Total Var-Hours Inj L3. Total reactive energy injected L3."""
+
+    tot_varh_abs_l3 = uint64(106, scale_register=121, unit='Varh')
+    """Total Var-Hours Abs L3. Total reactive energy absorbed L3."""
+
+    throt_pct = uint16(110, unit='Pct')
+    """Throttling In Pct. Throttling in pct of maximum active power."""
+
+    throt_src = bitfield32(111, ThrottleSourceInformation)
+    """Throttle Source Information. Active throttling source."""
+
+    mn_alrm_info = string(123, 32)
+    """Manufacturer Alarm Info. Manufacturer alarm information. Valid if
+    MANUFACTURER_ALRM indication is active."""
+
+
+class DERCapacity(SunSpecComponent):
+    """SunSpec model 702: DER Capacity."""
+
+    w_max_rtg = uint16(2, scale_register=45, unit='W')
+    """Active Power Max Rating. Maximum active power rating at unity power factor in
+    watts."""
+
+    w_ovr_ext_rtg = uint16(3, scale_register=45, unit='W')
+    """Active Power (Over-Excited) Rating. Active power rating at specified over-
+    excited power factor in watts."""
+
+    w_ovr_ext_rtg_pf = uint16(4, scale_register=46)
+    """Specified Over-Excited PF. Specified over-excited power factor."""
+
+    w_und_ext_rtg = uint16(5, scale_register=45, unit='W')
+    """Active Power (Under-Excited) Rating. Active power rating at specified under-
+    excited power factor in watts."""
+
+    w_und_ext_rtg_pf = uint16(6, scale_register=46)
+    """Specified Under-Excited PF. Specified under-excited power factor."""
+
+    va_max_rtg = uint16(7, scale_register=47, unit='VA')
+    """Apparent Power Max Rating. Maximum apparent power rating in voltamperes."""
+
+    var_max_inj_rtg = uint16(8, scale_register=48, unit='Var')
+    """Reactive Power Injected Rating. Maximum injected reactive power rating in
+    vars."""
+
+    var_max_abs_rtg = uint16(9, scale_register=48, unit='Var')
+    """Reactive Power Absorbed Rating. Maximum absorbed reactive power rating in
+    vars."""
+
+    w_cha_rte_max_rtg = uint16(10, scale_register=45, unit='W')
+    """Charge Rate Max Rating. Maximum active power charge rate in watts."""
+
+    w_dis_cha_rte_max_rtg = uint16(11, scale_register=45, unit='W')
+    """Discharge Rate Max Rating. Maximum active power discharge rate in watts."""
+
+    va_cha_rte_max_rtg = uint16(12, scale_register=47, unit='VA')
+    """Charge Rate Max VA Rating. Maximum apparent power charge rate in voltamperes."""
+
+    va_dis_cha_rte_max_rtg = uint16(13, scale_register=47, unit='VA')
+    """Discharge Rate Max VA Rating. Maximum apparent power discharge rate in
+    voltamperes."""
+
+    v_nom_rtg = uint16(14, scale_register=49, unit='V')
+    """AC Voltage Nominal Rating."""
+
+    v_max_rtg = uint16(15, scale_register=49, unit='V')
+    """AC Voltage Max Rating. AC voltage maximum rating."""
+
+    v_min_rtg = uint16(16, scale_register=49, unit='V')
+    """AC Voltage Min Rating. AC voltage minimum rating."""
+
+    a_max_rtg = uint16(17, scale_register=50, unit='A')
+    """AC Current Max Rating. AC current maximum rating in amps."""
+
+    pf_ovr_ext_rtg = uint16(18, scale_register=46)
+    """PF Over-Excited Rating (Unused). Unused. Please use WOvrExtRtgPF."""
+
+    pf_und_ext_rtg = uint16(19, scale_register=46)
+    """PF Under-Excited Rating (Unused). Unused. Please use WUndExtRtgPF."""
+
+    react_suscept_rtg = uint16(20, scale_register=51, unit='S')
+    """Reactive Susceptance. Reactive susceptance that remains connected to the Area
+    EPS in the cease to energize and trip state."""
+
+    nor_op_cat_rtg = enum16(21, NormalOperatingCategory)
+    """Normal Operating Category. Normal operating performance category as specified
+    in IEEE 1547-2018."""
+
+    abn_op_cat_rtg = enum16(22, AbnormalOperatingCategory)
+    """Abnormal Operating Category. Abnormal operating performance category as
+    specified in IEEE 1547-2018."""
+
+    ctrl_modes = bitfield32(23, SupportedControlModes)
+    """Supported Control Modes. Supported control mode functions."""
+
+    int_island_cat_rtg = bitfield16(25, IntentionalIslandCategories)
+    """Intentional Island Categories."""
+
+    w_max = uint16(26, scale_register=45, writable=True, unit='W')
+    """Active Power Max Setting. Maximum active power setting used to adjust maximum
+    active power setting."""
+
+    w_max_ovr_ext = uint16(27, scale_register=45, writable=True, unit='W')
+    """Active Power (Over-Excited) Setting. Active power setting at specified over-
+    excited power factor in watts."""
+
+    w_ovr_ext_pf = uint16(28, scale_register=46, writable=True)
+    """Specified Over-Excited PF. Specified over-excited power factor."""
+
+    w_max_und_ext = uint16(29, scale_register=45, writable=True, unit='W')
+    """Active Power (Under-Excited) Setting. Active power setting at specified under-
+    excited power factor in watts."""
+
+    w_und_ext_pf = uint16(30, scale_register=46, writable=True)
+    """Specified Under-Excited PF. Specified under-excited power factor."""
+
+    va_max = uint16(31, scale_register=47, writable=True, unit='VA')
+    """Apparent Power Max Setting. Maximum apparent power setting used to adjust
+    maximum apparent power rating."""
+
+    var_max_inj = uint16(32, scale_register=48, writable=True, unit='Var')
+    """Reactive Power Injected Setting. Maximum injected reactive power setting used
+    to adjust maximum injected reactive power rating."""
+
+    var_max_abs = uint16(33, scale_register=48, writable=True, unit='Var')
+    """Reactive Power Absorbed Setting. Maximum absorbed reactive power setting used
+    to adjust maximum absorbed reactive power rating."""
+
+    w_cha_rte_max = uint16(34, scale_register=45, writable=True, unit='W')
+    """Charge Rate Max Setting. Maximum active power charge rate setting used to
+    adjust maximum active power charge rate rating."""
+
+    w_dis_cha_rte_max = uint16(35, scale_register=45, writable=True, unit='W')
+    """Discharge Rate Max Setting. Maximum active power discharge rate setting used
+    to adjust maximum active power discharge rate rating."""
+
+    va_cha_rte_max = uint16(36, scale_register=47, writable=True, unit='VA')
+    """Charge Rate Max VA Setting. Maximum apparent power charge rate setting used to
+    adjust maximum apparent power charge rate rating."""
+
+    va_dis_cha_rte_max = uint16(37, scale_register=47, writable=True, unit='VA')
+    """Discharge Rate Max VA Setting. Maximum apparent power discharge rate setting
+    used to adjust maximum apparent power discharge rate rating."""
+
+    v_nom = uint16(38, scale_register=49, writable=True, unit='V')
+    """Nominal AC Voltage Setting."""
+
+    v_max = uint16(39, scale_register=49, writable=True, unit='V')
+    """AC Voltage Max Setting. AC voltage maximum setting used to adjust AC voltage
+    maximum rating."""
+
+    v_min = uint16(40, scale_register=49, writable=True, unit='V')
+    """AC Voltage Min Setting. AC voltage minimum setting used to adjust AC voltage
+    minimum rating."""
+
+    a_max = uint16(41, scale_register=50, writable=True, unit='A')
+    """AC Current Max Setting. Maximum AC current setting used to adjust maximum AC
+    current rating."""
+
+    pf_ovr_ext = uint16(42, scale_register=46, writable=True)
+    """PF Over-Excited Setting (Unused). Unused. Please use WOvrExtPF."""
+
+    pf_und_ext = uint16(43, scale_register=46, writable=True)
+    """PF Under-Excited Setting (Unused). Unused. Please use WUndExtPF."""
+
+    int_island_cat = bitfield16(44, IntentionalIslandCategories, writable=True)
+    """Intentional Island Categories."""
+
+
+class DEREnterService(SunSpecComponent):
+    """SunSpec model 703: Enter Service."""
+
+    es = enum16(2, PermitEnterService, writable=True)
+    """Permit Enter Service."""
+
+    esv_hi = uint16(3, scale_register=17, writable=True, unit='Pct')
+    """Enter Service Voltage High. Enter service voltage high threshold as percent of
+    normal voltage."""
+
+    esv_lo = uint16(4, scale_register=17, writable=True, unit='Pct')
+    """Enter Service Voltage Low. Enter service voltage low threshold as percent of
+    normal voltage."""
+
+    es_hz_hi = uint32(5, scale_register=18, writable=True, unit='Hz')
+    """Enter Service Frequency High. Enter service frequency high threshold."""
+
+    es_hz_lo = uint32(7, scale_register=18, writable=True, unit='Hz')
+    """Enter Service Frequency Low. Enter service frequency low threshold."""
+
+    es_dly_tms = uint32(9, writable=True, unit='Secs')
+    """Enter Service Delay Time. Enter service delay time in seconds."""
+
+    es_rnd_tms = uint32(11, writable=True, unit='Secs')
+    """Enter Service Random Delay. Enter service random delay in seconds."""
+
+    es_rmp_tms = uint32(13, writable=True, unit='Secs')
+    """Enter Service Ramp Time. Enter service ramp time in seconds."""
+
+    es_dly_rem_tms = uint32(15, unit='Secs')
+    """Enter Service Delay Remaining. Enter service delay time remaining in seconds."""
+
+
+class DERCtlACPFWInj(Component):
+    """One 'PFWInj' block of SunSpec model 704."""
+
+    pf = uint16(59, scale_register=53, writable=True)
+    """Power Factor (W Inj). Power factor setpoint when injecting active power."""
+
+    ext = enum16(60, PowerFactorExcitationWInj, writable=True)
+    """Power Factor Excitation (W Inj). Power factor excitation setpoint when
+    injecting active power."""
+
+
+class DERCtlACPFWInjRvrt(Component):
+    """One 'PFWInjRvrt' block of SunSpec model 704."""
+
+    pf = uint16(61, scale_register=53, writable=True)
+    """Reversion Power Factor (W Inj). Reversion power factor setpoint when injecting
+    active power."""
+
+    ext = enum16(62, ReversionPFExcitationWInj, writable=True)
+    """Reversion PF Excitation (W Inj). Reversion power factor excitation setpoint
+    when injecting active power."""
+
+
+class DERCtlACPFWAbs(Component):
+    """One 'PFWAbs' block of SunSpec model 704."""
+
+    pf = uint16(63, scale_register=53, writable=True)
+    """Power Factor (W Abs). Power factor setpoint when absorbing active power."""
+
+    ext = enum16(64, PowerFactorExcitationWAbs, writable=True)
+    """Power Factor Excitation (W Abs). Power factor excitation setpoint when
+    absorbing active power."""
+
+
+class DERCtlACPFWAbsRvrt(Component):
+    """One 'PFWAbsRvrt' block of SunSpec model 704."""
+
+    pf = uint16(65, scale_register=53, writable=True)
+    """Reversion Power Factor (W Abs). Reversion power factor setpoint when absorbing
+    active power."""
+
+    ext = enum16(66, ReversionPFExcitationWAbs, writable=True)
+    """Reversion PF Excitation (W Abs). Reversion power factor excitation setpoint
+    when absorbing active power."""
+
+
+class DERCtlAC(SunSpecComponent):
+    """SunSpec model 704: DER AC Controls."""
+
+    pfw_inj_ena = enum16(2, PowerFactorEnableWInjEnable, writable=True)
+    """Power Factor Enable (W Inj) Enable. Power factor enable when injecting active
+    power."""
+
+    pfw_inj_ena_rvrt = enum16(3, PowerFactorReversionEnableWInj, writable=True)
+    """Power Factor Reversion Enable (W Inj). Power factor reversion timer when
+    injecting active power enable."""
+
+    pfw_inj_rvrt_tms = uint32(4, writable=True, unit='Secs')
+    """PF Reversion Time (W Inj). Power factor reversion timer when injecting active
+    power."""
+
+    pfw_inj_rvrt_rem = uint32(6, unit='Secs')
+    """PF Reversion Time Rem (W Inj). Power factor reversion time remaining when
+    injecting active power."""
+
+    pfw_abs_ena = enum16(8, PowerFactorEnableWAbsEnable, writable=True)
+    """Power Factor Enable (W Abs) Enable. Power factor enable when absorbing active
+    power."""
+
+    pfw_abs_ena_rvrt = enum16(9, PowerFactorReversionEnableWAbs, writable=True)
+    """Power Factor Reversion Enable (W Abs). Power factor reversion timer when
+    absorbing active power enable."""
+
+    pfw_abs_rvrt_tms = uint32(10, writable=True, unit='Secs')
+    """PF Reversion Time (W Abs). Power factor reversion timer when absorbing active
+    power."""
+
+    pfw_abs_rvrt_rem = uint32(12, unit='Secs')
+    """PF Reversion Time Rem (W Abs). Power factor reversion time remaining when
+    absorbing active power."""
+
+    w_max_lim_pct_ena = enum16(14, LimitMaxPowerPctEnable, writable=True)
+    """Limit Max Power Pct Enable. Limit maximum active power percent enable."""
+
+    w_max_lim_pct = uint16(15, scale_register=54, writable=True, unit='Pct')
+    """Limit Max Power Pct Setpoint. Limit maximum active power percent value."""
+
+    w_max_lim_pct_rvrt = uint16(16, scale_register=54, writable=True, unit='Pct')
+    """Reversion Limit Max Power Pct. Reversion limit maximum active power percent
+    value."""
+
+    w_max_lim_pct_ena_rvrt = enum16(17, ReversionLimitMaxPowerPctEnable, writable=True)
+    """Reversion Limit Max Power Pct Enable. Reversion limit maximum active power
+    percent value enable."""
+
+    w_max_lim_pct_rvrt_tms = uint32(18, writable=True, unit='Secs')
+    """Limit Max Power Pct Reversion Time. Limit maximum active power percent
+    reversion time."""
+
+    w_max_lim_pct_rvrt_rem = uint32(20, unit='Secs')
+    """Limit Max Power Pct Rev Time Rem. Limit maximum active power percent reversion
+    time remaining."""
+
+    w_set_ena = enum16(22, SetActivePowerEnable, writable=True)
+    """Set Active Power Enable."""
+
+    w_set_mod = enum16(23, SetActivePowerMode, writable=True)
+    """Set Active Power Mode."""
+
+    w_set = int32(24, scale_register=55, writable=True, unit='W')
+    """Active Power Setpoint (W). Active power setting value in watts."""
+
+    w_set_rvrt = int32(26, scale_register=55, writable=True, unit='W')
+    """Reversion Active Power (W). Reversion active power setting value in watts."""
+
+    w_set_pct = int16(28, scale_register=56, writable=True, unit='Pct')
+    """Active Power Setpoint (Pct). Active power setting value as percent."""
+
+    w_set_pct_rvrt = int16(29, scale_register=56, writable=True, unit='Pct')
+    """Reversion Active Power (Pct). Reversion active power setting value as percent."""
+
+    w_set_ena_rvrt = enum16(30, ReversionActivePowerEnable, writable=True)
+    """Reversion Active Power Enable. Reversion active power function enable."""
+
+    w_set_rvrt_tms = uint32(31, writable=True, unit='Secs')
+    """Active Power Reversion Time. Set active power reversion time."""
+
+    w_set_rvrt_rem = uint32(33, unit='Secs')
+    """Active Power Rev Time Rem. Set active power reversion time remaining."""
+
+    var_set_ena = enum16(35, SetReactivePowerEnable, writable=True)
+    """Set Reactive Power Enable."""
+
+    var_set_mod = enum16(36, SetReactivePowerMode, writable=True)
+    """Set Reactive Power Mode."""
+
+    var_set_pri = enum16(37, ReactivePowerPriority, writable=True)
+    """Reactive Power Priority."""
+
+    var_set = int32(38, scale_register=57, writable=True, unit='Var')
+    """Reactive Power Setpoint (Vars). Reactive power setting value in vars."""
+
+    var_set_rvrt = int32(40, scale_register=57, writable=True, unit='Var')
+    """Reversion Reactive Power (Vars). Reversion reactive power setting value in
+    vars."""
+
+    var_set_pct = int16(42, scale_register=58, writable=True, unit='Pct')
+    """Reactive Power Setpoint (Pct). Reactive power setting value as percent."""
+
+    var_set_pct_rvrt = int16(43, scale_register=58, writable=True, unit='Pct')
+    """Reversion Reactive Power (Pct). Reversion reactive power setting value as
+    percent."""
+
+    var_set_ena_rvrt = enum16(44, ReversionReactivePowerEnable, writable=True)
+    """Reversion Reactive Power Enable. Reversion reactive power function enable."""
+
+    var_set_rvrt_tms = uint32(45, writable=True, unit='Secs')
+    """Reactive Power Reversion Time. Set reactive power reversion time."""
+
+    var_set_rvrt_rem = uint32(47, unit='Secs')
+    """Reactive Power Rev Time Rem. Set reactive power reversion time remaining."""
+
+    w_rmp = uint16(49, writable=True, unit='%Max/Sec')
+    """Normal Ramp Rate. Ramp rate for increases in active power during normal
+    generation."""
+
+    w_rmp_ref = enum16(50, NormalRampRateReference, writable=True)
+    """Normal Ramp Rate Reference. Ramp rate reference unit for increases in active
+    power or current during normal generation."""
+
+    var_rmp = uint16(51, writable=True, unit='%Max/Sec')
+    """Reactive Power Ramp Rate. Ramp rate based on max reactive power per second."""
+
+    anti_isl_ena = enum16(52, AntiIslandingEnable, writable=True)
+    """Anti-Islanding Enable."""
+
+    pfw_inj = repeating_group(1, DERCtlACPFWInj, stride=2)
+
+    pfw_inj_rvrt = repeating_group(1, DERCtlACPFWInjRvrt, stride=2)
+
+    pfw_abs = repeating_group(1, DERCtlACPFWAbs, stride=2)
+
+    pfw_abs_rvrt = repeating_group(1, DERCtlACPFWAbsRvrt, stride=2)
+
+
+class DERVoltVarCrvPt(Component):
+    """One 'Pt' block of SunSpec model 705."""
+
+    v = uint16(25, scale_register=12, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    var = int16(26, scale_register=13, writable=True, unit='DeptRef')
+    """Reactive Power Point. Curve reactive power point as set in DeptRef point."""
+
+
+class DERVoltVarCrv(Component):
+    """One 'Crv' block of SunSpec model 705."""
+
+    act_pt = uint16(15, writable=True)
+    """Active Points. Number of active points."""
+
+    dept_ref = enum16(16, DependentReference, writable=True)
+    """Dependent Reference. Curve dependent reference."""
+
+    pri = enum16(17, PowerPriority, writable=True)
+    """Power Priority."""
+
+    v_ref = uint16(18, scale_register=12, writable=True, unit='VNomPct')
+    """Vref Adjustment. Vref adjustment as percentage of nominal voltage."""
+
+    v_ref_auto = uint16(19, scale_register=12, unit='VNomPct')
+    """Current Autonomous Vref. Autonomous vref value as a percentage of nominal
+    voltage."""
+
+    v_ref_auto_ena = enum16(20, AutonomousVrefEnable, writable=True)
+    """Autonomous Vref Enable. Enable autonomous vref."""
+
+    v_ref_auto_tms = uint16(21, writable=True, unit='Secs')
+    """Auto Vref Time Constant. Autonomous vref time constant."""
+
+    rsp_tms = uint32(22, scale_register=14, writable=True, unit='Secs')
+    """Open Loop Response Time."""
+
+    read_only = enum16(24, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    pt = repeating_group(4, DERVoltVarCrvPt, stride=2)
+
+
+class DERVoltVar(SunSpecComponent):
+    """SunSpec model 705: DER Volt-Var."""
+
+    ena = enum16(2, DERVoltVarModuleEnable, writable=True)
+    """DER Volt-Var Module Enable. Volt-Var control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    rvrt_tms = uint32(7, writable=True, unit='Secs')
+    """Reversion Timeout. Reversion time in seconds. 0 = No reversion time."""
+
+    rvrt_rem = uint32(9, unit='Secs')
+    """Reversion Time Remaining. Reversion time remaining in seconds."""
+
+    rvrt_crv = uint16(11, writable=True)
+    """Reversion Curve. Default curve after reversion timeout."""
+
+    crv = repeating_group(3, DERVoltVarCrv, stride=18)
+
+
+class DERVoltWattCrvPt(Component):
+    """One 'Pt' block of SunSpec model 706."""
+
+    v = uint16(20, scale_register=12, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    w = int16(21, scale_register=13, writable=True, unit='DeptRef')
+    """Dependent Reference. Active power in percent of rated active power."""
+
+
+class DERVoltWattCrv(Component):
+    """One 'Crv' block of SunSpec model 706."""
+
+    act_pt = uint16(15, writable=True)
+    """Active Points. Number of active points."""
+
+    dept_ref = enum16(16, DERVoltWattCrvDependentReference, writable=True)
+    """Dependent Reference. Curve dependent reference."""
+
+    rsp_tms = uint32(17, scale_register=14, writable=True, unit='Secs')
+    """Open Loop Response Time."""
+
+    read_only = enum16(19, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    pt = repeating_group(2, DERVoltWattCrvPt, stride=2)
+
+
+class DERVoltWatt(SunSpecComponent):
+    """SunSpec model 706: DER Volt-Watt."""
+
+    ena = enum16(2, DERVoltWattModuleEnable, writable=True)
+    """DER Volt-Watt Module Enable. Volt-Watt control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    rvrt_tms = uint32(7, writable=True, unit='Secs')
+    """Reversion Timeout. Reversion time in seconds. 0 = No reversion time."""
+
+    rvrt_rem = uint32(9, unit='Secs')
+    """Reversion Time Remaining. Reversion time remaining in seconds."""
+
+    rvrt_crv = uint16(11, writable=True)
+    """Reversion Curve. Default curve after reversion timeout."""
+
+    crv = repeating_group(2, DERVoltWattCrv, stride=9)
+
+
+class DERTripLVCrvMustTripPt(Component):
+    """One 'Pt' block of SunSpec model 707."""
+
+    v = uint16(11, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(12, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLVCrvMustTrip(Component):
+    """One 'MustTrip' block of SunSpec model 707."""
+
+    act_pt = uint16(10, writable=True)
+    """Number Of Active Points. Number of active points in must trip curve."""
+
+    pt = repeating_group(5, DERTripLVCrvMustTripPt, stride=3)
+
+
+class DERTripLVCrvMayTripPt(Component):
+    """One 'Pt' block of SunSpec model 707."""
+
+    v = uint16(27, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(28, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLVCrvMayTrip(Component):
+    """One 'MayTrip' block of SunSpec model 707."""
+
+    act_pt = uint16(26, writable=True)
+    """Number Of Active Points. Number of active points in may trip curve."""
+
+    pt = repeating_group(5, DERTripLVCrvMayTripPt, stride=3)
+
+
+class DERTripLVCrvMomCessPt(Component):
+    """One 'Pt' block of SunSpec model 707."""
+
+    v = uint16(43, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(44, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLVCrvMomCess(Component):
+    """One 'MomCess' block of SunSpec model 707."""
+
+    act_pt = uint16(42, writable=True)
+    """Number Of Active Points. Number of active points in the momentary cessation
+    curve."""
+
+    pt = repeating_group(5, DERTripLVCrvMomCessPt, stride=3)
+
+
+class DERTripLVCrv(Component):
+    """One 'Crv' block of SunSpec model 707."""
+
+    read_only = enum16(9, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    must_trip = repeating_group(1, DERTripLVCrvMustTrip, stride=16)
+
+    may_trip = repeating_group(1, DERTripLVCrvMayTrip, stride=16)
+
+    mom_cess = repeating_group(1, DERTripLVCrvMomCess, stride=16)
+
+
+class DERTripLV(SunSpecComponent):
+    """SunSpec model 707: DER Trip LV."""
+
+    ena = enum16(2, DERTripLVModuleEnable, writable=True)
+    """DER Trip LV Module Enable. DER low voltage trip control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv_set = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    crv = repeating_group(2, DERTripLVCrv, stride=49)
+
+
+class DERTripHVCrvMustTripPt(Component):
+    """One 'Pt' block of SunSpec model 708."""
+
+    v = uint16(11, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(12, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHVCrvMustTrip(Component):
+    """One 'MustTrip' block of SunSpec model 708."""
+
+    act_pt = uint16(10, writable=True)
+    """Number Of Active Points. Number of active points in must trip curve."""
+
+    pt = repeating_group(5, DERTripHVCrvMustTripPt, stride=3)
+
+
+class DERTripHVCrvMayTripPt(Component):
+    """One 'Pt' block of SunSpec model 708."""
+
+    v = uint16(27, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(28, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHVCrvMayTrip(Component):
+    """One 'MayTrip' block of SunSpec model 708."""
+
+    act_pt = uint16(26, writable=True)
+    """Number Of Active Points. Number of active points in may trip curve."""
+
+    pt = repeating_group(5, DERTripHVCrvMayTripPt, stride=3)
+
+
+class DERTripHVCrvMomCessPt(Component):
+    """One 'Pt' block of SunSpec model 708."""
+
+    v = uint16(43, scale_register=7, writable=True, unit='VNomPct')
+    """Voltage Point. Curve voltage point as percentage."""
+
+    tms = uint32(44, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHVCrvMomCess(Component):
+    """One 'MomCess' block of SunSpec model 708."""
+
+    act_pt = uint16(42, writable=True)
+    """Number Of Active Points. Number of active points in the momentary cessation
+    curve."""
+
+    pt = repeating_group(5, DERTripHVCrvMomCessPt, stride=3)
+
+
+class DERTripHVCrv(Component):
+    """One 'Crv' block of SunSpec model 708."""
+
+    read_only = enum16(9, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    must_trip = repeating_group(1, DERTripHVCrvMustTrip, stride=16)
+
+    may_trip = repeating_group(1, DERTripHVCrvMayTrip, stride=16)
+
+    mom_cess = repeating_group(1, DERTripHVCrvMomCess, stride=16)
+
+
+class DERTripHV(SunSpecComponent):
+    """SunSpec model 708: DER Trip HV."""
+
+    ena = enum16(2, DERTripHVModuleEnable, writable=True)
+    """DER Trip HV Module Enable. DER high voltage trip control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv_set = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    crv = repeating_group(2, DERTripHVCrv, stride=49)
+
+
+class DERTripLFCrvMustTripPt(Component):
+    """One 'Pt' block of SunSpec model 709."""
+
+    hz = uint32(11, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(13, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLFCrvMustTrip(Component):
+    """One 'MustTrip' block of SunSpec model 709."""
+
+    act_pt = uint16(10, writable=True)
+    """Number Of Active Points. Number of active points in must trip curve."""
+
+    pt = repeating_group(5, DERTripLFCrvMustTripPt, stride=4)
+
+
+class DERTripLFCrvMayTripPt(Component):
+    """One 'Pt' block of SunSpec model 709."""
+
+    hz = uint32(32, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(34, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLFCrvMayTrip(Component):
+    """One 'MayTrip' block of SunSpec model 709."""
+
+    act_pt = uint16(31, writable=True)
+    """Number Of Active Points. Number of active points in may trip curve."""
+
+    pt = repeating_group(5, DERTripLFCrvMayTripPt, stride=4)
+
+
+class DERTripLFCrvMomCessPt(Component):
+    """One 'Pt' block of SunSpec model 709."""
+
+    hz = uint32(53, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(55, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripLFCrvMomCess(Component):
+    """One 'MomCess' block of SunSpec model 709."""
+
+    act_pt = uint16(52, writable=True)
+    """Number Of Active Points. Number of active points in the momentary cessation
+    curve."""
+
+    pt = repeating_group(5, DERTripLFCrvMomCessPt, stride=4)
+
+
+class DERTripLFCrv(Component):
+    """One 'Crv' block of SunSpec model 709."""
+
+    read_only = enum16(9, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    must_trip = repeating_group(1, DERTripLFCrvMustTrip, stride=21)
+
+    may_trip = repeating_group(1, DERTripLFCrvMayTrip, stride=21)
+
+    mom_cess = repeating_group(1, DERTripLFCrvMomCess, stride=21)
+
+
+class DERTripLF(SunSpecComponent):
+    """SunSpec model 709: DER Trip LF."""
+
+    ena = enum16(2, DERTripLFModuleEnable, writable=True)
+    """DER Trip LF Module Enable. DER low frequency trip control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv_set = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    crv = repeating_group(2, DERTripLFCrv, stride=64)
+
+
+class DERTripHFCrvMustTripPt(Component):
+    """One 'Pt' block of SunSpec model 710."""
+
+    hz = uint32(11, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(13, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHFCrvMustTrip(Component):
+    """One 'MustTrip' block of SunSpec model 710."""
+
+    act_pt = uint16(10, writable=True)
+    """Number Of Active Points. Number of active points in must trip curve."""
+
+    pt = repeating_group(5, DERTripHFCrvMustTripPt, stride=4)
+
+
+class DERTripHFCrvMayTripPt(Component):
+    """One 'Pt' block of SunSpec model 710."""
+
+    hz = uint32(32, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(34, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHFCrvMayTrip(Component):
+    """One 'MayTrip' block of SunSpec model 710."""
+
+    act_pt = uint16(31, writable=True)
+    """Number Of Active Points. Number of active points in may trip curve."""
+
+    pt = repeating_group(5, DERTripHFCrvMayTripPt, stride=4)
+
+
+class DERTripHFCrvMomCessPt(Component):
+    """One 'Pt' block of SunSpec model 710."""
+
+    hz = uint32(53, scale_register=7, writable=True, unit='Hz')
+    """Frequency Point. Curve frequency point."""
+
+    tms = uint32(55, scale_register=8, writable=True, unit='Secs')
+    """Time Point. Curve time point in seconds."""
+
+
+class DERTripHFCrvMomCess(Component):
+    """One 'MomCess' block of SunSpec model 710."""
+
+    act_pt = uint16(52, writable=True)
+    """Number Of Active Points. Number of active points in the momentary cessation
+    curve."""
+
+    pt = repeating_group(5, DERTripHFCrvMomCessPt, stride=4)
+
+
+class DERTripHFCrv(Component):
+    """One 'Crv' block of SunSpec model 710."""
+
+    read_only = enum16(9, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    must_trip = repeating_group(1, DERTripHFCrvMustTrip, stride=21)
+
+    may_trip = repeating_group(1, DERTripHFCrvMayTrip, stride=21)
+
+    mom_cess = repeating_group(1, DERTripHFCrvMomCess, stride=21)
+
+
+class DERTripHF(SunSpecComponent):
+    """SunSpec model 710: DER Trip HF."""
+
+    ena = enum16(2, DERTripHFModuleEnable, writable=True)
+    """DER Trip HF Module Enable. DER high frequency trip control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Adopt Curve Request. Index of curve points to adopt. First curve index is 1."""
+
+    adpt_crv_rslt = enum16(4, AdoptCurveResult)
+    """Adopt Curve Result. Result of last adopt curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv_set = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    crv = repeating_group(2, DERTripHFCrv, stride=64)
+
+
+class DERFreqDroopCtl(Component):
+    """One 'Ctl' block of SunSpec model 711."""
+
+    db_of = uint32(14, scale_register=11, writable=True, unit='Hz')
+    """Over-Frequency Deadband. The deadband value for over-frequency conditions in
+    Hz."""
+
+    db_uf = uint32(16, scale_register=11, writable=True, unit='Hz')
+    """Under-Frequency Deadband. The deadband value for under-frequency conditions in
+    Hz."""
+
+    k_of = uint16(18, scale_register=12, writable=True)
+    """Over-Frequency Change Ratio. Frequency droop per-unit frequency change for
+    over-frequency conditions corresponding to 1 per-unit power output change."""
+
+    k_uf = uint16(19, scale_register=12, writable=True)
+    """Under-Frequency Change Ratio. Frequency droop per-unit frequency change for
+    under-frequency conditions corresponding to 1 per-unit power output change."""
+
+    rsp_tms = uint32(20, scale_register=13, writable=True, unit='Secs')
+    """Open-Loop Response Time. The open-loop response time in seconds."""
+
+    p_min = int16(22, writable=True, unit='Pct')
+    """Minimum Active Power. The minimum active power output due to DER prime mover
+    constraints, in percent of the DER active power rating. The valid range is
+    -100 to 100. This setting applies only to the frequency droop control."""
+
+    read_only = enum16(23, ControlAccess)
+    """Control Access. Control read-write access."""
+
+
+class DERFreqDroop(SunSpecComponent):
+    """SunSpec model 711: DER Frequency Droop."""
+
+    ena = enum16(2, DERFrequencyDroopModuleEnable, writable=True)
+    """DER Frequency Droop Module Enable. DER Frequency-Watt (Frequency-Droop)
+    control enable."""
+
+    adpt_ctl_req = uint16(3, writable=True)
+    """Set Active Control Request. Set active control. 0 = No active control."""
+
+    adpt_ctl_rslt = enum16(4, SetActiveControlResult)
+    """Set Active Control Result. Result of last set active control operation."""
+
+    n_ctl = uint16(5)
+    """Stored Control Count. Number of stored controls supported."""
+
+    rvrt_tms = uint32(6, writable=True, unit='Secs')
+    """Reversion Timeout. Reversion time in seconds. 0 = No reversion time."""
+
+    rvrt_rem = uint32(8, unit='Secs')
+    """Reversion Time Left. Reversion time remaining in seconds."""
+
+    rvrt_ctl = uint16(10, writable=True)
+    """Reversion Control. Default control after reversion timeout."""
+
+    ctl = repeating_group(uint16(5), DERFreqDroopCtl, stride=10)
+
+
+class DERWattVarCrvPt(Component):
+    """One 'Pt' block of SunSpec model 712."""
+
+    w = int16(18, scale_register=12, writable=True, unit='WMaxPct')
+    """Active Power Point. Curve active power point as percentage."""
+
+    var = int16(19, scale_register=13, writable=True, unit='VarPct')
+    """Reactive Power Point. Curve reactive power point as set in DeptRef point."""
+
+
+class DERWattVarCrv(Component):
+    """One 'Crv' block of SunSpec model 712."""
+
+    act_pt = uint16(14, writable=True)
+    """Active Points. Number of active points."""
+
+    dept_ref = enum16(15, DependentReference, writable=True)
+    """Dependent Reference. Curve dependent reference."""
+
+    pri = enum16(16, DERWattVarCrvPowerPriority, writable=True)
+    """Power Priority."""
+
+    read_only = enum16(17, CurveAccess)
+    """Curve Access. Curve read-write access."""
+
+    pt = repeating_group(6, DERWattVarCrvPt, stride=2)
+
+
+class DERWattVar(SunSpecComponent):
+    """SunSpec model 712: DER Watt-Var."""
+
+    ena = enum16(2, DERWattVarModuleEnable, writable=True)
+    """DER Watt-Var Module Enable. DER Watt-Var control enable."""
+
+    adpt_crv_req = uint16(3, writable=True)
+    """Set Active Curve Request. Set active curve. 0 = No active curve."""
+
+    adpt_crv_rslt = enum16(4, SetActiveCurveResult)
+    """Set Active Curve Result. Result of last set active curve operation."""
+
+    n_pt = uint16(5)
+    """Number Of Points. Number of curve points supported."""
+
+    n_crv = uint16(6)
+    """Stored Curve Count. Number of stored curves supported."""
+
+    rvrt_tms = uint32(7, writable=True, unit='Secs')
+    """Reversion Timeout. Reversion time in seconds. 0 = No reversion time."""
+
+    rvrt_rem = uint32(9, unit='Secs')
+    """Reversion Time Left. Reversion time remaining in seconds."""
+
+    rvrt_crv = uint16(11, writable=True)
+    """Reversion Curve. Default curve after reversion timeout."""
+
+    crv = repeating_group(2, DERWattVarCrv, stride=16)
+
+
+class DERStorageCapacity(SunSpecComponent):
+    """SunSpec model 713: DER Storage Capacity."""
+
+    wh_rtg = uint16(2, scale_register=7, unit='WH')
+    """Energy Rating. Energy rating of the DER storage."""
+
+    wh_avail = uint16(3, scale_register=7, unit='WH')
+    """Energy Available. Energy available of the DER storage (WHAvail = WHRtg * SoC *
+    SoH)."""
+
+    so_c = uint16(4, scale_register=8, unit='Pct')
+    """State of Charge. State of charge of the DER storage."""
+
+    so_h = uint16(5, scale_register=8, unit='Pct')
+    """State of Health. State of health of the DER storage."""
+
+    sta = enum16(6, Status)
+    """Status. Storage status."""
+
+
+class DERMeasureDCPrt(Component):
+    """One 'Prt' block of SunSpec model 714."""
+
+    prt_typ = enum16(20, PortType)
+    """Port Type."""
+
+    id = uint16(21)
+    """Port ID."""
+
+    id_str = string(22, 8)
+    """Port ID String."""
+
+    dca = int16(30, scale_register=15, unit='A')
+    """DC Current. DC current for the port."""
+
+    dcv = uint16(31, scale_register=16, unit='V')
+    """DC Voltage. DC voltage for the port."""
+
+    dcw = int16(32, scale_register=17, unit='W')
+    """DC Power. DC power for the port."""
+
+    dc_wh_inj = uint64(33, scale_register=18, unit='Wh')
+    """DC Energy Injected. Total cumulative DC energy injected for the port."""
+
+    dc_wh_abs = uint64(37, scale_register=18, unit='Wh')
+    """DC Energy Absorbed. Total cumulative DC energy absorbed for the port."""
+
+    tmp = int16(41, scale_register=19, unit='C')
+    """DC Port Temperature."""
+
+    dc_sta = enum16(42, DCPortStatus)
+    """DC Port Status."""
+
+    dc_alrm = bitfield32(43, DCPortAlarm)
+    """DC Port Alarm."""
+
+
+class DERMeasureDC(SunSpecComponent):
+    """SunSpec model 714: DER DC Measurement."""
+
+    prt_alrms = bitfield32(2)
+    """Port Alarms. Bitfield of ports with active alarms. Bit is 1 if port has an
+    active alarm. Bit 0 is first port."""
+
+    n_prt = uint16(4)
+    """Number Of Ports. Number of DC ports."""
+
+    dca = int16(5, scale_register=15, unit='A')
+    """DC Current. Total DC current for all ports."""
+
+    dcw = int16(6, scale_register=17, unit='W')
+    """DC Power. Total DC power for all ports."""
+
+    dc_wh_inj = uint64(7, scale_register=18, unit='Wh')
+    """DC Energy Injected. Total cumulative DC energy injected for all ports."""
+
+    dc_wh_abs = uint64(11, scale_register=18, unit='Wh')
+    """DC Energy Absorbed. Total cumulative DC energy absorbed for all ports."""
+
+    prt = repeating_group(uint16(4), DERMeasureDCPrt, stride=25)
+
+
+class DERCtl(SunSpecComponent):
+    """SunSpec model 715: DERCtl."""
+
+    loc_rem_ctl = enum16(2, ControlMode)
+    """Control Mode. DER control mode. Enumeration."""
+
+    der_hb = uint32(3)
+    """DER Heartbeat. Value is incremented every second by the DER with periodic
+    resets to zero."""
+
+    controller_hb = uint32(5, writable=True)
+    """Controller Heartbeat. Value is incremented every second by the controller with
+    periodic resets to zero."""
+
+    alarm_reset = uint16(7, writable=True)
+    """Alarm Reset. Used to reset any latched alarms. 1 = Reset."""
+
+    op_ctl = enum16(8, SetOperation, writable=True)
+    """Set Operation. Commands to PCS."""
+
+
+class SolarModule(SunSpecComponent):
+    """SunSpec model 502: Solar Module."""
+
+    stat = enum16(6, SolarModuleStatus)
+    """Status. Module Status Code."""
+
+    stat_vend = enum16(7)
+    """Vendor Status. Module Vendor Status Code."""
+
+    evt = bitfield32(8, Events)
+    """Events. Module Event Flags."""
+
+    evt_vend = bitfield32(10)
+    """Vendor Module Event Flags. Vendor specific flags."""
+
+    ctl = enum16(12, writable=True)
+    """Control. Module Control."""
+
+    ctl_vend = enum32(13, writable=True)
+    """Vendor Control. Vendor Module Control."""
+
+    ctl_val = int32(15, writable=True)
+    """Control Value. Module Control Value."""
+
+    tms = uint32(17, unit='Secs')
+    """Timestamp. Time in seconds since 2000 epoch."""
+
+    out_a = int16(19, scale_register=2, unit='A')
+    """Output Current."""
+
+    out_v = int16(20, scale_register=3, unit='V')
+    """Output Voltage."""
+
+    out_wh = acc32(21, scale_register=5, unit='Wh')
+    """Output Energy."""
+
+    out_pw = int16(23, scale_register=4, unit='W')
+    """Output Power."""
+
+    tmp = int16(24, unit='C')
+    """Temp. Module Temperature."""
+
+    in_a = int16(25, scale_register=2, unit='A')
+    """Input Current."""
+
+    in_v = int16(26, scale_register=3, unit='V')
+    """Input Voltage."""
+
+    in_wh = acc32(27, scale_register=5, unit='Wh')
+    """Input Energy."""
+
+    in_w = int16(29, scale_register=4, unit='W')
+    """Input Power."""
