@@ -2,7 +2,7 @@
 
 [![Modbus TCP](https://img.shields.io/badge/modbus-tcp-orange.svg)](https://modbus.org)
 [![SunSpec](https://img.shields.io/badge/sunspec-2.0-yellow.svg)](https://sunspec.org)
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
 
 A Python library for controlling FranklinWH battery storage systems via Modbus TCP, optimized for the aGate gateway with SunSpec model support and FranklinWH extension registers.
 
@@ -10,7 +10,7 @@ A Python library for controlling FranklinWH battery storage systems via Modbus T
 
 > **Note:** This is the Modbus TCP library (`pip install franklinwh-modbus`).  
 > 
-> Python import: `from franklinwh_modbus import FranklinWHController`
+> Python import: `from franklinwh_modbus import AGate`
 >
 >>  For the non-Modbus TCP FranklinWH david2069 franklinwh-cloud Cloud API, see [franklinwh-cloud](https://github.com/david2069/franklinwh-cloud).
 >
@@ -86,24 +86,40 @@ pip install -e ".[dev]"
 
 ## Library Usage
 
+The library is async. One pooled poll feeds every reading.
+
 ```python
-from franklinwh_modbus import FranklinWHController, BatteryCommand
+import asyncio
+from franklinwh_modbus import AGate, BatteryCommand
 
-# Connect to aGate
-ctrl = FranklinWHController('YOUR_AGATE_IP')
-ctrl.connect()
+async def main():
+    agate = AGate('YOUR_AGATE_IP')
+    await agate.async_connect()          # scans the model chain and polls once
 
-# Read battery status (battery_state derived from DC power, not unreliable M713.Sta)
-status = ctrl.read_battery_status()
-print(f"SoC: {status['soc']:.1f}%  State: {status['battery_state']}")
+    # battery_state is derived from DC power; M713.Sta reads 0 on this firmware
+    status = agate.battery_status()
+    print(f"SoC: {status['soc']:.1f}%  State: {status['battery_state']}")
 
-# Charge at 3000W with 1-hour software timeout (auto-reverts to cloud control)
-cmd = BatteryCommand(power_watts=3000, mode='charge')
-ctrl.send_command(cmd, duration_s=3600)
+    # Charge at 3000 W with a 1-hour software timeout. Pass duration_s for any
+    # unattended use: the hardware's own reversion timer counts down but never
+    # reverts, so nothing else will hand control back.
+    await agate.async_send_command(BatteryCommand(power_watts=3000),
+                                   duration_s=3600)
 
-# Release control (or let timeout handle it)
-ctrl.reset_control_state()
-ctrl.disconnect()
+    await agate.async_reset_control_state()
+    await agate.async_close()
+
+asyncio.run(main())
+```
+
+For synchronous code, `SyncAGate` is the same surface without the `async_`
+prefixes, running the device on a background event loop.
+
+```python
+from franklinwh_modbus import SyncAGate
+
+with SyncAGate('YOUR_AGATE_IP') as agate:
+    print(agate.battery_status())
 ```
 
 ## CLI Quick Start
@@ -135,8 +151,9 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 
 | Feature | Description |
 |---------|-------------|
-| **Modbus TCP** | Direct register read/write via pymodbus |
-| **SunSpec Models** | Models 1, 502, 701–715 |
+| **Modbus TCP** | Typed components and pooled block reads via [modbus-connection](https://github.com/home-assistant-libs/modbus-connection) (tmodbus backend) |
+| **SunSpec Models** | Models 1, 502, 701–715 — the full IEEE 1547 profile, including the 705/706/712 and 707–710 curve models |
+| **Curve control** | Read and write volt-var, volt-watt, watt-var and trip curves; a whole curve is one FC16 |
 | **FranklinWH Extensions** | Registers 15506–15512, 16000 (OnGridMode, reserves, PV energy, hi-res load) |
 | **InfoPoint Sequencer** | Scripted read/write sequences with auto scale-factor, `uint32` widths, enum-symbol resolution, and inline `{type, sf}` / `addr`·`point`·`address` overrides |
 | **Native + Virtual Modes** | `--mode` switches the native aGate mode via 15507; `--vmode` runs Self-Consumption, Emergency Backup, TOU, Peak Shave, Manual orchestration |
@@ -152,16 +169,22 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 ```
 franklinwh-modbus/
 ├── src/franklinwh_modbus/          # Core library (the package)
-│   ├── controller.py        # FranklinWHController — Modbus interface
+│   ├── models/              # SunSpec components for all 17 models + 15500 block
+│   ├── device.py            # AGate — connect, one pooled poll, control
+│   ├── curves.py            # the IEEE 1547 curve models
+│   ├── writing.py           # batched, verified writes
+│   ├── sequencer.py         # scripted read/write sequences
+│   ├── safety.py            # state inspection, SoC validation, conflicts
 │   ├── modes.py             # VirtualModeController — control modes
+│   ├── sync.py              # SyncAGate — blocking facade
 │   ├── types.py             # BatteryCommand, VirtualMode, enums
 │   ├── schedule.py          # TOUSchedule — time-of-use
 │   ├── monitor.py           # CLIMonitor — TUI (optional, needs rich)
 │   └── constants.py         # Register addresses, limits
-├── tools/franklinwh_cli.py   # CLI tool (consumes the library)
-├── tests/                   # Unit + integration + hardware tests
+├── tools/franklinwh_cli.py  # CLI tool (consumes the library)
+├── scripts/                 # Dev tools (register-map fixture builder)
+├── tests/                   # Test suite, run against the aGate's register map
 ├── docs/                    # Documentation
-├── tools/                   # Utility scripts
 └── schedules/               # TOU schedule definitions
 ```
 
