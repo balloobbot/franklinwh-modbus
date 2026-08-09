@@ -500,7 +500,7 @@ src/franklinwh_modbus/
   sync.py                blocking facade for the TUI and CLI
 ```
 
-`controller.py` (2210 lines) is deleted. 106 tests run the whole stack against
+`controller.py` (2210 lines) is deleted. 118 tests run the whole stack against
 the reconstructed map, including a mock device that acknowledges writes and
 discards them.
 
