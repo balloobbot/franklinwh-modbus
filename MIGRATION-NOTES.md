@@ -20,7 +20,9 @@ Two results up front:
 below is verified against a reconstruction of the device's register map, not
 against hardware. What makes the reconstruction trustworthy is described in the
 next section; what it cannot tell us is whether the device behaves as its
-documentation says.
+documentation says. [HARDWARE-VERIFICATION.md](HARDWARE-VERIFICATION.md) lists
+exactly what would settle each open question, and
+`scripts/hardware_check.py` runs the read-only half of it.
 
 ---
 
