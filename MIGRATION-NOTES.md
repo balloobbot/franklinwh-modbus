@@ -330,17 +330,26 @@ there, and that holds through M715 — so 502 is after 715 or elsewhere.
 
 ### Item 1 — the nested count
 
-Reproduced. The fix is to drop `_instance_offset` from `_count_items`. It is
-**backward compatible where it matters**: instance 0 is unaffected, so only the
-already-broken case changes behaviour.
+Reproduced. `repeating_group` takes a `count_in_block` keyword saying whose
+coordinates the count register's address is stated in; passing `False` states it
+in the owning layout's coordinates, which is what every SunSpec map means.
 
-One thing worth knowing before touching it: **the current behaviour is
-deliberate enough to be tested.** `test_nested_dynamic_in_static` and
-`test_nested_dynamic_in_dynamic` both assert that instance 1 reads its count
-from `count + stride`. So I did what this issue suggests and added the
-`scale_in_block` mirror — `count_in_block`, defaulting to "stay put" — and those
-two tests keep their intent with a one-line opt-in. That is the entire cost of
-the change.
+**The default stays as it is** — the count keeps moving with the enclosing
+instance, so nothing changes for anyone who does not pass the flag. My first
+version flipped the default, arguing symmetry with `scale_register` (which does
+default to not moving). That was wrong: the case where the two differ fails
+*silently*, which is why the bug is nasty and equally why flipping the default
+could quietly change what an existing consumer reads.
+
+It is a per-group keyword rather than a class attribute like `scale_in_block`,
+because a component can own two groups counted differently, and because a new
+keyword with a compatible default cannot break anyone.
+
+The compatibility claim in the only form worth making: the test diff is
+**purely additive**, 134 insertions and no deletions.
+`test_nested_dynamic_in_static` and `test_nested_dynamic_in_dynamic`, which both
+assert that instance 1 reads its count from `count + stride`, are byte-identical
+to `main` and still pass.
 
 ### Item 2 — placement, not just stride
 
