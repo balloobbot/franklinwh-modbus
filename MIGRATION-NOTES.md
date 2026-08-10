@@ -393,10 +393,10 @@ I would rather have this than an `async_resolve(unit)` step: it keeps the layout
 declarative and keeps the per-poll re-read, where a resolve step freezes the
 counts at setup.
 
-### There is a cheaper fix that unblocks all seven today — for concrete hardware
+### The cheaper fix that unblocks all seven — already shipped
 
-Worth separating, because it is much smaller and it is what the migrated library
-actually ships.
+Worth separating, because it is much smaller than the above, and it is what this
+library actually ships.
 
 If you are generating for **one** firmware, the counts are not a runtime unknown.
 Give the generator the values the device reports and the whole layout is static:
@@ -407,14 +407,13 @@ python -m modbus_connection.model.sunspec.generate \
   --count 707:NPt=5 --count 707:NCrvSet=2  ...
 ```
 
-Today the generator leaves 705/706/712's curve group commented out and **refuses
-707–710 outright** (`group 'MustTrip' has a device-dependent size but is not the
-last block`). With `--count`, all seven emit as ordinary fixed-count
-`repeating_group`s and read correctly — no library changes at all beyond the
-generator.
+Without it the generator leaves 705/706/712's curve group commented out and
+**refuses 707–710 outright** (`group 'MustTrip' has a device-dependent size but
+is not the last block`). With it, all seven emit as ordinary fixed-count
+`repeating_group`s and read correctly — no library changes at all.
 
 Nested *static* groups already work three levels deep; nothing was broken there.
-The blockers are only ever about counts that are unknown at author time.
+The blockers are only ever about counts unknown at author time.
 
 Two honest limits: it bakes one device's counts into the generated classes, and
 it loses the per-poll re-read. The first is less dangerous than it sounds —
@@ -422,9 +421,17 @@ it loses the per-poll re-read. The first is less dangerous than it sounds —
 a function of its counts, so a device with different counts fails loudly on the
 first read rather than reading garbage. That is a nice property and it came free.
 
-**Suggestion: take `--count` regardless.** It is ~40 lines, it is independent of
-the other two changes, and it is the right answer for the large class of
-consumers targeting known hardware.
+**This landed upstream as
+[#158](https://github.com/home-assistant-libs/modbus-connection/pull/158) while
+this migration was being written**, converging on the same design including the
+model scoping. `src/franklinwh_modbus/models/_generated.py` is byte-identical to
+what released `main` now produces, so the file is reproducible with a released
+tool rather than a local patch. My own proposal
+([#162](https://github.com/home-assistant-libs/modbus-connection/issues/162)) was
+closed as a duplicate — I had been generating against a checkout a day stale.
+
+It also does one thing my version did not: rejects a `--count` naming a point
+that sizes nothing, so a typo cannot silently do nothing.
 
 ### Item 3 — batched writes: the run spans components
 
