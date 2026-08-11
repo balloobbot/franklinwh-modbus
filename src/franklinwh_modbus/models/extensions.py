@@ -50,12 +50,15 @@ def _percentage(value: int) -> int:
 class Extensions(Component):
     """The FranklinWH manufacturer register block."""
 
-    # The readable map here is known exactly — 15500-15513 and 16000 — but it
-    # is deliberately not declared as ``register_ranges``: a ComponentGroup
-    # requires every member to declare its ranges once any member does, and the
-    # SunSpec models have no reason to. Gap-based planning reaches the same two
-    # blocks anyway, since 15513 to 16000 is far wider than ``max_gap``.
-    # See MIGRATION-NOTES.md.
+    #: The map is known exactly: two runs with 486 dead registers between them.
+    #: Declaring it used to make the component unpoolable — a ComponentGroup
+    #: required every member to declare ranges once any member did, and the
+    #: SunSpec models have no reason to. modbus-connection 4.4 dropped that
+    #: rule, so the map can be stated where it belongs. See MIGRATION-NOTES.md.
+    register_ranges = (
+        (EXTENSION_BASE, 15513),
+        (HOME_LOAD_HIRES_ADDRESS, HOME_LOAD_HIRES_ADDRESS),
+    )
 
     pv_use = boolean(15500)
     """Whether native PV is installed."""

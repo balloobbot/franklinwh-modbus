@@ -15,6 +15,7 @@ from modbus_connection.model import ComponentGroup
 from modbus_connection.model.sunspec import scan
 
 from franklinwh_modbus.models import MODELS
+from franklinwh_modbus.models.extensions import EXTENSION_BASE, Extensions
 
 if TYPE_CHECKING:
     from modbus_connection.mock import MockModbusUnit
@@ -126,7 +127,15 @@ async def test_scaling_uses_the_devices_scale_factors(
 
 
 async def test_the_whole_device_reads_in_few_blocks(unit: MockModbusUnit) -> None:
-    """Pooling the models makes a poll a handful of reads, not one per model."""
+    """Pooling the models makes a poll a handful of reads, not one per model.
+
+    Thirteen rather than eleven-plus-nothing: two are the second pass over the
+    register-counted repeating blocks in M711 and M714, and one is M1 on its
+    own. From modbus-connection 4.4 a pooled read no longer bridges a gap
+    between what its members claim, and M1's last point is a Pad the generated
+    component does not read — so register 69 belongs to nobody and M1 cannot
+    join M701 onwards. Everything from 70 to 963 is still one merged span.
+    """
     discovered = await scan(unit, 0)
     built = [
         component_class(unit, discovered.first(model_id))
@@ -136,4 +145,37 @@ async def test_the_whole_device_reads_in_few_blocks(unit: MockModbusUnit) -> Non
     group = ComponentGroup(unit, built)
     unit.read_events.clear()
     await group.async_update()
-    assert len(unit.read_events) <= 12
+    assert len(unit.read_events) <= 13
+    # The chain from M701 to M711's fixed block stays one span, chunked only by
+    # the 125-register Modbus ceiling.
+    merged = [e for e in unit.read_events if 70 <= e.address <= 963]
+    assert [e.address for e in merged] == [70, 193, 318, 443, 567, 692, 817, 941]
+
+
+async def test_the_extension_map_pools_with_models_that_declare_none(
+    unit: MockModbusUnit,
+) -> None:
+    """Stating the manufacturer block's holey map no longer costs pooling.
+
+    Before modbus-connection 4.4 a ComponentGroup refused a member that
+    declared ``register_ranges`` alongside members that did not, so the map had
+    to be dropped to keep the extension block in the poll. It is declared now,
+    and the two runs it names are the only addresses read there — nothing
+    bridges the 486 dead registers between 15513 and 16000.
+    """
+    discovered = await scan(unit, 0)
+    group = ComponentGroup(
+        unit,
+        [
+            *(
+                component_class(unit, discovered.first(model_id))
+                for model_id, component_class in MODELS.items()
+                if discovered.first(model_id) is not None
+            ),
+            Extensions(unit),
+        ],
+    )
+    unit.read_events.clear()
+    await group.async_update()
+    extension_reads = [e for e in unit.read_events if e.address >= EXTENSION_BASE]
+    assert [(e.address, e.count) for e in extension_reads] == [(15500, 14), (16000, 1)]

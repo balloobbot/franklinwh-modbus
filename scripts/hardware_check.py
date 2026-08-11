@@ -220,18 +220,16 @@ async def check_scale_factors(agate: AGate, unit: Any, report: Report) -> None:
 
     A referenced sunssf is not a field of the generated component — it becomes
     the ``scale_register`` of the points that use it — so the addresses have to
-    be collected from the fields and read directly.
+    be collected from the fields and read directly. ``resolved_fields`` says
+    where each one landed.
     """
     addresses: dict[int, str] = {}
     for model_id, component in sorted(agate.models.items()):
-        for name, register in component.declared_fields.items():
-            scale = getattr(register, "scale_register", None)
-            if scale is None:
+        for name, resolved in component.resolved_fields.items():
+            if resolved.scale_address is None:
                 continue
-            # No public accessor for a field's resolved scale address.
             addresses.setdefault(
-                component._scale_address(register),  # noqa: SLF001
-                f"M{model_id} (used by {name})",
+                resolved.scale_address, f"M{model_id} (used by {name})"
             )
     suspicious: dict[str, Any] = {}
     for address, where in sorted(addresses.items()):

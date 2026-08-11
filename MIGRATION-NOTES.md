@@ -2,7 +2,7 @@
 
 This library used to talk to a FranklinWH aGate through **pysunspec2**'s
 synchronous Modbus client, with a hand-assembled raw socket alongside it for
-everything pysunspec2 could not reach. It now talks **modbus-connection 4.3.0**
+everything pysunspec2 could not reach. It now talks **modbus-connection 4.4.0**
 on the **tmodbus** backend, and pysunspec2 is gone from the dependency list
 entirely — its model definitions were consumed once, at generation time.
 
@@ -10,7 +10,7 @@ Two results up front:
 
 - **All 17 models the aGate exposes read**, including the seven curve models
   ([issue #156](https://github.com/home-assistant-libs/modbus-connection/issues/156)
-  lists them as inexpressible), in **14 pooled block reads** covering 1143
+  lists them as inexpressible), in **15 pooled block reads** covering 1143
   registers. Every view — battery, grid, solar, control, alarms — is computed
   from that one poll rather than issuing its own reads.
 - **Writing a four-point volt-var curve went from 17 round trips to 4.** The 17
@@ -145,9 +145,9 @@ resolves to a field on a component instead of triggering the raw-socket path.
 ## 2. What internals of modbus-connection did I have to touch?
 
 **No monkeypatching, no subclassing of a private class, no reaching around the
-connection.** But unlike ha-sunspec, this one does use private attributes — in
-exactly one module, `writing.py`, and for exactly one reason: **there is no
-public write planner.**
+connection.** On 4.3 this section listed four private attributes in
+`writing.py`, because planning a batched write meant re-deriving from private
+state what the read path resolves internally:
 
 ```python
 component._register_fields   # to look up a field by name
@@ -156,12 +156,19 @@ component._scale_address(f)  # to resolve its scale register
 component._unit              # to issue the write
 ```
 
-Everything the read path exposes through `ReadPlan` — resolve, place, group,
-decode — has no write-side counterpart, so planning a batched write means
-re-deriving all four from private state. `Component.write()` is public and
-writes one field.
+**4.4 makes all four public.** `Component.resolved_fields` is a mapping of
+field name to a `ResolvedField` carrying the field, its absolute address, its
+register count, its scale register's absolute address and its space — the read
+path's own resolution, exposed as data — and `Component.modbus_unit` gives the
+unit. `writing.py` now reads placements straight off it and touches nothing
+private. `scripts/hardware_check.py` did the same for the one thing it needed,
+a referenced `sunssf`'s resolved address.
 
-Two smaller ones:
+What is still missing is the *planner*, not the placement: everything the read
+path groups and batches through `ReadPlan` has no write-side counterpart, and
+`Component.write()` writes one field. That part of §3.1 stands.
+
+Two private uses remain:
 
 - `component._groups` in `sequencer.py`, to resolve a `714.DCW_1` instance
   suffix. `RepeatingGroupField.__get__` gives the instances by attribute name,
@@ -244,11 +251,11 @@ was there last. Every consumer re-derives this. `read_curve()` truncates and
 than it holds. Minor next to the rest, but it appears on all seven curve models
 and the framework has no word for it.
 
-### 3.5 One member's readable ranges poison a `ComponentGroup`
+### 3.5 One member's readable ranges poisoned a `ComponentGroup` — fixed in 4.4
 
 The extension block's map is known exactly: 15500–15513 and 16000, with 486
 dead registers between. Declaring that is the *more* correct thing to do — and
-it makes the component unpoolable:
+on 4.3 it made the component unpoolable:
 
 ```
 ValueError: every holding-space component in a ComponentGroup must declare
@@ -256,12 +263,23 @@ register_ranges if any does, but some left it unset
 ```
 
 The SunSpec components have no reason to declare ranges (`scan()` tells them
-what is there). So the choice is: state the map and lose pooling, or drop the
-map and keep it. This library drops it — gap-based planning reaches the same two
-blocks anyway, since 15513→16000 is far wider than `max_gap` — with a comment
-saying why. `require_declared=True` is defensible for a group of like
-components, but a device is heterogeneous by nature: **an undeclared member
-should mean "no constraint", not "conflict"**.
+what is there). So the choice was: state the map and lose pooling, or drop the
+map and keep it. This library dropped it, with a comment saying why.
+
+**[#160](https://github.com/home-assistant-libs/modbus-connection/pull/160)
+resolved it**, and along the lines argued here: an undeclared member now stands
+for the addresses it reads by itself rather than conflicting with a member that
+declared something. `Extensions.register_ranges` states the two runs again.
+
+The change is not free, and it is worth being precise about the cost. A group
+no longer bridges gaps with `max_gap`; it plans against the union of what its
+members declare or claim. That is stricter in the right way — a pooled read can
+no longer wander into addresses nobody claims — but it costs this device one
+extra request. Model 1's last point is a `Pad` the generated component does not
+read, so register 69 sits between M1's claim and M701's and belongs to neither,
+and M1 can no longer join the run behind it. **15 block reads rather than 14.**
+Everything from 70 to 963 is still one merged span. A fair trade for a rule
+that was blocking a correct declaration.
 
 ### 3.6 The nested-count and dynamic-placement gaps
 
@@ -277,9 +295,13 @@ This is issue 156's items 1 and 2. Fully worked, with a prototype — see §4.
   is decided by its counts, it catches a device whose counts differ from the
   ones the components were generated for. That is the exact failure mode the
   static-count approach in §4 is exposed to, and the library detects it for free.
-- **Pooling.** 17 models plus the extension block, one poll, 14 block reads.
+- **Pooling.** 17 models plus the extension block, one poll, 15 block reads.
   Every read view is then free, which changed the shape of the code: the old
   controller re-read a model per accessor.
+- **`resolved_fields` closed the last private-attribute hole** (§2). It arrived
+  as a read-path diagnostic, but what it exposes is exactly what a write needs
+  to know about a field, so the batched-write module went from four private
+  attributes to none.
 - **The per-type unimplemented sentinels, `scale_register` resolving inside the
   pooled block, and shared factors staying put across a repeating block** all
   did the right thing with no adjustment.
@@ -295,7 +317,7 @@ This is issue 156's items 1 and 2. Fully worked, with a prototype — see §4.
 ---
 
 I migrated **[franklinwh-modbus](https://github.com/balloobbot/franklinwh-modbus/tree/migrate-modbus-connection)**
-onto 4.3.0 — the aGate this issue was written from, as a *concrete hardware*
+onto 4.4.0 — the aGate this issue was written from, as a *concrete hardware*
 consumer rather than a generic one. Knowing exactly which models and counts the
 device has turns out to change the answer, so this is a report on what the seven
 blocked models actually need.
@@ -483,15 +505,16 @@ write to a read-only curve *silently appears to succeed*.
 `ActPt` vs `NPt`: confirmed, on all seven models. Both are handled by hand in
 `curves.py`.
 
-### One more, not in the issue
+### One more, not in the issue — since fixed
 
-**A `ComponentGroup` refuses to pool a member that declares `register_ranges`
+**A `ComponentGroup` refused to pool a member that declares `register_ranges`
 with members that do not.** The aGate's manufacturer block at 15500 has a known,
 holey map (15500–15513 and 16000); the SunSpec models have no reason to declare
-anything. Stating the map correctly is what makes the component unpoolable, so
-the library drops it and relies on gap-based planning. `require_declared=True`
-makes sense for like components; a device is heterogeneous by nature, and an
-undeclared member reads more naturally as "no constraint" than as a conflict.
+anything. Stating the map correctly was what made the component unpoolable.
+
+[#160](https://github.com/home-assistant-libs/modbus-connection/pull/160) landed
+in 4.4 and an undeclared member now stands for what it reads by itself, so the
+map is declared again. Costs this device one extra request — see §3.5.
 
 ### Caveat
 
@@ -518,7 +541,7 @@ src/franklinwh_modbus/
   sync.py                blocking facade for the TUI and CLI
 ```
 
-`controller.py` (2210 lines) is deleted. 118 tests run the whole stack against
+`controller.py` (2210 lines) is deleted. 123 tests run the whole stack against
 the reconstructed map, including a mock device that acknowledges writes and
 discards them.
 

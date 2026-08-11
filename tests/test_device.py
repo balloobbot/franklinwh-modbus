@@ -41,10 +41,15 @@ async def test_connect_rejects_a_device_without_the_required_models(
 
 
 async def test_a_poll_is_a_handful_of_reads(agate: AGate, unit: MockModbusUnit) -> None:
-    """Every model plus the extension block, in one pooled pass."""
+    """Every model plus the extension block, in one pooled pass.
+
+    Two of the fifteen are the second pass over the register-counted repeating
+    blocks in M711 and M714, whose extent is not known until the fixed block
+    has been read. See ``test_models`` for why it is fifteen and not fourteen.
+    """
     unit.read_events.clear()
     await agate.async_update()
-    assert len(unit.read_events) <= 14
+    assert len(unit.read_events) <= 15
 
 
 async def test_reads_come_from_the_poll_not_the_wire(

@@ -14,8 +14,10 @@ Two aGate behaviours make this more than a saving:
   than an exception, so a write is only known to have landed once it has been
   read back.
 
-It reaches into ``Component._register_fields`` and ``Component._address``,
-which are private. See MIGRATION-NOTES.md — this belongs upstream.
+Where a field sits comes from ``Component.resolved_fields`` — modbus-connection
+4.4 exposes the read path's resolution (absolute address, scale register, space)
+as public data, so planning a write no longer needs private state. What is still
+missing upstream is the planner itself; see MIGRATION-NOTES.md.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from modbus_connection.decode import decode_int
 
 if TYPE_CHECKING:
-    from modbus_connection.model import Component
+    from modbus_connection.model import Component, ResolvedField
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class _Placed:
 
 
 async def _scale_exponents(
-    unit: Any, entries: list[tuple[Component, str, Any]]
+    unit: Any, placements: list[ResolvedField]
 ) -> dict[int, int | None]:
     """Read every distinct scale register these fields need, once each.
 
@@ -61,11 +63,11 @@ async def _scale_exponents(
     instances all reference the same scale factor in the model's fixed block,
     so writing a whole curve should read it once rather than once per point.
     """
-    addresses = set()
-    for component, name, _ in entries:
-        field = component._register_fields[name]  # noqa: SLF001 — no accessor
-        if field.scale_register is not None:
-            addresses.add(component._scale_address(field))  # noqa: SLF001
+    addresses = {
+        placement.scale_address
+        for placement in placements
+        if placement.scale_address is not None
+    }
     exponents: dict[int, int | None] = {}
     for address in sorted(addresses):
         (word,) = await unit.read_holding_registers(address, 1)
@@ -137,34 +139,39 @@ async def write_across(
     """
     if not entries:
         return
-    units = {id(component._unit): component._unit for component, _, _ in entries}  # noqa: SLF001
+    units = {
+        id(component.modbus_unit): component.modbus_unit
+        for component, _, _ in entries
+    }
     if len(units) > 1:
         raise ValueError("write_across needs every component on one unit")
     unit = next(iter(units.values()))
     max_span = min(component.max_span for component, _, _ in entries)
 
+    placements: list[ResolvedField] = []
     for component, name, _ in entries:
-        fields = component._register_fields  # noqa: SLF001
-        if name not in fields:
+        placement = component.resolved_fields.get(name)
+        if placement is None:
             raise AttributeError(f"unknown field {name!r}")
-        if not fields[name].writable:
+        if not placement.field.writable:
             raise AttributeError(f"{name} is read-only")
+        placements.append(placement)
 
-    exponents = await _scale_exponents(unit, entries)
+    exponents = await _scale_exponents(unit, placements)
     placed: list[_Placed] = []
-    for component, name, value in entries:
-        field = component._register_fields[name]  # noqa: SLF001
+    for placement, (_, name, value) in zip(placements, entries, strict=True):
+        field = placement.field
         if callable(field.writable):
             value = field.writable(value)
         exponent = (
-            exponents[component._scale_address(field)]  # noqa: SLF001
-            if field.scale_register is not None
+            exponents[placement.scale_address]
+            if placement.scale_address is not None
             else None
         )
         placed.append(
             _Placed(
                 name,
-                component._address(field),  # noqa: SLF001
+                placement.address,
                 field.encode(value, exponent),
                 force_fc16=field.force_fc16,
             )

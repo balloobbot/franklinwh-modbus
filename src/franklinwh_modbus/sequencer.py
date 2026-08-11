@@ -128,8 +128,11 @@ class Sequencer:
                 f" {EXTENSION_BASE}; name a SunSpec point as '<model>.<Point>'"
             )
         extensions = self._device.extensions
-        for name, register in extensions.declared_fields.items():
-            if register.address == address:
+        # resolved_fields, not declared_fields: the tag names an absolute
+        # address on the wire, and a declared address is stated before whatever
+        # places the layout.
+        for name, resolved in extensions.resolved_fields.items():
+            if resolved.address == address:
                 return Target(extensions, name, text)
         raise SequenceError(f"address {address} is not a known extension register")
 
