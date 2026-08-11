@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from enum import IntEnum, IntFlag
+from typing import Any
 
 from modbus_connection.model import Component, repeating_group
 from modbus_connection.model.sunspec import (
@@ -24,6 +26,50 @@ from modbus_connection.model.sunspec import (
     uint32,
     uint64,
 )
+
+
+async def write_block(
+    component: Component, group: str, values: Sequence[Mapping[str, Any]]
+) -> None:
+    """Write the leading instances of a repeated block in one request.
+
+    ``values`` holds one mapping per instance, keyed by that instance's field
+    names, and has to set every field of each instance it covers: the write
+    puts a whole run of registers on the wire, so a field left out would be
+    written with a value nobody chose. Instances past ``values`` are untouched.
+
+    Each scale register is read once for the whole block rather than once per
+    field, so a four-point curve costs one write and two reads instead of
+    eight of each.
+    """
+    instances = getattr(component, group)
+    if len(values) > len(instances):
+        raise IndexError(
+            f"{group!r} has {len(instances)} instance(s),"
+            f" got {len(values)} set(s) of values"
+        )
+    targets = [
+        (resolved, mapping[name])
+        for instance, mapping in zip(instances, values, strict=False)
+        for name, resolved in instance.resolved_fields.items()
+    ]
+    targets.sort(key=lambda target: target[0].address)
+
+    unit = component.modbus_unit
+    exponents: dict[int, int] = {}
+    for resolved, _value in targets:
+        address = resolved.scale_address
+        if address is not None and address not in exponents:
+            (word,) = await unit.read_holding_registers(address, 1)
+            exponents[address] = word - 0x10000 if word & 0x8000 else word
+
+    words: list[int] = []
+    for resolved, value in targets:
+        address = resolved.scale_address
+        words += resolved.field.encode(
+            value, None if address is None else exponents[address]
+        )
+    await unit.write_registers(targets[0][0].address, words)
 
 
 class ACWiringType(IntEnum):
@@ -994,11 +1040,43 @@ class DERCtlAC(SunSpecComponent):
 
     pfw_inj = repeating_group(1, DERCtlACPFWInj, stride=2)
 
+    async def write_pfw_inj(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'PFWInj' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        pf, ext. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pfw_inj", values)
+
     pfw_inj_rvrt = repeating_group(1, DERCtlACPFWInjRvrt, stride=2)
+
+    async def write_pfw_inj_rvrt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'PFWInjRvrt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        pf, ext. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pfw_inj_rvrt", values)
 
     pfw_abs = repeating_group(1, DERCtlACPFWAbs, stride=2)
 
+    async def write_pfw_abs(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'PFWAbs' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        pf, ext. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pfw_abs", values)
+
     pfw_abs_rvrt = repeating_group(1, DERCtlACPFWAbsRvrt, stride=2)
+
+    async def write_pfw_abs_rvrt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'PFWAbsRvrt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        pf, ext. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pfw_abs_rvrt", values)
 
 
 class DERVoltVarCrvPt(Component):
@@ -1043,6 +1121,14 @@ class DERVoltVarCrv(Component):
     """Curve Access. Curve read-write access."""
 
     pt = repeating_group(4, DERVoltVarCrvPt, stride=2)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, var. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERVoltVar(SunSpecComponent):
@@ -1102,6 +1188,14 @@ class DERVoltWattCrv(Component):
 
     pt = repeating_group(2, DERVoltWattCrvPt, stride=2)
 
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, w. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+
 
 class DERVoltWatt(SunSpecComponent):
     """SunSpec model 706: DER Volt-Watt."""
@@ -1151,6 +1245,14 @@ class DERTripLVCrvMustTrip(Component):
 
     pt = repeating_group(5, DERTripLVCrvMustTripPt, stride=3)
 
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+
 
 class DERTripLVCrvMayTripPt(Component):
     """One 'Pt' block of SunSpec model 707."""
@@ -1169,6 +1271,14 @@ class DERTripLVCrvMayTrip(Component):
     """Number Of Active Points. Number of active points in may trip curve."""
 
     pt = repeating_group(5, DERTripLVCrvMayTripPt, stride=3)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripLVCrvMomCessPt(Component):
@@ -1189,6 +1299,14 @@ class DERTripLVCrvMomCess(Component):
     curve."""
 
     pt = repeating_group(5, DERTripLVCrvMomCessPt, stride=3)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripLVCrv(Component):
@@ -1243,6 +1361,14 @@ class DERTripHVCrvMustTrip(Component):
 
     pt = repeating_group(5, DERTripHVCrvMustTripPt, stride=3)
 
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+
 
 class DERTripHVCrvMayTripPt(Component):
     """One 'Pt' block of SunSpec model 708."""
@@ -1261,6 +1387,14 @@ class DERTripHVCrvMayTrip(Component):
     """Number Of Active Points. Number of active points in may trip curve."""
 
     pt = repeating_group(5, DERTripHVCrvMayTripPt, stride=3)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripHVCrvMomCessPt(Component):
@@ -1281,6 +1415,14 @@ class DERTripHVCrvMomCess(Component):
     curve."""
 
     pt = repeating_group(5, DERTripHVCrvMomCessPt, stride=3)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        v, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripHVCrv(Component):
@@ -1335,6 +1477,14 @@ class DERTripLFCrvMustTrip(Component):
 
     pt = repeating_group(5, DERTripLFCrvMustTripPt, stride=4)
 
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+
 
 class DERTripLFCrvMayTripPt(Component):
     """One 'Pt' block of SunSpec model 709."""
@@ -1353,6 +1503,14 @@ class DERTripLFCrvMayTrip(Component):
     """Number Of Active Points. Number of active points in may trip curve."""
 
     pt = repeating_group(5, DERTripLFCrvMayTripPt, stride=4)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripLFCrvMomCessPt(Component):
@@ -1373,6 +1531,14 @@ class DERTripLFCrvMomCess(Component):
     curve."""
 
     pt = repeating_group(5, DERTripLFCrvMomCessPt, stride=4)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripLFCrv(Component):
@@ -1427,6 +1593,14 @@ class DERTripHFCrvMustTrip(Component):
 
     pt = repeating_group(5, DERTripHFCrvMustTripPt, stride=4)
 
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
+
 
 class DERTripHFCrvMayTripPt(Component):
     """One 'Pt' block of SunSpec model 710."""
@@ -1445,6 +1619,14 @@ class DERTripHFCrvMayTrip(Component):
     """Number Of Active Points. Number of active points in may trip curve."""
 
     pt = repeating_group(5, DERTripHFCrvMayTripPt, stride=4)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripHFCrvMomCessPt(Component):
@@ -1465,6 +1647,14 @@ class DERTripHFCrvMomCess(Component):
     curve."""
 
     pt = repeating_group(5, DERTripHFCrvMomCessPt, stride=4)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        hz, tms. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERTripHFCrv(Component):
@@ -1586,6 +1776,14 @@ class DERWattVarCrv(Component):
     """Curve Access. Curve read-write access."""
 
     pt = repeating_group(6, DERWattVarCrvPt, stride=2)
+
+    async def write_pt(self, values: Sequence[Mapping[str, Any]]) -> None:
+        """Write consecutive 'Pt' instances in one request.
+
+        Each mapping sets one instance and must set every field:
+        w, var. Instances past ``values`` are untouched.
+        """
+        await write_block(self, "pt", values)
 
 
 class DERWattVar(SunSpecComponent):

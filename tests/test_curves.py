@@ -47,6 +47,37 @@ async def test_a_curve_write_is_three_round_trips(
     assert scale_reads + len(frames) == 4  # vs 17 one field at a time
 
 
+async def test_the_generated_block_writer_plans_the_same_run(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """``write_pt`` reaches the same frame, which is why ``write_curve`` keeps
+    ``write_across``.
+
+    modbus-connection 4.5's generator gives every all-writable repeated block a
+    method that writes it in one FC16, so ``_generated.py`` carries this. It
+    plans what ``write_across`` already found — but it does not verify, takes no
+    ``settle``, and leaves ``ActPt`` alone, so it saves nothing here and drops
+    what this device needs.
+    """
+    curve = agate.model(705).crv[0]
+    frames: list[tuple[int, int, int]] = []
+    unit.on_write(lambda e: frames.append((e.address, len(e.values), e.function_code)))
+    unit.read_events.clear()
+
+    await curve.write_pt(
+        [
+            {"v": 95.0, "var": 30.0},
+            {"v": 98.0, "var": 0.0},
+            {"v": 102.0, "var": 0.0},
+            {"v": 105.0, "var": -30.0},
+        ]
+    )
+
+    assert len(unit.read_events) == 2  # the same two scale factors
+    assert frames == [(388, 8, 16)]  # the same run write_across plans
+    assert unit.holding[378] == 0  # ActPt untouched, unlike write_curve
+
+
 async def test_act_pt_is_written_after_the_points(
     agate: AGate, unit: MockModbusUnit
 ) -> None:

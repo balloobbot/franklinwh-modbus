@@ -2,7 +2,7 @@
 
 This library used to talk to a FranklinWH aGate through **pysunspec2**'s
 synchronous Modbus client, with a hand-assembled raw socket alongside it for
-everything pysunspec2 could not reach. It now talks **modbus-connection 4.4.0**
+everything pysunspec2 could not reach. It now talks **modbus-connection 4.5.0**
 on the **tmodbus** backend, and pysunspec2 is gone from the dependency list
 entirely — its model definitions were consumed once, at generation time.
 
@@ -219,6 +219,18 @@ Two constraints it found that a naive port of `ReadPlan` would get wrong:
 - **Grouping has to express intent, not just adjacency.** This device wants its
   704 control writes *ordered* with the enable register last. An optimiser free
   to reorder or coalesce would break that. The three phases stay three calls.
+
+**Half of this shipped in 4.5.0**, from the other end: the SunSpec *generator*
+now emits a `write_<block>` method for every repeated block whose points are all
+writable, so `_generated.py` carries `crv[0].write_pt(points)` on the 705, 706,
+707–710 and 712 curve blocks and on 704's power-factor blocks. It plans exactly
+the run `write_across` finds — measured on model 705, the same FC16 of 8
+registers at 388 after the same two scale reads.
+
+`write_curve` stays on `write_across` regardless, because the block writer is
+the plan without the guarantees this device needs: it does not verify (3.2), has
+no `settle`, and does not know about `ActPt` (3.4). Adopting it would trade two
+of the three reasons this layer exists for zero saved round trips.
 
 ### 3.2 Nothing verifies a write
 

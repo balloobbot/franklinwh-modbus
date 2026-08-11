@@ -13,7 +13,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "modbus-connection[tmodbus]>=4.4.0",
+    "modbus-connection[tmodbus]>=4.5.0",
 ]
 keywords = ["franklinwh", "battery", "modbus", "sunspec", "energy", "solar"]
 classifiers = [
