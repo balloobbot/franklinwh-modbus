@@ -2,7 +2,7 @@
 
 This library used to talk to a FranklinWH aGate through **pysunspec2**'s
 synchronous Modbus client, with a hand-assembled raw socket alongside it for
-everything pysunspec2 could not reach. It now talks **modbus-connection 4.6.0**
+everything pysunspec2 could not reach. It now talks **modbus-connection 4.6.1**
 on the **tmodbus** backend, and pysunspec2 is gone from the dependency list
 entirely — its model definitions were consumed once, at generation time.
 
