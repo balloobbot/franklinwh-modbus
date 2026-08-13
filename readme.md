@@ -86,7 +86,7 @@ pip install -e ".[dev]"
 
 ## Library Usage
 
-The library is async. One pooled poll feeds every reading.
+The library is async. One poll feeds every reading.
 
 ```python
 import asyncio
@@ -111,6 +111,25 @@ async def main():
 
 asyncio.run(main())
 ```
+
+### A poll that only partly worked
+
+Each SunSpec model and the manufacturer block are read on their own, so one
+busy or refused model does not blank the whole device. `async_update()` returns
+an `UpdateReport` naming what refreshed and what did not:
+
+```python
+report = await agate.async_update()
+if not report.complete:
+    for name, error in report.failed.items():
+        print(f"{name} kept its previous values: {error}")
+```
+
+A failed component keeps the values from its last good read — nothing is
+zeroed, and its update listeners stay quiet, while every other component
+refreshes and notifies as usual. Only a dead link raises: if the device stops
+answering entirely, `async_update()` propagates `ModbusConnectionError` rather
+than reporting a device that silently kept every stale reading.
 
 For synchronous code, `SyncAGate` is the same surface without the `async_`
 prefixes, running the device on a background event loop.
@@ -151,7 +170,7 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 
 | Feature | Description |
 |---------|-------------|
-| **Modbus TCP** | Typed components and pooled block reads via [modbus-connection](https://github.com/home-assistant-libs/modbus-connection) (tmodbus backend) |
+| **Modbus TCP** | Typed components and planned block reads via [modbus-connection](https://github.com/home-assistant-libs/modbus-connection) (tmodbus backend) |
 | **SunSpec Models** | Models 1, 502, 701–715 — the full IEEE 1547 profile, including the 705/706/712 and 707–710 curve models |
 | **Curve control** | Read and write volt-var, volt-watt, watt-var and trip curves; a whole curve is one FC16 |
 | **FranklinWH Extensions** | Registers 15506–15512, 16000 (OnGridMode, reserves, PV energy, hi-res load) |
@@ -170,7 +189,7 @@ python3 franklinwh_cli.py -i YOUR_AGATE_IP --stop
 franklinwh-modbus/
 ├── src/franklinwh_modbus/          # Core library (the package)
 │   ├── models/              # SunSpec components for all 17 models + 15500 block
-│   ├── device.py            # AGate — connect, one pooled poll, control
+│   ├── device.py            # AGate — connect, poll, control
 │   ├── curves.py            # the IEEE 1547 curve models
 │   ├── writing.py           # batched, verified writes
 │   ├── sequencer.py         # scripted read/write sequences
