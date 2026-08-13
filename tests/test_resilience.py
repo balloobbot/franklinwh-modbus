@@ -15,6 +15,7 @@ import pytest
 from modbus_connection import ModbusConnectionError, ModbusTimeoutError
 
 from franklinwh_modbus.device import DEFAULT_UNIT_ID, AGate, AGateError
+from franklinwh_modbus.modes import VirtualModeController
 
 if TYPE_CHECKING:
     from modbus_connection.mock import MockModbusConnection, MockModbusUnit
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 # would break discovery instead of the poll under test.
 M701_W = 80
 M713_SOC = 1037  # scaled by -2, so the device holds hundredths
+M707_POINT = 475  # inside model 707 (465..572), clear of both headers
 
 
 async def test_a_failed_model_leaves_the_rest_fresh(
@@ -88,6 +90,33 @@ async def test_the_extension_block_fails_on_its_own(
     assert set(report.failed) == {"extensions"}
     assert agate.native_mode()["self_reserve_pct"] == before
     assert agate.grid_status()["grid_power_w"] == 250.0  # SunSpec side refreshed
+
+
+async def test_control_refuses_to_command_on_stale_telemetry(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """Containment must not quietly become "drive on last cycle's readings".
+
+    The run loop counts a raising tick as a failure and releases control after
+    five of them. A poll that now contains its failures has to say so, or a
+    dead grid meter would hold whatever setpoint it computed last.
+    """
+    controller = VirtualModeController(agate)
+    unit.fail_read(M701_W, ModbusTimeoutError("slow 701 block"))
+    with pytest.raises(AGateError, match="stale telemetry"):
+        await controller.async_execute_once()
+
+
+async def test_control_still_runs_when_a_trip_curve_model_is_slow(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """Model 707 is configuration; no calculator reads it, so a tick proceeds."""
+    unit.fail_read(M707_POINT, ModbusTimeoutError("slow 707 block"))
+    assert set((await agate.async_update()).failed) == {"model_707"}
+
+    controller = VirtualModeController(agate)
+    await controller.async_execute_once()
+    assert agate.control_status()["wset_enabled"] == 1
 
 
 async def test_a_refused_model_does_not_stop_the_first_poll(

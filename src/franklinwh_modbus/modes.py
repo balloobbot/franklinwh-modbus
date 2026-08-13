@@ -24,6 +24,7 @@ import signal
 import time
 from typing import TYPE_CHECKING, Any
 
+from .device import AGateError
 from .schedule import TOUSchedule
 from .types import BatteryCommand, ControlMode, VirtualMode
 
@@ -46,6 +47,24 @@ SANITY_CHECK_INTERVAL_S = 30.0
 #: Absolute SOC bounds, below/above which no charge/discharge is issued at all.
 SOC_HARD_MAX = 99.5
 SOC_HARD_MIN = 0.5
+
+#: The poll components a setpoint is computed from. A tick used to be skipped
+#: whenever any read failed, because the poll raised as a whole; now that a
+#: poll contains its failures, the control path has to refuse for itself rather
+#: than drive the battery from a reading it did not just take. The trip-curve
+#: models are not in here — they are configuration, and no calculator reads
+#: them, so a slow one no longer stops control.
+_CONTROL_INPUTS = frozenset(
+    {
+        "model_502",
+        "model_701",
+        "model_704",
+        "model_713",
+        "model_714",
+        "model_715",
+        "extensions",
+    }
+)
 
 
 class VirtualModeController:
@@ -403,8 +422,14 @@ class VirtualModeController:
         return difference <= tolerance_percent, commanded, actual, difference
 
     async def async_execute_once(self) -> float:
-        """Recompute and write the setpoint once; returns the watts sent."""
-        await self.device.async_update()
+        """Recompute and write the setpoint once; returns the watts sent.
+
+        Raises ``AGateError`` if the poll left any of the readings the setpoint
+        is computed from stale, which the run loop counts as a failed tick.
+        """
+        report = await self.device.async_update()
+        if stale := sorted(_CONTROL_INPUTS.intersection(report.failed)):
+            raise AGateError(f"not commanding on stale telemetry: {stale}")
         power = self.calculate_power()
         await self.device.async_send_command(
             BatteryCommand(power_watts=power, mode=ControlMode.LIMIT_ABS)
