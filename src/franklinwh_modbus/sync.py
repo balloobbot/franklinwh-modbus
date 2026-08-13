@@ -95,6 +95,10 @@ class SyncAGate:
         """Refresh every component, reporting which ones came back."""
         return self._run(self._device.async_update())
 
+    def read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics."""
+        return self._run(self._device.async_read_raw())
+
     # -- reads (all served from the last update) ------------------------------
 
     @property

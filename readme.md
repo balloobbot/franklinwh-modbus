@@ -131,6 +131,22 @@ refreshes and notifies as usual. Only a dead link raises: if the device stops
 answering entirely, `async_update()` propagates `ModbusConnectionError` rather
 than reporting a device that silently kept every stale reading.
 
+### The raw register map
+
+`async_read_raw()` re-reads every register the device polls and returns it
+undecoded, keyed by address space and absolute address — the SunSpec models,
+including the identity block, and the manufacturer registers. It is what to
+attach to a bug report.
+
+```python
+raw = await agate.async_read_raw()
+print(raw["holding"][15507])  # the on-grid mode register, exactly as it reads
+```
+
+A component that will not answer is left out rather than failing the dump: a
+device that is misbehaving is exactly when the dump is worth having. Only a
+dead link raises.
+
 For synchronous code, `SyncAGate` is the same surface without the `async_`
 prefixes, running the device on a background event loop.
 

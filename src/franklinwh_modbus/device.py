@@ -247,6 +247,30 @@ class AGate:
             self._polled[name].notify()
         return UpdateReport(updated, failed)
 
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics.
+
+        Keyed by address space and absolute address, which is what a bug report
+        wants attached and what the mock backend replays. A component that will
+        not answer is left out rather than failing the whole dump: a device
+        that is misbehaving is exactly when the dump is worth having. A dead
+        link still raises ``ModbusConnectionError``.
+        """
+        if self._polled is None:
+            raise AGateError("not connected")
+        raw: dict[str, dict[int, int | bool]] = {}
+        for name, component in self._polled.items():
+            try:
+                read = await component.async_read_raw()
+            except ModbusConnectionError:
+                raise
+            except (ModbusError, SunSpecMapShiftError) as err:
+                _LOGGER.debug("%s is not in the raw dump: %s", name, err)
+                continue
+            for space, values in read.items():
+                raw.setdefault(space, {}).update(values)
+        return raw
+
     # -- telemetry ------------------------------------------------------------
 
     def nameplate(self) -> dict[str, str]:

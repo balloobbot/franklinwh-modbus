@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 
 # Absolute addresses on this device, from tests/test_register_map.py's chain.
+M1_SN = 2 + 50  # the serial number, inside model 1 at the head of the chain
 M701_ALRM = 70 + 6  # bitfield32, so the low word is at +1
 M704_WSET_ENA = 318
 M704_WSET_MOD = 319
@@ -179,6 +180,35 @@ async def test_a_blocking_alarm_refuses_control(
     assert not can_control
     with pytest.raises(AGateError, match="alarms are active"):
         await agate.async_send_command(BatteryCommand(power_watts=1000))
+
+
+# -- raw dump ----------------------------------------------------------------
+
+
+async def test_the_raw_dump_covers_every_component(agate: AGate) -> None:
+    """Every model's header, the identity block and the extensions are in it."""
+    raw = await agate.async_read_raw()
+
+    assert set(raw) == {"holding"}
+    holding = raw["holding"]
+    for address, _length in walk_chain().values():
+        assert address in holding, f"no model header at {address}"
+    assert M1_SN in holding  # identity, read from model 1
+    assert EXTENSION_BASE in holding  # the manufacturer block
+
+
+async def test_the_raw_dump_reads_the_device_rather_than_the_last_poll(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """It is downloaded to see what the device holds now, so it goes to the wire."""
+    unit.holding[M704_WSET_PCT] = 1234
+
+    assert (await agate.async_read_raw())["holding"][M704_WSET_PCT] == 1234
+
+
+async def test_the_raw_dump_needs_a_connected_device() -> None:
+    with pytest.raises(AGateError, match="not connected"):
+        await AGate("mock-host").async_read_raw()
 
 
 # -- writes ------------------------------------------------------------------

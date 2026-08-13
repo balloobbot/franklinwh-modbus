@@ -92,6 +92,30 @@ async def test_the_extension_block_fails_on_its_own(
     assert agate.grid_status()["grid_power_w"] == 250.0  # SunSpec side refreshed
 
 
+async def test_the_raw_dump_leaves_out_a_model_that_will_not_answer(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """A dump is downloaded for a device that is misbehaving, so it survives one.
+
+    All-or-nothing would lose the whole map to the one model the bug report is
+    about.
+    """
+    unit.fail_read(M701_W, ModbusTimeoutError("slow 701 block"))
+
+    holding = (await agate.async_read_raw())["holding"]
+
+    assert M701_W not in holding
+    assert M713_SOC in holding
+
+
+async def test_the_raw_dump_still_raises_on_a_dead_link(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    unit.fail_requests(ModbusConnectionError("link down"))
+    with pytest.raises(ModbusConnectionError):
+        await agate.async_read_raw()
+
+
 async def test_control_refuses_to_command_on_stale_telemetry(
     agate: AGate, unit: MockModbusUnit
 ) -> None:
