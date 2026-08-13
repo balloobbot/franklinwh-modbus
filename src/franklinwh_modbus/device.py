@@ -1,19 +1,20 @@
 """The aGate as one connected device.
 
-Everything the library reads comes from a single pooled poll: the SunSpec
-models and the FranklinWH extension block are members of one ``ComponentGroup``,
-so ``async_update()`` is a handful of block reads and every view below is
+Everything the library reads comes from one poll: the SunSpec models and the
+FranklinWH extension block are each read in turn, and every view below is
 computed from what that poll left behind rather than going back to the wire.
+A model that refuses or times out keeps its previous values while the rest of
+the device still refreshes — see :class:`UpdateReport`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from modbus_connection import ModbusTcpParams
-from modbus_connection.model import ComponentGroup
+from modbus_connection import ModbusConnectionError, ModbusError, ModbusTcpParams
 from modbus_connection.model.sunspec import SunSpecMapShiftError, scan
 from modbus_connection.tmodbus import ModbusConnection
 
@@ -74,6 +75,26 @@ class AGateError(Exception):
     """The device is not usable for what was asked of it."""
 
 
+@dataclass(frozen=True)
+class UpdateReport:
+    """What one poll refreshed, by component name.
+
+    The SunSpec models are named ``model_<id>`` — ``model_701``, ``model_713``
+    — and the manufacturer block ``extensions``. A failed component kept its
+    previous values and did not notify; the error that failed it rides along.
+    A dead link is never in here: the update raises ``ModbusConnectionError``
+    instead of reporting partial silence.
+    """
+
+    updated: set[str]
+    failed: dict[str, ModbusError]
+
+    @property
+    def complete(self) -> bool:
+        """Whether every polled component refreshed."""
+        return not self.failed
+
+
 def _value(raw: Any) -> Any:
     """Unwrap an ``IntEnum``/``IntFlag`` decode back to a plain number."""
     return int(raw) if isinstance(raw, int) else raw
@@ -113,7 +134,8 @@ class AGate:
         self._unit: ModbusUnit | None = None
         self._models: dict[int, SunSpecComponent] = {}
         self._extensions: Extensions | None = None
-        self._group: ComponentGroup | None = None
+        #: Every component a poll reads, in read order; ``None`` until connected.
+        self._polled: dict[str, Component] | None = None
         self._command_timer: asyncio.Task[None] | None = None
         self._extensions_writable: bool | None = None
 
@@ -168,9 +190,12 @@ class AGate:
             raise AGateError(f"device is missing required model(s): {missing}")
 
         self._extensions = Extensions(self._unit)
-        self._group = ComponentGroup(
-            self._unit, [*self._models.values(), self._extensions]
-        )
+        polled: dict[str, Component] = {
+            f"model_{model_id}": component
+            for model_id, component in self._models.items()
+        }
+        polled["extensions"] = self._extensions
+        self._polled = polled
         await self.async_update()
 
     async def async_disconnect(self) -> None:
@@ -183,24 +208,44 @@ class AGate:
         self.cancel_command_timer()
         await self._connection.close()
 
-    async def async_update(self) -> None:
-        """Refresh every component in one pooled read.
+    async def async_update(self) -> UpdateReport:
+        """Refresh every component, one at a time, and report what came back.
+
+        A model whose read fails keeps its previous values while the rest of
+        the device still refreshes; listeners fire only after every component
+        has been tried, and only for the ones that refreshed. A failure of the
+        link itself raises ``ModbusConnectionError`` rather than reporting.
 
         Raises ``AGateError`` if the model chain has moved under us — which on
         this device also means the curve models' counts have changed, since the
-        components were generated against a specific set of them.
+        components were generated against a specific set of them. That is not
+        contained per component: once a header moves, every model after it in
+        the chain is being read at the wrong address.
         """
-        if self._group is None:
+        if self._polled is None:
             raise AGateError("not connected")
-        try:
-            await self._group.async_update()
-        except SunSpecMapShiftError as err:
-            raise AGateError(
-                f"{err}. The components are generated for a specific firmware's"
-                " layout; a model whose length no longer matches usually means"
-                " the device reports different curve counts (NPt / NCrv /"
-                " NCrvSet) than the ones this build was generated for"
-            ) from err
+        updated: set[str] = set()
+        failed: dict[str, ModbusError] = {}
+        for name, component in self._polled.items():
+            try:
+                await component.async_update(notify=False)
+            except ModbusConnectionError:
+                raise
+            except ModbusError as err:
+                _LOGGER.debug("%s did not refresh: %s", name, err)
+                failed[name] = err
+            except SunSpecMapShiftError as err:
+                raise AGateError(
+                    f"{err}. The components are generated for a specific firmware's"
+                    " layout; a model whose length no longer matches usually means"
+                    " the device reports different curve counts (NPt / NCrv /"
+                    " NCrvSet) than the ones this build was generated for"
+                ) from err
+            else:
+                updated.add(name)
+        for name in updated:
+            self._polled[name].notify()
+        return UpdateReport(updated, failed)
 
     # -- telemetry ------------------------------------------------------------
 

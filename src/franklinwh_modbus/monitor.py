@@ -409,7 +409,7 @@ class CLIMonitor:
             return False
             
         try:
-            # One pooled poll; every view below reads from what it left behind.
+            # One poll; every view below reads from what it left behind.
             self.controller.update()
             battery = self.controller.battery_status()
             grid = self.controller.grid_status()

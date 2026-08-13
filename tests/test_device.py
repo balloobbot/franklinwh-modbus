@@ -1,4 +1,4 @@
-"""Drive the whole device: one pooled poll, then reads and verified writes."""
+"""Drive the whole device: one poll, then reads and verified writes."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from franklinwh_modbus.device import AGate, AGateError
-from franklinwh_modbus.models.extensions import OnGridMode
+from franklinwh_modbus.models.extensions import EXTENSION_BASE, OnGridMode
 from franklinwh_modbus.types import BatteryCommand
 from franklinwh_modbus.writing import WriteRejected
+
+from .test_register_map import walk_chain
 
 if TYPE_CHECKING:
     from modbus_connection.mock import MockModbusConnection, MockModbusUnit
@@ -40,19 +42,44 @@ async def test_connect_rejects_a_device_without_the_required_models(
         await device.async_connect()
 
 
-async def test_a_poll_is_a_handful_of_reads(agate: AGate, unit: MockModbusUnit) -> None:
-    """Every model plus the extension block, in one pooled pass.
+async def test_a_poll_reads_every_model_inside_its_own_block(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """Twenty-two reads, each of them contained in one model's block.
 
-    No second pass in steady state: the counts of M711's and M714's
-    register-counted repeating blocks are known from the first poll, so from
-    modbus-connection 4.6 their instances ride in the main plan and everything
-    from M711's fixed block to the end of the chain is one span, chunked only
-    by the 125-register Modbus ceiling. The first poll still takes fifteen —
-    see ``test_models`` for its thirteen.
+    It was twelve while every component shared one pooled plan, which chunked
+    the whole chain into 125-register spans wherever the model boundaries
+    happened to fall. Containment wants the opposite: a read crossing a
+    boundary takes two models down together, so each component now plans its
+    own reads within its own block. That is what the ten extra round trips
+    buy — see ``test_resilience``.
+
+    Still no second pass: the counts of M711's and M714's register-counted
+    repeating blocks are known from the first poll, so from modbus-connection
+    4.6 their instances ride in their component's own plan.
     """
     unit.read_events.clear()
-    await agate.async_update()
-    assert len(unit.read_events) <= 12
+    report = await agate.async_update()
+    assert report.complete
+    assert len(unit.read_events) == 22
+
+    blocks = {
+        model_id: (address, address + 1 + length)
+        for model_id, (address, length) in walk_chain().items()
+    }
+    covered = set()
+    for event in unit.read_events:
+        if event.address >= EXTENSION_BASE:
+            continue  # the manufacturer block is outside the chain
+        owners = [m for m, (lo, hi) in blocks.items() if lo <= event.address <= hi]
+        assert len(owners) == 1, f"read at {event.address} starts in no model"
+        end = blocks[owners[0]][1]
+        assert event.address + event.count - 1 <= end, (
+            f"a read of {event.count} from {event.address} runs past model "
+            f"{owners[0]}, whose block ends at {end}"
+        )
+        covered.add(owners[0])
+    assert covered == set(agate.models)  # no model silently dropped
 
 
 async def test_reads_come_from_the_poll_not_the_wire(

@@ -21,6 +21,7 @@ from .device import AGate
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+    from .device import UpdateReport
     from .models.extensions import Extensions, OnGridMode
     from .types import BatteryCommand, HealthStatus
 
@@ -90,9 +91,9 @@ class SyncAGate:
     def __exit__(self, *exception: object) -> None:
         self.close()
 
-    def update(self) -> None:
-        """Refresh every component in one pooled read."""
-        self._run(self._device.async_update())
+    def update(self) -> UpdateReport:
+        """Refresh every component, reporting which ones came back."""
+        return self._run(self._device.async_update())
 
     # -- reads (all served from the last update) ------------------------------
 

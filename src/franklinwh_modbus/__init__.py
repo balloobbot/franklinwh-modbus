@@ -3,8 +3,8 @@
 The aGate speaks the SunSpec IEEE 1547 profile — models 1, 502 and 701-715 —
 plus a block of manufacturer registers at 15500. All of it is reached through
 `modbus-connection <https://github.com/home-assistant-libs/modbus-connection>`_,
-whose typed components and pooled reads replace the pysunspec2 client this
-library used to drive.
+whose typed components and planned block reads replace the pysunspec2 client
+this library used to drive.
 
 Example::
 
@@ -27,7 +27,7 @@ Example::
 from __future__ import annotations
 
 from .curves import CurveError, CurvePoint, read_curve, read_trip_curve, write_curve
-from .device import AGate, AGateError
+from .device import AGate, AGateError, UpdateReport
 from .models import MODELS
 from .models.extensions import Extensions, OnGridMode
 from .modes import VirtualModeController, run_with_signal_handling
@@ -71,6 +71,7 @@ __all__ = [
     "SyncAGate",
     "TOUSchedule",
     "TransitionValidationError",
+    "UpdateReport",
     "VirtualMode",
     "VirtualModeController",
     "WriteRejected",
