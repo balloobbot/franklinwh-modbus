@@ -255,13 +255,15 @@ class AGate:
         not answer is left out rather than failing the whole dump: a device
         that is misbehaving is exactly when the dump is worth having. A dead
         link still raises ``ModbusConnectionError``.
+
+        The fields refresh but no listener fires: a download is not a poll.
         """
         if self._polled is None:
             raise AGateError("not connected")
         raw: dict[str, dict[int, int | bool]] = {}
         for name, component in self._polled.items():
             try:
-                read = await component.async_read_raw()
+                read = await component.async_read_raw(notify=False)
             except ModbusConnectionError:
                 raise
             except (ModbusError, SunSpecMapShiftError) as err:

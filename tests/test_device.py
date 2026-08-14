@@ -206,6 +206,17 @@ async def test_the_raw_dump_reads_the_device_rather_than_the_last_poll(
     assert (await agate.async_read_raw())["holding"][M704_WSET_PCT] == 1234
 
 
+async def test_the_raw_dump_does_not_fire_update_listeners(agate: AGate) -> None:
+    """A download is not a poll, so nothing downstream writes a state for it."""
+    fired: list[str] = []
+    for name, component in agate._polled.items():
+        component.add_update_listener(lambda n=name: fired.append(n))
+
+    await agate.async_read_raw()
+
+    assert fired == []
+
+
 async def test_the_raw_dump_needs_a_connected_device() -> None:
     with pytest.raises(AGateError, match="not connected"):
         await AGate("mock-host").async_read_raw()
