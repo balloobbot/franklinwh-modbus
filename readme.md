@@ -127,9 +127,12 @@ if not report.complete:
 
 A failed component keeps the values from its last good read — nothing is
 zeroed, and its update listeners stay quiet, while every other component
-refreshes and notifies as usual. Only a dead link raises: if the device stops
-answering entirely, `async_update()` propagates `ModbusConnectionError` rather
-than reporting a device that silently kept every stale reading.
+refreshes and notifies as usual. A device that answers nothing at all raises
+instead: `async_update()` propagates `ModbusConnectionError` when the link is
+down, and `ModbusTimeoutError` when the very first component times out — with
+nothing refreshed and nothing refused, the device is silent, and walking the
+remaining seventeen would only pay a full timeout apiece to learn the same
+thing.
 
 ### The raw register map
 

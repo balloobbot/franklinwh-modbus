@@ -3,8 +3,9 @@
 Everything the library reads comes from one poll: the SunSpec models and the
 FranklinWH extension block are each read in turn, and every view below is
 computed from what that poll left behind rather than going back to the wire.
-A model that refuses or times out keeps its previous values while the rest of
-the device still refreshes — see :class:`UpdateReport`.
+A model that refuses, or times out once something has answered, keeps its
+previous values while the rest of the device still refreshes — see
+:class:`UpdateReport`.
 """
 
 from __future__ import annotations
@@ -14,7 +15,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from modbus_connection import ModbusConnectionError, ModbusError, ModbusTcpParams
+from modbus_connection import (
+    ModbusConnectionError,
+    ModbusError,
+    ModbusTcpParams,
+    ModbusTimeoutError,
+)
 from modbus_connection.model.sunspec import SunSpecMapShiftError, scan
 from modbus_connection.tmodbus import ModbusConnection
 
@@ -83,7 +89,8 @@ class UpdateReport:
     — and the manufacturer block ``extensions``. A failed component kept its
     previous values and did not notify; the error that failed it rides along.
     A dead link is never in here: the update raises ``ModbusConnectionError``
-    instead of reporting partial silence.
+    instead of reporting partial silence, and so is a device that answered
+    nothing at all, which raises ``ModbusTimeoutError``.
     """
 
     updated: set[str]
@@ -214,7 +221,10 @@ class AGate:
         A model whose read fails keeps its previous values while the rest of
         the device still refreshes; listeners fire only after every component
         has been tried, and only for the ones that refreshed. A failure of the
-        link itself raises ``ModbusConnectionError`` rather than reporting.
+        link itself raises ``ModbusConnectionError`` rather than reporting, as
+        does a timeout on the first component: nothing has answered yet, so the
+        device is silent and the remaining seventeen would each pay the full
+        timeout to learn the same thing.
 
         Raises ``AGateError`` if the model chain has moved under us — which on
         this device also means the curve models' counts have changed, since the
@@ -231,6 +241,11 @@ class AGate:
                 await component.async_update(notify=False)
             except ModbusConnectionError:
                 raise
+            except ModbusTimeoutError as err:
+                if not updated and not failed:
+                    raise  # the first block timed out: assume the rest do too
+                _LOGGER.debug("%s did not refresh: %s", name, err)
+                failed[name] = err
             except ModbusError as err:
                 _LOGGER.debug("%s did not refresh: %s", name, err)
                 failed[name] = err
