@@ -83,6 +83,35 @@ async def test_a_poll_reads_every_model_inside_its_own_block(
     assert covered == set(agate.models)  # no model silently dropped
 
 
+async def test_readings_and_settings_poll_their_own_components(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """Neither method reads a register the other one owns.
+
+    Seven of the twenty-two blocks are what the aGate measures; the other
+    fifteen are the nameplate, the ratings and the grid-support settings —
+    884 of the 1138 registers a full poll reads, which a caller polling every
+    few seconds should not be paying for.
+    """
+    unit.read_events.clear()
+    readings = await agate.async_update_readings()
+    measured = [(event.address, event.count) for event in unit.read_events]
+
+    unit.read_events.clear()
+    settings = await agate.async_update_settings()
+    configured = [(event.address, event.count) for event in unit.read_events]
+
+    assert readings.updated == {"model_502", "model_701", "model_713", "model_714", "extensions"}
+    assert settings.updated == {
+        f"model_{model_id}" for model_id in agate.models
+    } - readings.updated
+    assert len(measured) == 7
+    assert sum(count for _, count in measured) == 254
+    assert len(configured) == 15
+    assert sum(count for _, count in configured) == 884
+    assert not set(measured) & set(configured)
+
+
 async def test_reads_come_from_the_poll_not_the_wire(
     agate: AGate, unit: MockModbusUnit
 ) -> None:
@@ -209,7 +238,7 @@ async def test_the_raw_dump_reads_the_device_rather_than_the_last_poll(
 async def test_the_raw_dump_does_not_fire_update_listeners(agate: AGate) -> None:
     """A download is not a poll, so nothing downstream writes a state for it."""
     fired: list[str] = []
-    for name, component in agate._polled.items():
+    for name, component in (*agate._readings.items(), *agate._settings.items()):
         component.add_update_listener(lambda n=name: fired.append(n))
 
     await agate.async_read_raw()

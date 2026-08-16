@@ -95,6 +95,14 @@ class SyncAGate:
         """Refresh every component, reporting which ones came back."""
         return self._run(self._device.async_update())
 
+    def update_readings(self) -> UpdateReport:
+        """Refresh only what the aGate measures."""
+        return self._run(self._device.async_update_readings())
+
+    def update_settings(self) -> UpdateReport:
+        """Refresh only what the aGate has been configured to do."""
+        return self._run(self._device.async_update_settings())
+
     def read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics."""
         return self._run(self._device.async_read_raw())

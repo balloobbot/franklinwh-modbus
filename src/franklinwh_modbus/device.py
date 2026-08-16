@@ -1,11 +1,16 @@
 """The aGate as one connected device.
 
-Everything the library reads comes from one poll: the SunSpec models and the
+Everything the library reads comes from a poll: the SunSpec models and the
 FranklinWH extension block are each read in turn, and every view below is
 computed from what that poll left behind rather than going back to the wire.
 A model that refuses, or times out once something has answered, keeps its
 previous values while the rest of the device still refreshes — see
 :class:`UpdateReport`.
+
+What the aGate measures and what it has been configured to do are read by
+separate methods, ``async_update_readings()`` and ``async_update_settings()``,
+so a caller need not pay for the grid-support curves every cycle.
+``async_update()`` does both.
 """
 
 from __future__ import annotations
@@ -38,6 +43,12 @@ _LOGGER = logging.getLogger(__name__)
 
 #: Without these the library cannot do its job: telemetry, battery and control.
 REQUIRED_MODELS = (701, 704, 713)
+
+#: The models that carry what the device measures. Everything else in the chain
+#: is nameplate, ratings, grid-support settings or control — none of it moves
+#: unless something writes it. Model 715's heartbeat does tick on its own, but
+#: no view reads it, and the rest of the model is control state.
+MEASURED_MODELS = (502, 701, 713, 714)
 
 #: The aGate answers its whole map from address 0 and returns
 #: ILLEGAL_DATA_ADDRESS at 40000, so 0 is the base rather than a legacy quirk.
@@ -90,7 +101,8 @@ class UpdateReport:
     previous values and did not notify; the error that failed it rides along.
     A dead link is never in here: the update raises ``ModbusConnectionError``
     instead of reporting partial silence, and so is a device that answered
-    nothing at all, which raises ``ModbusTimeoutError``.
+    nothing at all, which raises ``ModbusTimeoutError``. A report names only
+    the components the method it came from polls.
     """
 
     updated: set[str]
@@ -141,8 +153,10 @@ class AGate:
         self._unit: ModbusUnit | None = None
         self._models: dict[int, SunSpecComponent] = {}
         self._extensions: Extensions | None = None
-        #: Every component a poll reads, in read order; ``None`` until connected.
-        self._polled: dict[str, Component] | None = None
+        #: The components each update method reads, in read order; ``None``
+        #: until connected.
+        self._readings: dict[str, Component] | None = None
+        self._settings: dict[str, Component] | None = None
         self._command_timer: asyncio.Task[None] | None = None
         self._extensions_writable: bool | None = None
 
@@ -197,12 +211,20 @@ class AGate:
             raise AGateError(f"device is missing required model(s): {missing}")
 
         self._extensions = Extensions(self._unit)
-        polled: dict[str, Component] = {
+        # The extension block is mostly telemetry; the mode and the two reserves
+        # ride in the same fourteen registers and cannot be read apart, so they
+        # refresh with the readings rather than earning a block of their own.
+        self._readings = {
             f"model_{model_id}": component
             for model_id, component in self._models.items()
+            if model_id in MEASURED_MODELS
         }
-        polled["extensions"] = self._extensions
-        self._polled = polled
+        self._readings["extensions"] = self._extensions
+        self._settings = {
+            f"model_{model_id}": component
+            for model_id, component in self._models.items()
+            if model_id not in MEASURED_MODELS
+        }
         await self.async_update()
 
     async def async_disconnect(self) -> None:
@@ -215,16 +237,49 @@ class AGate:
         self.cancel_command_timer()
         await self._connection.close()
 
+    async def async_update_readings(self) -> UpdateReport:
+        """Refresh what the aGate measures: AC and DC power, energy, SOC.
+
+        Seven blocks and 254 registers, against the twenty-two blocks and 1138
+        registers a full poll costs.
+        """
+        if self._readings is None:
+            raise AGateError("not connected")
+        return await self._async_poll(self._readings, UpdateReport(set(), {}))
+
+    async def async_update_settings(self) -> UpdateReport:
+        """Refresh what the aGate has been told to do: ratings, curves, control.
+
+        The nameplate, the DER capacity ratings, the enter-service and
+        grid-support settings, the active power setpoint and the control model.
+        None of it changes unless something writes it, so a caller polls it
+        rarely — and straight after a write, to see what took effect.
+        """
+        if self._settings is None:
+            raise AGateError("not connected")
+        return await self._async_poll(self._settings, UpdateReport(set(), {}))
+
     async def async_update(self) -> UpdateReport:
-        """Refresh every component, one at a time, and report what came back.
+        """Refresh readings and settings together, in one report.
+
+        For a caller that does not want to schedule the two apart.
+        """
+        report = await self.async_update_readings()
+        assert self._settings is not None  # the readings poll checked it
+        return await self._async_poll(self._settings, report)
+
+    async def _async_poll(
+        self, units: dict[str, Component], report: UpdateReport
+    ) -> UpdateReport:
+        """Read each component on its own, adding what happened to ``report``.
 
         A model whose read fails keeps its previous values while the rest of
         the device still refreshes; listeners fire only after every component
-        has been tried, and only for the ones that refreshed. A failure of the
-        link itself raises ``ModbusConnectionError`` rather than reporting, as
-        does a timeout on the first component: nothing has answered yet, so the
-        device is silent and the remaining seventeen would each pay the full
-        timeout to learn the same thing.
+        of this poll has been tried, and only for the ones that refreshed. A
+        failure of the link itself raises ``ModbusConnectionError`` rather than
+        reporting, as does a timeout with nothing answered yet: the device is
+        silent, and walking the rest would each pay the full timeout to learn
+        the same thing.
 
         Raises ``AGateError`` if the model chain has moved under us — which on
         this device also means the curve models' counts have changed, since the
@@ -232,23 +287,19 @@ class AGate:
         contained per component: once a header moves, every model after it in
         the chain is being read at the wrong address.
         """
-        if self._polled is None:
-            raise AGateError("not connected")
-        updated: set[str] = set()
-        failed: dict[str, ModbusError] = {}
-        for name, component in self._polled.items():
+        for name, component in units.items():
             try:
                 await component.async_update(notify=False)
             except ModbusConnectionError:
                 raise
             except ModbusTimeoutError as err:
-                if not updated and not failed:
-                    raise  # the first block timed out: assume the rest do too
+                if not report.updated and not report.failed:
+                    raise  # nothing answered: assume the rest time out too
                 _LOGGER.debug("%s did not refresh: %s", name, err)
-                failed[name] = err
+                report.failed[name] = err
             except ModbusError as err:
                 _LOGGER.debug("%s did not refresh: %s", name, err)
-                failed[name] = err
+                report.failed[name] = err
             except SunSpecMapShiftError as err:
                 raise AGateError(
                     f"{err}. The components are generated for a specific firmware's"
@@ -257,10 +308,11 @@ class AGate:
                     " NCrvSet) than the ones this build was generated for"
                 ) from err
             else:
-                updated.add(name)
-        for name in updated:
-            self._polled[name].notify()
-        return UpdateReport(updated, failed)
+                report.updated.add(name)
+        for name, component in units.items():
+            if name in report.updated:
+                component.notify()
+        return report
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics.
@@ -273,10 +325,10 @@ class AGate:
 
         The fields refresh but no listener fires: a download is not a poll.
         """
-        if self._polled is None:
+        if self._readings is None or self._settings is None:
             raise AGateError("not connected")
         raw: dict[str, dict[int, int | bool]] = {}
-        for name, component in self._polled.items():
+        for name, component in (*self._readings.items(), *self._settings.items()):
             try:
                 read = await component.async_read_raw(notify=False)
             except ModbusConnectionError:

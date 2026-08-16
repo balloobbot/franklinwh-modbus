@@ -134,6 +134,32 @@ nothing refreshed and nothing refused, the device is silent, and walking the
 remaining seventeen would only pay a full timeout apiece to learn the same
 thing.
 
+### Reading settings apart from measurements
+
+Only five of the eighteen components are things the aGate measures. The
+nameplate, the DER capacity ratings, the enter-service and grid-support
+settings (models 705–712), the active power setpoint and the control model all
+change when something writes them, not on their own — 884 of the 1138
+registers a full poll reads, in fifteen of its twenty-two blocks. They are
+their own poll, so a caller need not pay for them every cycle:
+
+```python
+await agate.async_update_readings()  # every cycle
+await agate.async_update_settings()  # rarely, and after a write
+
+await agate.async_send_command(BatteryCommand(power_watts=3000))
+await agate.async_update_settings()  # read back what took effect
+```
+
+`async_update()` does both and reports them together, for a caller that does
+not want to schedule them apart. Every method returns an `UpdateReport` naming
+only what it polls, and listeners fire at the end of the poll that read them,
+so a settings poll does not hold up the measurements.
+
+The manufacturer block is the one component that carries both: the operating
+mode and the two SOC reserves sit in the same fourteen registers as the PV and
+load telemetry and cannot be read apart, so they refresh with the readings.
+
 ### The raw register map
 
 `async_read_raw()` re-reads every register the device polls and returns it

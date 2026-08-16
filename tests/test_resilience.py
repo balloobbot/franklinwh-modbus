@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 # Documented in SUNSPEC_MODEL_REFERENCE.md. A failure is aimed at a data point
 # rather than a model header: the chain walk reads the headers, so failing one
 # would break discovery instead of the poll under test.
-M1_MD = 20  # inside model 1, the first component polled
+M1_MD = 20  # inside model 1, the first component the settings poll reads
+M502_STAT = 1100  # inside model 502, the first component the readings poll reads
 M701_W = 80
 M713_SOC = 1037  # scaled by -2, so the device holds hundredths
 M707_POINT = 475  # inside model 707 (465..572), clear of both headers
@@ -58,9 +59,13 @@ async def test_listeners_fire_at_the_end_and_only_for_fresh_components(
     unit.read_events.clear()
     await agate.async_update()
 
-    # Model 713 is read before 714, 715 and the extensions, so a notification
-    # fired inline would have seen fewer reads than the poll ended with.
-    assert seen == [len(unit.read_events)]
+    # Model 713 is read before 714 and the extensions, so a notification fired
+    # inline would have seen fewer reads than the readings ended with. The
+    # settings that follow are their own poll and do not hold it up.
+    settings_start = next(
+        i for i, event in enumerate(unit.read_events) if event.address == 2
+    )
+    assert seen == [settings_start]
 
 
 async def test_a_timeout_on_the_first_component_raises(
@@ -72,13 +77,30 @@ async def test_a_timeout_on_the_first_component_raises(
     behind it says nothing. Containing that would walk all eighteen components
     and pay a full timeout each for one poll.
     """
-    unit.fail_read(M1_MD, ModbusTimeoutError("silent device"))
+    unit.fail_read(M502_STAT, ModbusTimeoutError("silent device"))
     unit.read_events.clear()
 
     with pytest.raises(ModbusTimeoutError):
         await agate.async_update()
 
     assert len(unit.read_events) == 1  # it stopped at the first component
+
+
+async def test_a_silent_device_is_fatal_to_a_settings_poll_too(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """The settings poll starts its own cycle, so nothing has answered yet.
+
+    Contained, thirteen components would each pay a full timeout to learn the
+    device is not talking.
+    """
+    unit.fail_read(M1_MD, ModbusTimeoutError("silent device"))
+    unit.read_events.clear()
+
+    with pytest.raises(ModbusTimeoutError):
+        await agate.async_update_settings()
+
+    assert len(unit.read_events) == 1
 
 
 async def test_a_dead_link_raises_instead_of_reporting(
