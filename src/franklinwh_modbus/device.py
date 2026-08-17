@@ -245,7 +245,9 @@ class AGate:
         """
         if self._readings is None:
             raise AGateError("not connected")
-        return await self._async_poll(self._readings, UpdateReport(set(), {}))
+        report = await self._async_poll(self._readings, UpdateReport(set(), {}))
+        self._notify(report)
+        return report
 
     async def async_update_settings(self) -> UpdateReport:
         """Refresh what the aGate has been told to do: ratings, curves, control.
@@ -257,16 +259,21 @@ class AGate:
         """
         if self._settings is None:
             raise AGateError("not connected")
-        return await self._async_poll(self._settings, UpdateReport(set(), {}))
+        report = await self._async_poll(self._settings, UpdateReport(set(), {}))
+        self._notify(report)
+        return report
 
     async def async_update(self) -> UpdateReport:
         """Refresh readings and settings together, in one report.
 
         For a caller that does not want to schedule the two apart.
         """
-        report = await self.async_update_readings()
-        assert self._settings is not None  # the readings poll checked it
-        return await self._async_poll(self._settings, report)
+        if self._readings is None or self._settings is None:
+            raise AGateError("not connected")
+        report = await self._async_poll(self._readings, UpdateReport(set(), {}))
+        await self._async_poll(self._settings, report)
+        self._notify(report)  # nothing fires until the whole cycle is done
+        return report
 
     async def _async_poll(
         self, units: dict[str, Component], report: UpdateReport
@@ -274,12 +281,12 @@ class AGate:
         """Read each component on its own, adding what happened to ``report``.
 
         A model whose read fails keeps its previous values while the rest of
-        the device still refreshes; listeners fire only after every component
-        of this poll has been tried, and only for the ones that refreshed. A
-        failure of the link itself raises ``ModbusConnectionError`` rather than
-        reporting, as does a timeout with nothing answered yet: the device is
-        silent, and walking the rest would each pay the full timeout to learn
-        the same thing.
+        the device still refreshes. A failure of the link itself raises
+        ``ModbusConnectionError`` rather than reporting, as does a timeout with
+        nothing answered yet: the device is silent, and walking the rest would
+        each pay the full timeout to learn the same thing. Notifying is the
+        caller's, so a full update fires nothing until both of its polls are
+        done.
 
         Raises ``AGateError`` if the model chain has moved under us — which on
         this device also means the curve models' counts have changed, since the
@@ -309,10 +316,17 @@ class AGate:
                 ) from err
             else:
                 report.updated.add(name)
-        for name, component in units.items():
+        return report
+
+    def _notify(self, report: UpdateReport) -> None:
+        """Fire the listeners of every component this update refreshed.
+
+        Walked in poll order rather than the report's, which is a set.
+        """
+        assert self._readings is not None and self._settings is not None  # connected
+        for name, component in (*self._readings.items(), *self._settings.items()):
             if name in report.updated:
                 component.notify()
-        return report
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics.

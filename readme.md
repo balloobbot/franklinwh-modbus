@@ -153,8 +153,9 @@ await agate.async_update_settings()  # read back what took effect
 
 `async_update()` does both and reports them together, for a caller that does
 not want to schedule them apart. Every method returns an `UpdateReport` naming
-only what it polls, and listeners fire at the end of the poll that read them,
-so a settings poll does not hold up the measurements.
+only what it polls, and listeners fire once per update, at the end of the call:
+a settings poll fires its own components as it returns and does not hold up the
+measurements, while `async_update()` fires nothing until both halves are done.
 
 The manufacturer block is the one component that carries both: the operating
 mode and the two SOC reserves sit in the same fourteen registers as the PV and

@@ -54,18 +54,20 @@ async def test_listeners_fire_at_the_end_and_only_for_fresh_components(
     seen: list[int] = []
     agate.models[713].add_update_listener(lambda: seen.append(len(unit.read_events)))
     agate.models[701].add_update_listener(lambda: seen.append(-1))
+    settings_seen: list[int] = []
+    agate.models[1].add_update_listener(
+        lambda: settings_seen.append(len(unit.read_events))
+    )
 
     unit.fail_read(M701_W, ModbusTimeoutError("slow 701 block"))
     unit.read_events.clear()
     await agate.async_update()
 
-    # Model 713 is read before 714 and the extensions, so a notification fired
-    # inline would have seen fewer reads than the readings ended with. The
-    # settings that follow are their own poll and do not hold it up.
-    settings_start = next(
-        i for i, event in enumerate(unit.read_events) if event.address == 2
-    )
-    assert seen == [settings_start]
+    # Model 713 is read before 714, the extensions and every settings block, so
+    # a notification fired inline would have seen fewer reads than the cycle
+    # ended with. One each, none for the failure, and neither of them twice.
+    assert seen == [len(unit.read_events)]
+    assert settings_seen == [len(unit.read_events)]
 
 
 async def test_a_timeout_on_the_first_component_raises(
@@ -101,6 +103,19 @@ async def test_a_silent_device_is_fatal_to_a_settings_poll_too(
         await agate.async_update_settings()
 
     assert len(unit.read_events) == 1
+
+
+async def test_a_settings_poll_notifies_its_own_components(
+    agate: AGate, unit: MockModbusUnit
+) -> None:
+    """A poll of one half still fires at the end of its own call."""
+    fired: list[str] = []
+    for name, component in (*agate._readings.items(), *agate._settings.items()):
+        component.add_update_listener(lambda n=name: fired.append(n))
+
+    report = await agate.async_update_settings()
+
+    assert fired and set(fired) == report.updated == set(agate._settings)
 
 
 async def test_a_dead_link_raises_instead_of_reporting(
