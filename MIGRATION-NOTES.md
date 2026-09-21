@@ -2,7 +2,7 @@
 
 This library used to talk to a FranklinWH aGate through **pysunspec2**'s
 synchronous Modbus client, with a hand-assembled raw socket alongside it for
-everything pysunspec2 could not reach. It now talks **modbus-connection 4.7.0**
+everything pysunspec2 could not reach. It now talks **modbus-connection 4.10.0**
 on the **tmodbus** backend, and pysunspec2 is gone from the dependency list
 entirely — its model definitions were consumed once, at generation time.
 
@@ -10,19 +10,23 @@ Two results up front:
 
 - **All 17 models the aGate exposes read**, including the seven curve models
   ([issue #156](https://github.com/home-assistant-libs/modbus-connection/issues/156)
-  lists them as inexpressible), in **15 pooled block reads** covering 1143
-  registers. Every view — battery, grid, solar, control, alarms — is computed
-  from that one poll rather than issuing its own reads.
+  lists them as inexpressible). A readings poll is **7 block reads over 254
+  registers**, a whole-device poll 22 over 1138. Every view — battery, grid,
+  solar, control, alarms — is computed from what the last poll left behind
+  rather than issuing its own reads.
 - **Writing a four-point volt-var curve went from 17 round trips to 4.** The 17
   is measured, and matches issue 156's estimate exactly.
 
-**Caveat, stated once and meant throughout: there is no aGate here.** Everything
-below is verified against a reconstruction of the device's register map, not
-against hardware. What makes the reconstruction trustworthy is described in the
-next section; what it cannot tell us is whether the device behaves as its
-documentation says. [HARDWARE-VERIFICATION.md](HARDWARE-VERIFICATION.md) lists
-exactly what would settle each open question, and
-`scripts/hardware_check.py` runs the read-only half of it.
+**The register map is no longer a guess.** This was written against a
+*reconstruction* of it — the SunSpec model definitions laid out in chain order
+— and @david2069 has since run `scripts/hardware_check.py` against an aGate X
+on firmware `V10R01B04D00`: **50 checks, 0 differing**. Two write experiments
+settled the sign convention as well, against the code.
+[HARDWARE-VERIFICATION.md](HARDWARE-VERIFICATION.md) carries the results item
+by item and what is still open;
+[issue #12](https://github.com/david2069/franklinwh-modbus/issues/12) is the
+report. What remains unobserved is anything needing a SPAN lock state, and the
+Tier 3 write paths.
 
 ---
 
@@ -53,8 +57,8 @@ This is a stronger check than it looks, and it cuts both ways:
 - **It corrects one thing.** Model 502 is **not** between M1 and M701. Every
   documented address is exactly 30 (= 2 + 28) lower than a chain containing it
   there, and that offset holds all the way through M715 — so 502 sits after 715
-  or elsewhere. The fixture places it after 715; nothing in the library depends
-  on where.
+  or elsewhere. The fixture places it after 715, and the hardware confirms it:
+  **M502 at 1096, L=28**. That was the one placement no evidence pinned.
 
 `scripts/build_agate_fixture.py` builds the map,
 `tests/fixtures/agate_registers.py` is the result, and
@@ -80,9 +84,10 @@ Transaction ID hard-coded to `0`, no framing loop on the response, no length
 check before indexing `resp[7]`, and a second hand-rolled frame for the
 read-back. The 32-bit variant packs its own FC16 header byte by byte. All of it
 is now one 13-field `Component` (`models/extensions.py`) with declared
-addresses, and the block joins the same pooled read as the SunSpec models.
+addresses, and the block is read like any other component.
 
-**Every write is verified by reading it back — because the device lies.** The
+**Every write is verified by reading it back — and that is the specification,
+not a device quirk.** The
 aGate answers a write it intends to discard with a success echo carrying the
 *stored* value, not an exception. Writes to the extension block fail this way
 whenever the installer has not enabled the "SPAN Modbus" option, and the old
@@ -92,8 +97,12 @@ code knew it:
 > write actually STUCK in hardware. This catches cases where the device is
 > read-only but echoes success."*
 
-This is not a quirk to route around; it is load-bearing. `writing.py` verifies
-every write and raises `WriteRejected` naming what did not take.
+The SunSpec Information Model Specification (doc 12041, p. 19, *Read-Only and
+Write-Only Registers*) says the same thing normatively: "WRITE to R: The
+written value is ignored. No exception is generated." A device behaving this
+way is conforming, so verification is load-bearing and stays mandatory —
+`writing.py` verifies every write and raises `WriteRejected` naming what did
+not take.
 
 **Writing one register resets its neighbours.** Writing 15507 (operating mode)
 resets 15508 and 15509 (the two SOC reserves) to a default. So
@@ -108,25 +117,42 @@ down and then does nothing: the countdown reaches zero and `WSetEna` and
 ever puts the device back is a software timer on this side, and the control loop
 releases control in a `finally`. Any unattended use *must* pass `duration_s`.
 
-**Control is a three-phase sequence with settling between phases.** Stop
-(`WSetEna=0`), configure (`WSetMod`, `WSetPct`), enable (`WSetEna=1`), with
-300–500 ms between. A setpoint written while the enable register is still set is
-ignored. `WSetPct`'s sign is also inverted relative to the library's own
-convention — positive watts means charge here, and negative `WSetPct` on the
-device.
+**Control is configure-then-enable, with settling between.** Write `WSetMod`
+and `WSetPct`, then `WSetEna=1`, with 300–500 ms between. This is SunSpec's
+Change Procedure (doc 12041, p. 21): "Changes do NOT take effect, even if the
+activation field is already enabled, until the activation field is enabled."
+The old code's stop phase — `WSetEna=0` first — is gone, because the same
+section advises against disabling a control to update its settings.
+
+**`WSetPct` is inverted, and positive is not a discharge.** Positive watts
+means charge in this library, which is a negative `WSetPct` on the device.
+Measured on an aGate X: `-30%` charges at 1500 W, while `+30%` and `+100%` move
+no power at all, with the setpoint reading back correctly throughout. So a
+positive `WSetPct` is a command the device ignores rather than a discharge, and
+discharge through model 704 has no known route on this firmware. Worth noting
+that the IEEE 1547-2018 profile does not require `WSetPct` at all — its
+active-power control is `WMaxLimPct`, a limit rather than a signed setpoint —
+and neither SunSpec document defines `WSetPct`'s sign convention anywhere.
 
 **Model 713's `Sta` is always 0, and model 714's `DCA` is always 0.** So battery
 state is derived from the sign of DC power with a ±50 W deadband, and DC current
 is derived as total power over the mean of the live port voltages. Both
 workarounds survive the migration unchanged.
 
-**The mode calculators' sign convention is inconsistent — and is preserved.**
-`BatteryCommand` documents positive as charge, most of the arithmetic follows
-it, but `_calc_self_consumption` returns `-max_charge_w` for "charge flat out"
-and both peak-shave and the time-of-use discharge branch return a *positive*
-number to discharge. This is reproduced exactly rather than corrected: it is the
-shipped behaviour and there was no hardware to re-tune against. Flagged at the
-top of `modes.py`.
+**The mode calculators' sign convention was inconsistent — and is now fixed.**
+`BatteryCommand` documents positive as charge, most of the arithmetic followed
+it, but `_calc_self_consumption` returned `-max_charge_w` for "charge flat out"
+and both peak-shave and the time-of-use discharge branch returned a *positive*
+number to discharge. The migration reproduced that exactly, for want of
+hardware to re-tune against. The hardware settled it the other way: the device
+inversion is right, so those three were the inverted half, and peak-shave and
+TOU-discharge would have commanded a *charge*. All of them now return positive
+to charge.
+
+It was not cosmetic. `_apply_soc_limits` and `_apply_pcs_limits` read the same
+sign the other way round, so "charge flat out" tripped the *discharge* floor at
+low SOC — exactly the state the branch exists to get out of.
+`tests/test_modes.py` covers every calculator.
 
 **Conflict detection has to infer who is driving.** The vendor cloud API and the
 aGate's own modes both move the battery without ever setting `WSetEna`, so the
@@ -168,14 +194,14 @@ What is still missing is the *planner*, not the placement: everything the read
 path groups and batches through `ReadPlan` has no write-side counterpart, and
 `Component.write()` writes one field. That part of §3.1 stands.
 
-Two private uses remain:
+One gap is left, and it is small. `sequencer.py` needs to know **what
+repeating groups a component has** to resolve a `714.DCW_1` instance suffix,
+and nothing answers that. It reads the `RepeatingGroupField` descriptors off
+the class and back through the instance — public, but reimplementing an
+accessor rather than calling one.
 
-- `component._groups` in `sequencer.py`, to resolve a `714.DCW_1` instance
-  suffix. `RepeatingGroupField.__get__` gives the instances by attribute name,
-  but there is no way to ask "what repeating groups does this component have",
-  which is what an index-by-position tag needs.
-- `SunSpecComponent._verify_read()` is called directly in a test. It runs
-  automatically on every refresh; calling it explicitly is just asserting on it.
+`SunSpecComponent._verify_read()` is also called directly in a test. It runs
+automatically on every refresh; calling it explicitly is just asserting on it.
 
 **One thing that could not be done through the public API at all:** the seven
 curve models. See §4.
@@ -241,6 +267,12 @@ path (with a `settle` delay, since the device applies asynchronously) would
 serve all of them. `WriteRejected` naming the fields that did not take is the
 useful failure.
 
+Worth raising the argument from this device to the specification: doc 12041
+p. 19 makes silent discard the *required* behaviour for a write to a read-only
+register. So this is not a FranklinWH quirk that one consumer works around —
+`write()` returning successfully proves nothing on any conforming SunSpec
+device.
+
 ### 3.3 `writable` cannot depend on a sibling register
 
 Every curve carries a `ReadOnly` point saying whether *that curve instance* may
@@ -254,6 +286,14 @@ write to a read-only curve silently appears to succeed. `curves.py::is_writable`
 checks it by hand before writing. **Passing the owning component to the
 validator would be enough.**
 
+[#164](https://github.com/home-assistant-libs/modbus-connection/issues/164)
+closed this as belonging in the consumer, and the hardware supports the
+decision rather than the ask: `ReadOnly` is device *state* that can change
+between polls, where `writable` describes the map. It is also not theoretical
+— on the aGate X every curve model's `crv[0]` reports read-only and every later
+instance reports writable, 7 locked against 8 writable. The five-line check
+earns its place.
+
 ### 3.4 `ActPt` versus `NPt` has no expression
 
 A curve's storage is `NPt` points and its addresses are fixed by `NPt`, but only
@@ -262,6 +302,14 @@ was there last. Every consumer re-derives this. `read_curve()` truncates and
 `write_curve()` sets `ActPt` last, so a curve never claims more active points
 than it holds. Minor next to the rest, but it appears on all seven curve models
 and the framework has no word for it.
+
+[#165](https://github.com/home-assistant-libs/modbus-connection/issues/165)
+closed it, and the ask was overstated: the trap it was justified by — wiring a
+group's count to `ActPt` — cannot be reached through the generator, which takes
+a count from the definition, and no shipped model uses an `Act*` point as one.
+The truncation does do real work, though. M705 has 3 of 3 curves configured,
+M706 2 of 2 and M712 2 of 2 on this hardware, so the curves are live rather
+than dormant.
 
 ### 3.5 One member's readable ranges poisoned a `ComponentGroup` — fixed in 4.4
 
@@ -307,9 +355,10 @@ This is issue 156's items 1 and 2. Fully worked, with a prototype — see §4.
   is decided by its counts, it catches a device whose counts differ from the
   ones the components were generated for. That is the exact failure mode the
   static-count approach in §4 is exposed to, and the library detects it for free.
-- **Pooling.** 17 models plus the extension block, one poll, 15 block reads.
-  Every read view is then free, which changed the shape of the code: the old
-  controller re-read a model per accessor.
+- **Block planning.** Every read view is free, which changed the shape of the
+  code: the old controller re-read a model per accessor. Reading each component
+  on its own and splitting the poll by category then cut a steady-state cycle
+  to 7 reads over 254 registers.
 - **`resolved_fields` closed the last private-attribute hole** (§2). It arrived
   as a read-path diagnostic, but what it exposes is exactly what a write needs
   to know about a field, so the batched-write module went from four private
@@ -317,14 +366,26 @@ This is issue 156's items 1 and 2. Fully worked, with a prototype — see §4.
 - **The per-type unimplemented sentinels, `scale_register` resolving inside the
   pooled block, and shared factors staying put across a repeating block** all
   did the right thing with no adjustment.
-- **`message_spacing`** replaced hand-rolled `time.sleep()` between reads.
+- **`message_spacing`** replaced hand-rolled `time.sleep()` between reads, and
+  0.05 s measures out as enough — the old code's 0.6 s between model reads was
+  cargo cult on this firmware. A whole-device poll took 3679 ms, and the device
+  answers FC03 of 125 registers, so `max_span` needs no lowering either.
+- **The enum decode warns once per unseen value and keeps going.** This aGate
+  reports `M502.Stat = 0`, which the official model 502 definition does not
+  enumerate (it starts at 1), so it decodes to `None` with one warning rather
+  than raising mid-poll. That is a gap in the SunSpec definition meeting real
+  hardware, not a library defect.
 
 ---
 
 ## 4. Issue 156: what got working, what did not
 
-*Draft comment for
-[home-assistant-libs/modbus-connection#156](https://github.com/home-assistant-libs/modbus-connection/issues/156).*
+*Kept as written, against 4.4.0. It was the report to
+[home-assistant-libs/modbus-connection#156](https://github.com/home-assistant-libs/modbus-connection/issues/156),
+which is now closed: items 1 and 2 by the generator's `--count`, item 3 by the
+generated block-write helper, items 4 and 5 as belonging in the consumer. §3
+above carries where each one landed, and the hardware has since confirmed the
+counts this section infers.*
 
 ---
 
@@ -530,11 +591,14 @@ map is declared again. Costs this device one extra request — see §3.5.
 
 ### Caveat
 
-**No aGate was available.** All of this is verified against the reconstructed
-map described above, which is exact on addresses and layout, and says nothing
-about behaviour. The device-lies-about-writes and the reset-the-neighbours
-behaviours are taken from that repo's own code comments and from the second
-owner's report in the ha-sunspec notes, not observed here.
+**No aGate was available when this was written.** All of it was verified
+against the reconstructed map described above, exact on addresses and layout
+and silent about behaviour. That caveat has since been discharged for the
+layout — the check ran on an aGate X and matched exactly, including M502's
+inferred placement — and partly for the behaviour; see
+HARDWARE-VERIFICATION.md. The reset-the-neighbours behaviour is still taken
+from that repo's own code comments rather than observed, because it needs SPAN
+Modbus unlocked.
 
 ---
 
@@ -542,9 +606,9 @@ owner's report in the ha-sunspec notes, not observed here.
 
 ```
 src/franklinwh_modbus/
-  models/_generated.py   1772 lines, all 17 models, generator output
+  models/_generated.py   1975 lines, all 17 models, generator output
   models/extensions.py   the 15500 block, replacing the raw-socket path
-  device.py              AGate: scan, one pooled poll, control
+  device.py              AGate: scan, poll by category, control
   writing.py             batched + verified writes (write_across)
   curves.py              the 1547 curve models: ActPt, ReadOnly, whole-curve writes
   sequencer.py           the JSON sequence engine, tag grammar unchanged
@@ -553,7 +617,7 @@ src/franklinwh_modbus/
   sync.py                blocking facade for the TUI and CLI
 ```
 
-`controller.py` (2210 lines) is deleted. 123 tests run the whole stack against
+`controller.py` (2210 lines) is deleted. 151 tests run the whole stack against
 the reconstructed map, including a mock device that acknowledges writes and
 discards them.
 

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Battery control sign convention.** `_calc_self_consumption`,
+  `_calc_peak_shave` and the time-of-use discharge branch returned the wrong
+  sign, so self-consumption commanded a discharge where it meant to charge and
+  both of the others commanded a charge where they meant to discharge. Every
+  mode calculator now returns positive watts to charge and negative to
+  discharge, as `BatteryCommand` documents. Settled against an aGate X on
+  `V10R01B04D00`
+  ([#12](https://github.com/david2069/franklinwh-modbus/issues/12)): a negative
+  `WSetPct` charges, and a positive one moves no power at all.
+- **Control write sequence.** `async_send_command()` no longer disables the
+  control before updating its setpoint. SunSpec's Change Procedure writes the
+  settings and then enables the activation field, and advises against
+  disabling a control to update it.
+- `check_state()` no longer reports a commanded discharge for a positive
+  `WSetPct`, which this firmware ignores.
+
+### Changed
+- **Requires modbus-connection 4.10.0**, the version Home Assistant 2026.9
+  ships.
+- `sequencer.py` resolves a component's repeating blocks through the public
+  descriptors, so the library touches no private modbus-connection attribute.
+
+### Added
+- `tests/test_modes.py` — the sign convention of every mode calculator, and
+  the whole chain from "below target" down to the register.
+
 ## [0.9.3] - 2026-06-15
 
 ### Added
