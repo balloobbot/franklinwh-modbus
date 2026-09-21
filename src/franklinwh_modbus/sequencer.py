@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from modbus_connection.model import RepeatingGroupField
+
 from .models.extensions import EXTENSION_BASE
 from .writing import WriteRejected, write_many
 
@@ -150,12 +152,10 @@ class Sequencer:
                 for attribute in component.declared_fields:
                     key = attribute.replace("_", "").lower()
                     self._by_point[(identifier, key)] = attribute
-                for group, instances in component._groups.items():  # noqa: SLF001
-                    for instance in instances[:1]:
-                        for attribute in instance.declared_fields:
-                            key = attribute.replace("_", "").lower()
-                            self._by_point.setdefault((identifier, key), attribute)
-                    del group
+                for instances in _repeating_groups(component).values():
+                    for attribute in instances[0].declared_fields:
+                        key = attribute.replace("_", "").lower()
+                        self._by_point.setdefault((identifier, key), attribute)
         return self._by_point.get((model_id, point.replace("_", "").lower()), point)
 
     # -- reading ---------------------------------------------------------------
@@ -325,13 +325,30 @@ def _split_instance(point: str) -> tuple[str, int | None]:
     return point, None
 
 
+def _repeating_groups(component: Component) -> dict[str, list[Component]]:
+    """This component's non-empty repeating blocks, by attribute name.
+
+    There is no accessor for "what repeating groups does this component have",
+    so the descriptors are found on the class and read back through the
+    instance, which is what ``RepeatingGroupField.__get__`` is for.
+    """
+    groups: dict[str, list[Component]] = {}
+    for klass in type(component).__mro__:
+        for name, attribute in vars(klass).items():
+            if not isinstance(attribute, RepeatingGroupField) or name in groups:
+                continue
+            if instances := getattr(component, name):
+                groups[name] = instances
+    return groups
+
+
 def _instance(component: Component, index: int, tag: str) -> Component:
     """The ``index``-th sub-instance of a component's single repeating group.
 
     Raises ``SequenceError`` if the component has no repeating group, has more
     than one so the index is ambiguous, or does not have that many instances.
     """
-    groups = {name: members for name, members in component._groups.items() if members}  # noqa: SLF001
+    groups = _repeating_groups(component)
     if not groups:
         raise SequenceError(f"{tag}: this model has no repeating block to index")
     if len(groups) > 1:
