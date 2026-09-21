@@ -689,6 +689,13 @@ class AGate:
         charge; the device's own WSetPct convention is the opposite sign, and
         the inversion happens here.
 
+        Discharge is accepted and does nothing. An aGate X on V10R01B04D00
+        charged at 1500 W for WSetPct = -30 and moved no power at all for +30
+        or +100, with the setpoint reading back correctly throughout — so a
+        positive WSetPct is not a discharge command on this firmware, it is a
+        command the device ignores. The write is still issued rather than
+        refused here, because that was measured on one unit with no SPAN.
+
         ``duration_s`` arms a software timeout that resets control when it
         expires. It is not optional for unattended use: the hardware's own
         WSetRvrtTms counts down but never reverts anything, so nothing else
@@ -707,14 +714,16 @@ class AGate:
         if not rated:
             raise AGateError("device reports no charge/discharge rating to scale by")
         percent = min(100.0, abs(watts) / rated * 100.0)
-        # Positive means discharge to the device, the opposite of our convention.
+        # Negative WSetPct charges on this device, so our sign is inverted here.
         target = -percent if watts > 0 else percent
 
         self.cancel_command_timer()
-        # Phase 1: stop, so the new setpoint is never briefly applied at the old
-        # enable state. Phase 2: set it. Phase 3: enable. The device needs a
-        # beat between each, and each is read back before moving on.
-        await write_verified(control, "w_set_ena", 0, settle=CONTROL_SETTLE_S)
+        # SunSpec's Change Procedure: write the settings, then enable the
+        # activation field. A change does not take effect until the activation
+        # field is enabled even when it is already set, so the enable register
+        # goes last — and the spec says not to disable the control to update
+        # its settings, so there is no stop phase. The device needs a beat
+        # between the two, and each is read back before moving on.
         await write_many(
             control,
             {"w_set_mod": 0, "w_set_pct": target},

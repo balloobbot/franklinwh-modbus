@@ -254,22 +254,26 @@ async def test_the_raw_dump_needs_a_connected_device() -> None:
 # -- writes ------------------------------------------------------------------
 
 
-async def test_send_command_writes_the_704_phases_in_order(
+async def test_send_command_enables_the_control_last(
     agate: AGate, unit: MockModbusUnit
 ) -> None:
-    """Stop, set, then enable — the order the device needs."""
+    """Settings, then the activation field — and the control is never disabled.
+
+    SunSpec's Change Procedure: a change does not take effect until the
+    activation field is enabled, even if it is already enabled, and disabling
+    the control to update its settings is advised against.
+    """
     writes: list[tuple[int, list[int]]] = []
     unit.on_write(lambda event: writes.append((event.address, list(event.values))))
     percent = await agate.async_send_command(BatteryCommand(power_watts=2500))
 
     assert percent == 50.0  # 2500 W of the 5000 W charge rating
     addresses = [address for address, _ in writes]
-    assert addresses[0] == M704_WSET_ENA
     assert addresses[-1] == M704_WSET_ENA
-    assert writes[0][1] == [0]  # phase 1: stop
-    assert writes[-1][1] == [1]  # phase 3: enable
-    # Phase 2 sets the mode and the setpoint; they are not adjacent registers,
-    # so they stay two frames rather than being merged over WSet in between.
+    assert writes[-1][1] == [1]
+    assert [values for address, values in writes if address == M704_WSET_ENA] == [[1]]
+    # The mode and the setpoint are not adjacent registers, so they stay two
+    # frames rather than being merged over WSet in between.
     assert M704_WSET_MOD in addresses
     # Positive watts is charge here, which is negative WSetPct on the device.
     assert dict(writes)[M704_WSET_PCT] == [(-5000) & 0xFFFF]
@@ -282,7 +286,7 @@ async def test_send_command_scales_through_wsetpct_sf(
     writes: dict[int, list[int]] = {}
     unit.on_write(lambda event: writes.update({event.address: list(event.values)}))
     await agate.async_send_command(BatteryCommand(power_watts=-5000))
-    assert writes[M704_WSET_PCT] == [10_000]  # +100% discharge
+    assert writes[M704_WSET_PCT] == [10_000]  # +100%, which this device ignores
 
 
 async def test_a_write_the_device_ignores_is_caught(

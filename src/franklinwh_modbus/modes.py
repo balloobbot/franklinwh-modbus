@@ -6,13 +6,20 @@ computes a power setpoint from solar, load and SOC each tick and writes it
 through model 704. That is why the loop has to release control on the way out —
 the device's own reversion timer counts down without ever reverting.
 
-A caveat carried over unchanged from before the migration: the sign convention
-is not consistent across the mode calculators. ``BatteryCommand`` documents
-positive as charge, and most of the arithmetic here follows it, but
-self-consumption returns ``-max_charge_w`` for "charge flat out", and both
-peak-shave and the time-of-use discharge branch return a *positive* number to
-discharge. These are reproduced exactly rather than corrected, because they are
-what the shipped behaviour is and no hardware was available to re-tune against.
+Every calculator returns watts in ``BatteryCommand``'s convention: **positive
+charges, negative discharges**. The shipped code did not — self-consumption
+returned ``-max_charge_w`` for "charge flat out", and both peak-shave and the
+time-of-use discharge branch returned a *positive* number to discharge — and
+the migration reproduced that rather than correcting it, for want of hardware.
+An aGate X on firmware V10R01B04D00 settled it: a negative ``WSetPct`` charges
+and a positive one dispatches nothing, so ``async_send_command``'s inversion is
+right and the calculators were the inverted half. Measurements in
+https://github.com/david2069/franklinwh-modbus/issues/12.
+
+The inconsistency was not cosmetic. ``_apply_soc_limits`` and
+``_apply_pcs_limits`` read the same sign the other way round, so "charge flat
+out" was blocked by the *discharge* floor at low SOC — exactly the state the
+mode exists to get out of.
 """
 
 from __future__ import annotations
@@ -243,10 +250,10 @@ class VirtualModeController:
         """Cover the house from solar, then the battery; charge to target."""
         if soc < self.target_soc:
             # Below target the vendor app charges flat out, so match it.
-            return -self.max_charge_w
+            return self.max_charge_w
         excess = solar - home
         if excess < 0:
-            return max(home - solar, -self.max_discharge_w)
+            return max(excess, -self.max_discharge_w)
         return min(excess, self.max_charge_w)
 
     def _calc_emergency_backup(
@@ -274,7 +281,7 @@ class VirtualModeController:
     ) -> float:
         """Discharge only while the house is over the peak threshold."""
         if home > self.peak_shave_threshold and soc > self.min_discharge_soc + 5:
-            return max(min(home - solar, self.max_discharge_w), -self.max_discharge_w)
+            return -_discharge_for(home - solar, self.max_discharge_w)
         return 0.0
 
     def _calc_time_of_use(
@@ -296,9 +303,7 @@ class VirtualModeController:
                 return 0.0
             case "discharge":
                 if soc > max(min_soc, self.min_discharge_soc) + 5:
-                    return max(
-                        min(home - solar, self.max_discharge_w), -self.max_discharge_w
-                    )
+                    return -_discharge_for(home - solar, self.max_discharge_w)
                 return 0.0
             case "grid_zero":
                 return self._calc_grid_zero(solar, home, grid, soc)
@@ -592,6 +597,15 @@ def _estimate_home_load(solar: float, grid: float) -> float:
     else:
         estimate = max(solar, 300)
     return max(200.0, min(estimate, 15000.0))
+
+
+def _discharge_for(net_load: float, ceiling: float) -> float:
+    """How much to discharge to cover ``net_load``, as a positive magnitude.
+
+    Zero when solar already covers the house: the caller asked to discharge,
+    and there is nothing to discharge for.
+    """
+    return min(max(net_load, 0.0), ceiling)
 
 
 async def run_with_signal_handling(

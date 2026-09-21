@@ -16,7 +16,14 @@ Two things this layer exists for:
 * **``ReadOnly``.** Each curve carries a point saying whether that curve
   instance may be written. It is per instance, not per field, so nothing in the
   layout can enforce it; :func:`write_curve` checks it before writing, because
-  this device's documented behaviour is to accept writes it should reject.
+  this device's documented behaviour is to accept writes it should reject. On
+  an aGate X every model's ``crv[0]`` reports read-only and every later
+  instance reports writable, so the check does real work.
+
+The generator emits a ``write_pt()`` on each curve model that writes a whole
+block in one request. :func:`write_curve` goes through ``writing.write_across``
+instead, for one reason: the generated helper does not read the write back, and
+on this device a write is not known to have landed until it has been.
 """
 
 from __future__ import annotations
@@ -144,7 +151,12 @@ async def write_curve(
 
 
 def read_trip_curve(curve: Component) -> dict[str, list[CurvePoint]]:
-    """The three regions of one trip curve set (models 707-710)."""
+    """The three regions of one trip curve set (models 707-710).
+
+    A region the firmware does not implement reads as points of ``None``. An
+    aGate X returns values for ``must_trip`` on all four models, for
+    ``mom_cess`` on 707 and 708 only, and for ``may_trip`` on none of them.
+    """
     return {
         region: read_curve(getattr(curve, region)[0])
         for region in ("must_trip", "may_trip", "mom_cess")

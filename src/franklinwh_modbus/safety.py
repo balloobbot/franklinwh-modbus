@@ -51,9 +51,11 @@ def check_state(device: AGate) -> dict[str, Any]:
     voltage = grid.get("voltage_v", 0)
     enabled = control.get("wset_enabled") == 1
     percent = control.get("wset_pct", 0) or 0
-    # WSetPct is signed the device's way: positive discharges.
-    rated = device.max_discharge_w if percent > 0 else device.max_charge_w
-    commanded = percent / 100.0 * rated if enabled else 0.0
+    # WSetPct is signed the device's way: negative charges. A positive setpoint
+    # was measured moving no power at all, so it commands nothing rather than
+    # commanding a discharge — see MIGRATION-NOTES.md.
+    charging = enabled and percent < 0
+    commanded = percent / 100.0 * device.max_charge_w if charging else 0.0
     measured = battery.get("battery_power_w", 0) or 0
 
     state: dict[str, Any] = {
