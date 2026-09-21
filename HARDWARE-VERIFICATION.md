@@ -311,6 +311,13 @@ here. Two specific things:
 
 If both hold on real hardware, the proposal is validated end to end.
 
+> **The second one is only half testable on this unit.** §9 found `MayTrip`
+> reading all-`None` on all four trip models, where an unimplemented region and
+> a misplaced read look the same. `MomCess` populates on 707 and 708, so it can
+> still corroborate the offset; `MayTrip` cannot, and reading `None` from it
+> must not be taken as a pass. A device that populates `MayTrip` would settle
+> it.
+
 ### 14. Multi-battery (`NPrt` > 1)
 
 The fixture has one DC port. The summing, peak-temperature and mean-voltage
