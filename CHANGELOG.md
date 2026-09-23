@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disabling a control to update it.
 - `check_state()` no longer reports a commanded discharge for a positive
   `WSetPct`, which this firmware ignores.
+- **The SOC ramp is no longer silent.** `_apply_soc_limits()` logged when it
+  blocked a setpoint but not when it scaled one back inside the ramp window, so
+  a request cut by 40% on the approach to a bound was indistinguishable from a
+  device deciding to move less power. Measured on an aGate X: a -500 W request
+  at 26% SoC went out as -300 W with nothing said.
 
 ### Changed
 - **Requires modbus-connection 4.10.0**, the version Home Assistant 2026.9
@@ -31,8 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   descriptors, so the library touches no private modbus-connection attribute.
 
 ### Added
-- `tests/test_modes.py` — the sign convention of every mode calculator, and
-  the whole chain from "below target" down to the register.
+- `tests/test_modes.py` — the sign convention of every mode calculator, the
+  whole chain from "below target" down to the register, and the ramp window,
+  where a wrong sign scales a setpoint instead of blocking it.
 
 ## [0.9.3] - 2026-06-15
 

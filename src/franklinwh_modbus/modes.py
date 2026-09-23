@@ -123,6 +123,7 @@ class VirtualModeController:
 
         self._last_commanded_power = 0.0
         self._last_logged_power: float | None = None
+        self._last_logged_ramp: float | None = None
         self._last_safety_reason: str | None = None
         self._warned_high_load = False
         self._off_grid_warned = False
@@ -332,7 +333,8 @@ class VirtualModeController:
         window = self.soc_ramp_window
         if power > 0 and soc >= self.max_charge_soc - window:
             if soc < self.max_charge_soc:
-                return power * max(1.0 - (soc - self.max_charge_soc + window) / window, 0.05)
+                factor = max(1.0 - (soc - self.max_charge_soc + window) / window, 0.05)
+                return self._ramped(power, factor, soc, "charge", self.max_charge_soc)
             if not self.force_soc_limits:
                 _LOGGER.info(
                     "SoC %.1f%% at max limit (%s%%) — blocking charge",
@@ -343,7 +345,8 @@ class VirtualModeController:
             _LOGGER.warning("force override: SoC %.1f%% exceeds max", soc)
         if power < 0 and soc <= self.min_discharge_soc + window:
             if soc > self.min_discharge_soc:
-                return power * max(1.0 - (self.min_discharge_soc + window - soc) / window, 0.05)
+                factor = max(1.0 - (self.min_discharge_soc + window - soc) / window, 0.05)
+                return self._ramped(power, factor, soc, "discharge", self.min_discharge_soc)
             if not self.force_soc_limits:
                 _LOGGER.info(
                     "SoC %.1f%% at min limit (%s%%) — blocking discharge",
@@ -353,6 +356,31 @@ class VirtualModeController:
                 return 0.0
             _LOGGER.warning("force override: SoC %.1f%% below min", soc)
         return power
+
+    def _ramped(
+        self, power: float, factor: float, soc: float, direction: str, bound: float
+    ) -> float:
+        """Scale a setpoint back inside the ramp window, and say so.
+
+        The blocking branches have always logged; this one did not, so a
+        setpoint cut by 40% on the approach to the bound looked exactly like a
+        device that had decided to move less power. Reported from an aGate X in
+        https://github.com/david2069/franklinwh-modbus/issues/12, where a -500 W
+        request at 26% SoC went out as -300 W with nothing said.
+        """
+        ramped = power * factor
+        if ramped != self._last_logged_ramp:
+            _LOGGER.info(
+                "SoC %.1f%% within %s%% of the %s limit (%s%%) — %.0fW of %.0fW",
+                soc,
+                self.soc_ramp_window,
+                direction,
+                bound,
+                abs(ramped),
+                abs(power),
+            )
+            self._last_logged_ramp = ramped
+        return ramped
 
     def _apply_pcs_limits(self, power: float, status: dict[str, Any]) -> float:
         """Clamp the setpoint to the configured battery and grid flow limits."""
